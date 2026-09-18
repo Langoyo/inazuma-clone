@@ -6,20 +6,20 @@ const config = {
   parent: 'game-container',
   backgroundColor: '#0b3d1f',
   scale: {
-    mode: Phaser.Scale.FIT, // escala el campo para que quepa en cualquier pantalla
+    mode: Phaser.Scale.FIT, // scales the field to fit any screen
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: 800,
-    height: 500
+    width: 480,   // vertical field, like the original games
+    height: 760
   },
   physics: {
     default: 'matter',
     matter: {
-      gravity: { y: 0 }, // vista cenital: sin gravedad
+      gravity: { y: 0 }, // top-down view: no gravity
       debug: false
     }
   },
   input: {
-    activePointers: 2 // permite gestos táctiles básicos en móvil
+    activePointers: 2 // basic multitouch support on mobile
   },
   scene: [GameScene]
 };

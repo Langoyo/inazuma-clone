@@ -47,52 +47,66 @@ ordenador + el móvil (usando la IP local, gracias a `host: true` en
   gana) — es determinista, así que los dos navegadores llegan siempre a la
   misma conclusión sin negociar nada explícitamente.
 
-## Cómo se juega ahora: camino trazado, posesión y duelos
+## Ahora sí: campo vertical, 11 jugadores por equipo, ritmo más lento
 
-Esto reemplaza el "sigue siempre al puntero" de antes por algo más parecido
-a Inazuma Eleven real:
+Cambio grande de arquitectura para acercarse más al juego original:
 
-### Movimiento: trazar el camino
-- Pulsas y arrastras (ratón o dedo) sobre el campo: el trazo que dibujas se
-  guarda como una serie de puntos, y tu jugador los va recorriendo uno a
-  uno, aunque sueltes el dedo antes de que termine de llegar.
-- Volver a pulsar/arrastrar en otro sitio sustituye el camino anterior por
-  uno nuevo.
+### Campo vertical
+El campo ya no es apaisado — es vertical (480×760), con una portería
+arriba y otra abajo, como en las capturas del juego de DS. `Scale.FIT` en
+`main.js` sigue escalando esto a cualquier pantalla.
 
-### El balón y la posesión
-- El balón empieza suelto (física normal). El primer jugador que lo toca
-  se hace con el **control**: a partir de ahí el balón "flota" pegado a él
-  mientras se mueve (no hace falta ir dándole toques).
-- Se ve quién lo lleva por el **aro amarillo** alrededor de ese jugador.
+### 11 jugadores por equipo — pero solo controlas a uno cada vez
+Igual que en el juego original: ves a tus 11 jugadores en el campo
+colocados en formación (1-4-3-3), pero **solo controlas al que esté más
+cerca del balón** en cada momento — el control salta solo de un jugador a
+otro según se mueve el juego (con un pequeño margen para que no esté
+parpadeando entre dos igual de cerca). Ese jugador activo lleva un
+**contorno blanco** para que sepas siempre a quién estás moviendo.
 
-### Duelo de regate/entrada
-- Si el jugador rival choca contigo mientras llevas el balón, salta un
-  **duelo**: a ti (el que regatea) te aparecen dos botones — *Regate
-  normal* o tu supertécnica de regate (si tienes SP y no está en
-  cooldown); al rival (el que entra) le aparecen *Entrada normal* o su
-  supertécnica de defensa.
-- Tenéis ~1,5s para elegir; si no eliges, cuenta como "normal".
-- Quién gana se decide por probabilidad, comparando la potencia de lo que
-  ha elegido cada uno (una supertécnica pesa más que una acción normal, y
-  también pesan las estadísticas de regate/defensa del jugador) — no es
-  un "quien pulsa el botón de tecnología gana siempre", hay margen para
-  que gane el que tiene peor técnica si tiene suerte.
+- Los otros 10 de cada equipo se mueven solos manteniendo la formación
+  (con un ligero desplazamiento hacia el lado del balón para no quedarse
+  completamente estáticos).
+- Los duelos de regate/entrada y los tiros/paradas siguen siendo 1 contra
+  1, pero ahora entre **los dos jugadores activos** de cada equipo — los
+  otros 20 jugadores en el campo son, de momento, "decorado táctico": dan
+  la sensación de partido de 11 contra 11, pero no bloquean ni entran en
+  combate. Ampliarlo a que cualquiera pueda entrar en un duelo sería el
+  siguiente paso lógico, pero es un cambio grande aparte.
+- Cada uno de los 11 titulares tiene sus propias estadísticas, técnicas,
+  SP y cooldowns — no se comparten entre sí, así que da igual cuál esté
+  activo en cada momento, cada uno lleva su propio "estado".
+- El portero de cada equipo (el titular marcado como posición "GK") es
+  quien defiende siempre los tiros a puerta, sea o no el jugador activo
+  en ese momento.
 
-### Tirar a puerta
-- Si llevas el balón y pulsas cerca de la portería rival, se activa un
-  **tiro**: a ti te salen *Tiro normal* o tu supertécnica de tiro; al
-  portero (rival o IA) le salen *Parada normal* o su supertécnica de
-  portero. Se resuelve igual, por probabilidad según potencias.
-- Si gana el que tira: gol. Si gana el portero: se queda con el balón.
+### Ritmo más lento
+Bajé la fuerza de movimiento (de 0.0025 a 0.0011) y añadí un tope de
+velocidad máxima por jugador, así que ya no se nota tan "arcade" — cuesta
+un poco más acelerar y llegar de un lado a otro del campo.
 
-### Contra la IA
-- La IA usa las mismas reglas: si te choca a ti (o si tú chocas con
-  ella) entra en el duelo igual que un rival humano, decide su elección
-  con algo de aleatoriedad, e intenta tirar cuando lleva el balón cerca de
-  tu portería.
-- Se activa sola cuando no hay ningún rival humano conectado
-  (`net.hasPeer() === false`), y se desactiva sola en cuanto se une un
-  segundo jugador.
+### Selección de equipo: ahora eliges 11, y ves lo que llevas
+- Ya no eliges 1 titular — eliges **11**, tocando cada jugador de la lista
+  para añadirlo a tu once (con un contador "Starters (X/11)"). El primer
+  jugador con posición GK que añadas hará de portero.
+- Arriba de la lista hay un **panel "tu equipo"** que se actualiza en
+  vivo: ves los 11 que llevas y el banquillo, cada uno con una `×` para
+  quitarlo sin tener que volver a buscarlo en la lista.
+- El botón **"Confirm squad"** solo se activa con los 11 puestos llenos.
+- Arreglé **"Use this whole team"**: ahora rellena directamente tus 11
+  titulares (con portero primero si hay uno entre los resultados
+  filtrados) más hasta 6 de banquillo, de una vez.
+- Sobre "salen los juegos en lugar de los equipos": eso no es un fallo,
+  es la limitación de datos que ya comentamos — ninguno de los dos Excel
+  trae una columna de equipo real, así que el desplegable agrupa por
+  **juego de origen** (IE1, GO2, VR...) a falta de esa información. En
+  cuanto consigas los equipos reales, cambiamos ese desplegable sin tocar
+  nada más.
+
+### Sustituciones con 11 en el campo
+Ahora el panel de cambios tiene dos pasos: primero eliges **a quién
+sacas** de tus 11 titulares, luego **a quién metes** del banquillo. El
+cambio es reversible (el que sale se va al banquillo, no desaparece).
 
 ## Roster real: 4986 jugadores, con técnicas de verdad (Hissatsu)
 
@@ -160,10 +174,9 @@ comparte o lo sube a un repo público en inglés.
   verdad, hay que migrar esta misma lógica a un servidor real (por ejemplo
   con [Colyseus](https://colyseus.io/)).
 - **Sin reconexión**: si el host cierra la pestaña, la partida se corta.
-- **Un jugador en el campo por equipo**: la selección de equipo y las
-  sustituciones cambian estadísticas/técnicas del *único* jugador que
-  controlas, no hay 11 jugadores simultáneos en el campo — eso sería una
-  reescritura mucho mayor del motor de físicas.
+- **Solo los 2 jugadores activos "combaten"**: como se explica arriba, los
+  otros 20 jugadores en el campo mantienen formación pero no bloquean ni
+  entran en duelos — es decorado táctico, no una IA de equipo completa.
 - **Si el rival se une justo después de que la IA ya haya empezado**: el
   partido arranca contra la IA con su equipo por defecto; el humano que se
   una después no tiene ocasión de elegir su propio equipo hasta la
@@ -186,11 +199,12 @@ comparte o lo sube a un repo público en inglés.
 
 1. Conseguir los equipos reales para agrupar el selector por equipo en
    vez de por juego (lo comentaste, en cuanto los tengas los metemos).
-2. Efectos visuales por técnica (destello de color, partícula al chutar,
+2. Que los 10 jugadores en formación también puedan entrar en duelos (no
+   solo el activo) — acercaría mucho el partido a un 11 contra 11 real,
+   pero es un cambio grande sobre lo que hay ahora.
+3. Efectos visuales por técnica (destello de color, partícula al chutar,
    animación de parada).
-3. Client-side prediction para el cliente (ver limitación arriba).
-4. Formaciones/posiciones reales en el campo con 11 jugadores por equipo
-   (cambio grande de arquitectura, no trivial).
+4. Client-side prediction para el cliente (ver limitación arriba).
 5. IA más avanzada: hoy es un conjunto de reglas simples; se podría variar
    la dificultad según las estadísticas del jugador rival, o añadir más
    variedad táctica (presión, contraataque...).
