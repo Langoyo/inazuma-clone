@@ -49,6 +49,19 @@ const SUPPORT_BLEND  = 0.65;
 const PRESS_BLEND    = 0.5;
 const PRESS_RANGE    = 260;
 
+// Off-ball players drift around their formation anchor instead of parking
+// exactly on it. Two slow, out-of-phase sine waves per player (periods are
+// deliberately not multiples of each other) keep the motion smooth and
+// non-repeating rather than twitchy like per-tick noise would be.
+const WANDER_AMPLITUDE = 52;
+const WANDER_PERIOD_X  = 3100;  // ms
+const WANDER_PERIOD_Y  = 4300;  // ms
+
+// When a drawn path runs out while the team is attacking, the player keeps
+// making ground toward the rival goal instead of turning back to formation.
+const RUN_ON_STEP = 170;   // how far ahead the next carry-on waypoint sits
+const RUN_ON_STOP = 150;   // stop running on once this close to the byline
+
 // Duels trigger on proximity, not physical contact — see collision
 // categories below — with a slightly generous radius (bigger than the old
 // ~24px body-touch distance) so they feel less pixel-perfect.
@@ -547,7 +560,7 @@ export default class GameScene extends Phaser.Scene {
       const gfx=this.add.circle(pos.x,pos.y,12,tColor).setDepth(5);
       const label=this.add.text(pos.x,pos.y+15,rp.nickname||rp.name,
         {fontSize:'7px',color:'#fff',stroke:'#000',strokeThickness:3,resolution:3}).setOrigin(.5,0).setDepth(6);
-      team.push({id,body,gfx,label,slot});
+      team.push({id,body,gfx,label,slot,wanderPhase:Math.random()*Math.PI*2});
       const st=createPlayerStats(); applyRosterPlayerToStats(st,rp); map.set(id,st);
     });
     return team;
@@ -651,22 +664,22 @@ export default class GameScene extends Phaser.Scene {
     const base=this._formPos(role,e.slot,this.ball.position);
     if(e.slot===0||e.id===activeId) return base; // keeper & the on-ball player keep plain formation logic
 
+    let target=base;
     if(iHaveBall){
       const carrier=this._activeEntry(role);
-      if(!carrier) return base;
-      const attackDir=role==='A'?-1:1;
-      const side=(e.body.position.x>=carrier.body.position.x)?1:-1;
-      const supportSpot={
-        x:carrier.body.position.x+side*130,
-        y:carrier.body.position.y+attackDir*130
-      };
-      return {
-        x:Phaser.Math.Linear(base.x,supportSpot.x,SUPPORT_BLEND),
-        y:Phaser.Math.Linear(base.y,supportSpot.y,SUPPORT_BLEND)
-      };
-    }
-
-    if(ballCarrier){
+      if(carrier){
+        const attackDir=role==='A'?-1:1;
+        const side=(e.body.position.x>=carrier.body.position.x)?1:-1;
+        const supportSpot={
+          x:carrier.body.position.x+side*130,
+          y:carrier.body.position.y+attackDir*130
+        };
+        target={
+          x:Phaser.Math.Linear(base.x,supportSpot.x,SUPPORT_BLEND),
+          y:Phaser.Math.Linear(base.y,supportSpot.y,SUPPORT_BLEND)
+        };
+      }
+    } else if(ballCarrier){
       const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,ballCarrier.body.position.x,ballCarrier.body.position.y);
       if(d<PRESS_RANGE){
         const ownGoalY=role==='A'?this.FIELD_H:0;
@@ -674,13 +687,25 @@ export default class GameScene extends Phaser.Scene {
           x:Phaser.Math.Linear(ballCarrier.body.position.x,e.body.position.x,0.25),
           y:Phaser.Math.Linear(ballCarrier.body.position.y,ownGoalY,0.15)
         };
-        return {
+        target={
           x:Phaser.Math.Linear(base.x,pressSpot.x,PRESS_BLEND),
           y:Phaser.Math.Linear(base.y,pressSpot.y,PRESS_BLEND)
         };
       }
     }
-    return base;
+    return this._applyWander(e,target,iHaveBall);
+  }
+
+  /** Nudges an off-ball target around with two slow out-of-phase sines so
+   *  players keep finding little pockets of space instead of parking on an
+   *  exact formation spot. Wider when attacking, tighter when defending. */
+  _applyWander(e,target,iHaveBall){
+    const t=this.time.now, ph=e.wanderPhase||0;
+    const amp=WANDER_AMPLITUDE*(iHaveBall?1:0.6);
+    return {
+      x:Phaser.Math.Clamp(target.x+Math.sin(t/WANDER_PERIOD_X+ph)*amp,30,this.FIELD_W-30),
+      y:Phaser.Math.Clamp(target.y+Math.cos(t/WANDER_PERIOD_Y+ph*1.7)*amp,40,this.FIELD_H-40)
+    };
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -839,9 +864,24 @@ export default class GameScene extends Phaser.Scene {
       const path=this.myPaths.get(e.id); if(!path||!path.length) continue;
       const pos=e.body?e.body.position:e.gfx;
       while(path.length&&Phaser.Math.Distance.Between(pos.x,pos.y,path[0].x,path[0].y)<WAYPOINT_RADIUS) path.shift();
-      if(path.length) targets.push({id:e.id,x:path[0].x,y:path[0].y}); else this.myPaths.delete(e.id);
+      if(path.length){ targets.push({id:e.id,x:path[0].x,y:path[0].y}); continue; }
+      // The drawn line ran out: keep making ground while we're attacking
+      // rather than turning straight back into the formation.
+      const runOn=this._runOnWaypoint(pos);
+      if(runOn){ path.push(runOn); targets.push({id:e.id,...runOn}); }
+      else this.myPaths.delete(e.id);
     }
     return targets;
+  }
+
+  /** Next carry-on waypoint up the player's channel, or null once we've lost
+   *  the ball or they're already deep enough to stop. */
+  _runOnWaypoint(pos){
+    if(this.currentPossession!==this.role) return null;
+    const attackDir=this.role==='A'?-1:1;
+    const goalY=this.role==='A'?0:this.FIELD_H;
+    if(Math.abs(pos.y-goalY)<RUN_ON_STOP+WAYPOINT_RADIUS) return null;
+    return {x:pos.x,y:Phaser.Math.Clamp(pos.y+attackDir*RUN_ON_STEP,RUN_ON_STOP,this.FIELD_H-RUN_ON_STOP)};
   }
 
   _drawPaths(){
