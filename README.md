@@ -47,66 +47,172 @@ ordenador + el móvil (usando la IP local, gracias a `host: true` en
   gana) — es determinista, así que los dos navegadores llegan siempre a la
   misma conclusión sin negociar nada explícitamente.
 
-## Ahora sí: campo vertical, 11 jugadores por equipo, ritmo más lento
+## Equipos reales, campo horizontal en PC, pases, PT numérico, formaciones
 
-Cambio grande de arquitectura para acercarse más al juego original:
+### Equipos reales — por fin
+Me pasaste `Inazuma_Eleven_Manager_2026.xlsx`, con una hoja por equipo real
+(Raimon, Royal, Umbrella, Occult, Wild...). Estaba desordenado como
+avisaste, así que en vez de depender de columnas fijas (que cambian de
+sitio según la hoja), busqué **anclas estructurales**: cada jugador de la
+plantilla tiene una fila con su nombre justo antes de un bloque que
+empieza por "Hissatsu", "Goalkeeping" o "Technical" — eso identifica de
+forma fiable la fila de cada jugador sin importar en qué columna esté.
+Cada nombre encontrado se valida contra nuestro roster ya existente (para
+no colar nombres de entrenadores o "jugador favorito" que aparecen en
+otras partes de la hoja).
+
+Resultado: **976 jugadores del roster (de 4986) ahora tienen equipo real**,
+de **49 equipos**, cada uno con sus **colores de camiseta reales** (hex,
+sacados directamente de la sección "Kits" de cada hoja — no hizo falta
+analizar ninguna imagen). Los ~4000 restantes se quedan sin equipo
+asignado (este Excel de manager solo cubre esos 49 equipos concretos, no
+los ~9500 personajes de todos los spin-offs).
+
+`public/teams.json` guarda los colores de cada uno de los 49 equipos, y
+cada jugador del roster tiene ahora `team` y `teamColor` (`null` si no se
+encontró equipo para él).
+
+### Sobre las fotos — seguimos sin tenerlas
+Ni este Excel ni el anterior traen archivos de imagen de verdad, solo
+texto (nombres, en este caso ni eso). Así que en vez de fotos, cada
+jugador se distingue por su **color de camiseta real** (o un color fijo
+por juego si no tiene equipo asignado) más sus **iniciales**, tanto en las
+tarjetas de selección como en el campo. Si en algún momento consigues un
+paquete real de imágenes (archivos, no rutas de texto), dímelo y lo
+conectamos — el sitio donde iría está ya preparado (`avatarHtml()` en
+`GameScene.js`).
+
+### Campo horizontal en pantallas anchas
+Al cargar la partida, si la ventana es más ancha que alta (como un
+ordenador), el campo sale horizontal (porterías a izquierda y derecha);
+si es más alta que ancha (como un móvil en vertical), sale vertical como
+hasta ahora. Se decide una vez al cargar, no cambia si giras la pantalla
+a mitad de partido.
+
+### Pases: toca para pasar, arrastra para mover
+- **Arrastrar** (mantener y mover el dedo/ratón) sigue dibujando el camino
+  que seguirá el jugador, como hasta ahora.
+- **Tocar sin arrastrar** (un toque rápido, sin apenas movimiento) ahora
+  **pasa el balón** hacia ese punto, si el balón lo tienes tú — el balón
+  sale disparado hacia ahí con física real, así que puede llegar a un
+  compañero o no, según por dónde ruede.
+
+### Puntos de técnica (PT): números, sin cooldown, por jugador
+- Ya eran por jugador (cada uno de los 11 tiene los suyos), pero ahora
+  además: **se muestran como número** ("PT: 62/100") en vez de barra, y
+  **no hay cooldown** — solo importa si te quedan puntos suficientes. Si
+  se agotan, simplemente no puedes usar esa supertécnica hasta que se
+  regeneren un poco (se recuperan despacio con el tiempo, eso sí se
+  mantiene).
+
+### Formaciones: 4 para elegir, cambiable a mitad de partido
+Antes de empezar eliges formación (4-4-2, 4-3-3, 4-2-3-1 o 3-5-2) en el
+mismo desplegable de selección. Durante el partido hay un botón
+**"Formation"** para cambiarla sobre la marcha (tus jugadores se
+reposicionan poco a poco, no de golpe). Lo que **no** hice todavía es
+dejarte mover manualmente a cada jugador dentro de la formación arrastrando
+— por ahora son las 4 plantillas fijas; sería el siguiente paso si te
+interesa.
+
+### Banquillo de 5, y botón de aleatorio
+El banquillo ahora tiene un tope real de 5 (antes dejaba más). Y hay un
+botón **"🎲 Randomize squad"** que te arma un once + banquillo + formación
+al azar de todo el roster (no solo del filtro actual), por si quieres
+empezar a jugar rápido sin elegir uno a uno.
+
+## Ahora sí: campo vertical, 11 jugadores por equipo, ritmo más lento, y más RPG
+
+### El bug de las supertécnicas — encontrado y arreglado
+Había dos fallos de verdad detrás de "no salen las supertécnicas":
+
+1. **El cliente (el jugador que no aloja la partida) nunca construía su
+   equipo en pantalla.** `startMatch()` — que crea los 11 cuerpos, sus
+   estadísticas y sus técnicas — solo se llamaba en el host. El cliente se
+   quedaba con `teamA`/`teamB` vacíos para siempre, así que cualquier
+   consulta a sus estadísticas devolvía nada. Ahora hay una función
+   equivalente (`buildClientTeams()`) que el cliente ejecuta en cuanto
+   tiene los datos de las dos plantillas (las suyas y las del rival, que
+   ya se intercambiaban, solo que no se usaban para esto).
+2. **El "jugador activo" seguía recalculándose durante el propio duelo.**
+   Si mientras elegías la acción el más cercano al balón cambiaba (podía
+   pasar por inercia), el panel miraba las estadísticas del jugador nuevo
+   en vez del que realmente estaba en el duelo — y si ese jugador nuevo no
+   tenía técnica en esa categoría, el botón desaparecía. Ahora el panel
+   siempre usa los IDs que se fijaron **en el momento exacto** en que
+   empezó el enfrentami999, y el "jugador activo" deja de recalcularse
+   mientras el juego está parado por un duelo/tiro.
+
+### Ahora se ve quién gana el duelo
+Al resolverse un enfrentamiento (duelo o tiro), sale un aviso en pantalla
+un par de segundos ("Fulano se lleva el balón", "¡GOL! Mengano marca con
+una supertécnica", "¡Parada! El portero la saca") — antes se resolvía en
+silencio y no había forma de saber qué había pasado.
+
+### Es más "pausa y decide" que tiempo real
+- El movimiento (mover a los jugadores por el campo) sigue siendo en
+  tiempo real, pero **mucho más lento** — da tiempo a pensar antes de que
+  pase nada.
+- En cuanto hay un duelo (dos jugadores activos chocan) o un tiro, **el
+  juego se para de verdad**: nadie se mueve, y tienes hasta **20
+  segundos** para elegir tu acción (antes eran 1,5s). El panel también
+  muestra el nombre del jugador implicado y su SP actual.
+- Se resuelve por estadísticas + probabilidad, no por reflejos — el
+  tiempo real es solo para la parte de "colocar a tus jugadores".
+
+### Las trayectorias ahora se ven, y puedes mover a varios jugadores a la vez
+- El camino que dibujas con el dedo/ratón **se pinta en pantalla** (línea
+  amarilla) mientras lo trazas y mientras tu jugador lo recorre.
+- Como todo esto es "marcar intenciones" y no control directo en tiempo
+  real, **puedes dibujar trayectorias para varios de tus 11 jugadores a
+  la vez**: toca cerca de un jugador tuyo para "cogerlo" y trazarle su
+  camino, suelta, toca cerca de otro jugador tuyo y haz lo mismo — cada
+  uno sigue su propio camino de forma independiente.
+- Si tocas en un sitio que no está cerca de ninguno de tus jugadores, por
+  defecto se mueve el que esté más cerca del balón (el "activo").
+
+### Duración del partido
+Dos tiempos de 3 minutos cada uno (6 minutos en total), con un cambio de
+parte automático a mitad (reposiciona a todos en formación) y un "Full
+time" al acabar el segundo tiempo, que congela el partido. El marcador de
+arriba ahora muestra también el reloj ("1st half — 2:45").
 
 ### Campo vertical
 El campo ya no es apaisado — es vertical (480×760), con una portería
 arriba y otra abajo, como en las capturas del juego de DS. `Scale.FIT` en
 `main.js` sigue escalando esto a cualquier pantalla.
 
-### 11 jugadores por equipo — pero solo controlas a uno cada vez
-Igual que en el juego original: ves a tus 11 jugadores en el campo
-colocados en formación (1-4-3-3), pero **solo controlas al que esté más
-cerca del balón** en cada momento — el control salta solo de un jugador a
-otro según se mueve el juego (con un pequeño margen para que no esté
-parpadeando entre dos igual de cerca). Ese jugador activo lleva un
-**contorno blanco** para que sepas siempre a quién estás moviendo.
+### 11 jugadores por equipo — pero solo "combate" el más cercano al balón
+Ves a tus 11 jugadores en formación (1-4-3-3) en todo momento. El que
+esté más cerca del balón en cada momento es el "activo" (marcado con un
+contorno blanco) — es el único que puede coger el balón, entrar en un
+duelo o tirar a puerta; los otros 10 mantienen la formación (con un ligero
+desplazamiento hacia el lado del balón) pero no bloquean ni combaten
+todavía. Cada uno de los 11 tiene sus propias estadísticas, técnicas, SP y
+cooldowns — no se comparten entre sí. El portero de cada equipo (el
+titular marcado como posición "GK") es quien defiende siempre los tiros a
+puerta, sea o no el jugador activo en ese momento.
 
-- Los otros 10 de cada equipo se mueven solos manteniendo la formación
-  (con un ligero desplazamiento hacia el lado del balón para no quedarse
-  completamente estáticos).
-- Los duelos de regate/entrada y los tiros/paradas siguen siendo 1 contra
-  1, pero ahora entre **los dos jugadores activos** de cada equipo — los
-  otros 20 jugadores en el campo son, de momento, "decorado táctico": dan
-  la sensación de partido de 11 contra 11, pero no bloquean ni entran en
-  combate. Ampliarlo a que cualquiera pueda entrar en un duelo sería el
-  siguiente paso lógico, pero es un cambio grande aparte.
-- Cada uno de los 11 titulares tiene sus propias estadísticas, técnicas,
-  SP y cooldowns — no se comparten entre sí, así que da igual cuál esté
-  activo en cada momento, cada uno lleva su propio "estado".
-- El portero de cada equipo (el titular marcado como posición "GK") es
-  quien defiende siempre los tiros a puerta, sea o no el jugador activo
-  en ese momento.
-
-### Ritmo más lento
-Bajé la fuerza de movimiento (de 0.0025 a 0.0011) y añadí un tope de
-velocidad máxima por jugador, así que ya no se nota tan "arcade" — cuesta
-un poco más acelerar y llegar de un lado a otro del campo.
-
-### Selección de equipo: ahora eliges 11, y ves lo que llevas
-- Ya no eliges 1 titular — eliges **11**, tocando cada jugador de la lista
-  para añadirlo a tu once (con un contador "Starters (X/11)"). El primer
-  jugador con posición GK que añadas hará de portero.
-- Arriba de la lista hay un **panel "tu equipo"** que se actualiza en
-  vivo: ves los 11 que llevas y el banquillo, cada uno con una `×` para
-  quitarlo sin tener que volver a buscarlo en la lista.
-- El botón **"Confirm squad"** solo se activa con los 11 puestos llenos.
-- Arreglé **"Use this whole team"**: ahora rellena directamente tus 11
-  titulares (con portero primero si hay uno entre los resultados
-  filtrados) más hasta 6 de banquillo, de una vez.
-- Sobre "salen los juegos en lugar de los equipos": eso no es un fallo,
-  es la limitación de datos que ya comentamos — ninguno de los dos Excel
-  trae una columna de equipo real, así que el desplegable agrupa por
-  **juego de origen** (IE1, GO2, VR...) a falta de esa información. En
-  cuanto consigas los equipos reales, cambiamos ese desplegable sin tocar
-  nada más.
+### Selección de equipo: eliges 11, y ves lo que llevas
+- Eliges **11 titulares** tocando cada jugador de la lista (contador
+  "Starters (X/11)"). El primer jugador con posición GK que añadas hace
+  de portero.
+- Panel **"tu equipo"** en vivo arriba de la lista: los 11 que llevas y el
+  banquillo, cada uno quitable con una `×`.
+- "Confirm squad" solo se activa con los 11 puestos llenos.
+- **"Use this whole team"** arreglado: rellena tus 11 titulares (portero
+  primero si hay uno entre los resultados filtrados) más hasta 6 de
+  banquillo, de una vez.
+- Sobre "salen los juegos en lugar de los equipos": sigue siendo la
+  limitación de datos ya comentada (ningún Excel trae equipo real), no un
+  fallo — el desplegable agrupa por juego de origen a falta de esa
+  columna.
 
 ### Sustituciones con 11 en el campo
-Ahora el panel de cambios tiene dos pasos: primero eliges **a quién
-sacas** de tus 11 titulares, luego **a quién metes** del banquillo. El
-cambio es reversible (el que sale se va al banquillo, no desaparece).
+Panel en dos pasos: primero eliges a quién sacas de tus 11, luego a quién
+metes del banquillo. Reversible (el que sale se va al banquillo). Ahora
+además se mantiene sincronizado correctamente en el lado del cliente tras
+un cambio (antes se quedaba con la alineación vieja si hacías más de una
+sustitución).
 
 ## Roster real: 4986 jugadores, con técnicas de verdad (Hissatsu)
 

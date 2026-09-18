@@ -1,25 +1,31 @@
 import Phaser from 'phaser';
 import GameScene from './scenes/GameScene.js';
 
+// Horizontal field on a wide/landscape screen (like a PC), vertical field
+// on a narrow/portrait one (like a phone) — decided once at load time.
+const horizontal = window.innerWidth > window.innerHeight;
+const width = horizontal ? 760 : 480;
+const height = horizontal ? 480 : 760;
+
 const config = {
   type: Phaser.AUTO,
   parent: 'game-container',
   backgroundColor: '#0b3d1f',
   scale: {
-    mode: Phaser.Scale.FIT, // scales the field to fit any screen
+    mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: 480,   // vertical field, like the original games
-    height: 760
+    width,
+    height
   },
   physics: {
     default: 'matter',
     matter: {
-      gravity: { y: 0 }, // top-down view: no gravity
+      gravity: { y: 0 },
       debug: false
     }
   },
   input: {
-    activePointers: 2 // basic multitouch support on mobile
+    activePointers: 2
   },
   scene: [GameScene]
 };

@@ -1,6 +1,6 @@
-// A player's "in-match" state: base stats + SP + per-category technique
-// cooldowns. Lives with real authority only on the host; everyone else
-// only sees it through the state the host broadcasts.
+// A player's in-match state: base stats + technique points (PT) — no
+// cooldowns. A supertechnique can be used as many times as you can
+// afford; once you're out of PT for it, only the normal action is left.
 export function createPlayerStats(name = 'Player') {
   return {
     name,
@@ -12,21 +12,12 @@ export function createPlayerStats(name = 'Player') {
 
     maxSP: 100,
     sp: 100,
-    spRegenPerSec: 6,
+    spRegenPerSec: 4, // slow trickle between plays — not a per-use cooldown
 
-    // { shot: {name, cost, power, cooldown}|null, dribble: ..., defense: ..., keeper: ... }
-    // — copied in from the chosen roster player. A null category means
-    // this player has no supertechnique there; only "normal" is offered.
-    techniques: { shot: null, dribble: null, defense: null, keeper: null },
-
-    // category -> timestamp (ms) until which it's on cooldown
-    cooldowns: {}
+    techniques: { shot: null, dribble: null, defense: null, keeper: null }
   };
 }
 
-/** Overwrites a live stats object with a roster player's numbers (used on
- * team selection and on substitutions). SP/cooldowns are reset, as if the
- * player is coming onto the field fresh. */
 export function applyRosterPlayerToStats(stats, rosterPlayer) {
   stats.name = rosterPlayer.nickname || rosterPlayer.name;
   stats.speed = rosterPlayer.stats.speed;
@@ -36,15 +27,13 @@ export function applyRosterPlayerToStats(stats, rosterPlayer) {
   stats.keeperPower = rosterPlayer.stats.keeperPower;
   stats.techniques = rosterPlayer.techniques;
   stats.sp = stats.maxSP;
-  stats.cooldowns = {};
   return stats;
 }
 
-/** Can this player pick their supertechnique for `category` right now?
- * Returns false if they have no technique equipped in that category. */
-export function canActivate(stats, category, now) {
+/** Can this player afford their supertechnique for `category` right now?
+ * No cooldown — the only gate is whether they have enough PT left. */
+export function canActivate(stats, category) {
   const tech = stats.techniques[category];
   if (!tech) return false;
-  const cdUntil = stats.cooldowns[category] || 0;
-  return stats.sp >= tech.cost && now >= cdUntil;
+  return stats.sp >= tech.cost;
 }

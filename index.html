@@ -21,14 +21,15 @@
     #game-container { width: 100vw; height: 100vh; }
     #scoreboard {
       position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 10;
-      background: rgba(0,0,0,0.5); padding: 6px 16px; border-radius: 6px; font-size: 18px; font-weight: bold;
+      background: rgba(0,0,0,0.5); padding: 6px 16px; border-radius: 6px; text-align: center;
     }
+    #scoreboard .score { font-size: 18px; font-weight: bold; }
+    #scoreboard .clock { font-size: 11px; opacity: 0.85; margin-top: 2px; }
     #sp-bar-wrap {
-      position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-      width: 220px; height: 14px; background: rgba(0,0,0,0.5); border-radius: 8px;
-      overflow: hidden; z-index: 10; border: 1px solid rgba(255,255,255,0.4);
+      position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
+      background: rgba(0,0,0,0.6); padding: 6px 14px; border-radius: 8px;
+      font-size: 13px; font-weight: bold; border: 1px solid rgba(255,255,255,0.3);
     }
-    #sp-bar-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #33d1ff, #3399ff); transition: width 0.15s linear; }
     #ai-badge {
       position: fixed; top: 8px; right: 8px; z-index: 10;
       background: rgba(200,60,60,0.7); padding: 4px 10px; border-radius: 6px; font-size: 12px; display: none;
@@ -36,18 +37,25 @@
 
     #confrontation-ui {
       position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); z-index: 20;
-      display: none; flex-direction: column; align-items: center; gap: 8px;
+      display: none; flex-direction: column; align-items: center; gap: 8px; max-width: 90vw;
     }
     #confrontation-title { background: rgba(0,0,0,0.65); padding: 4px 14px; border-radius: 6px; font-weight: bold; font-size: 14px; }
-    #confrontation-timer-wrap { width: 180px; height: 6px; background: rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; }
+    #confrontation-player-info { background: rgba(0,0,0,0.5); padding: 3px 12px; border-radius: 6px; font-size: 11px; opacity: 0.9; }
+    #confrontation-timer-wrap { width: 220px; height: 6px; background: rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; }
     #confrontation-timer-fill { height: 100%; width: 100%; background: #ffd966; }
-    #confrontation-buttons { display: flex; gap: 12px; }
+    #confrontation-buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
     .conf-btn {
       min-width: 120px; padding: 10px 14px; border-radius: 10px; border: 2px solid white;
       background: rgba(20,20,20,0.85); color: white; font-size: 14px; text-align: center; touch-action: manipulation;
     }
     .conf-btn:disabled { opacity: 0.35; }
     .conf-btn .cost { display: block; font-size: 11px; color: #ffd966; margin-top: 2px; }
+
+    #confrontation-result {
+      position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 25;
+      background: rgba(0,0,0,0.75); border: 2px solid #ffd966; border-radius: 10px;
+      padding: 10px 20px; font-size: 15px; font-weight: bold; text-align: center; display: none;
+    }
 
     /* --- Team select overlay --- */
     #team-select-ui {
@@ -64,18 +72,22 @@
     #squad-preview .squad-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
     #squad-preview .squad-title { font-weight: bold; }
     #squad-starters, #squad-bench { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }
-    .squad-chip {
-      background: rgba(51,153,255,0.25); border: 1px solid #3399ff; border-radius: 14px;
-      padding: 3px 10px; font-size: 11px; display: flex; align-items: center; gap: 6px;
-    }
+    .squad-chip { background: rgba(51,153,255,0.25); border: 1px solid #3399ff; border-radius: 14px; padding: 3px 10px 3px 4px; font-size: 11px; display: flex; align-items: center; gap: 6px; }
     .squad-chip.bench-chip { background: rgba(255,255,255,0.1); border-color: #888; }
     .squad-chip button { background: none; border: none; color: #ff9c9c; font-size: 13px; cursor: pointer; padding: 0; line-height: 1; }
 
     #roster-controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 6px; width: 100%; max-width: 600px; }
     #roster-search { flex: 1; min-width: 160px; padding: 8px; border-radius: 8px; border: 1px solid #555; background: rgba(255,255,255,0.08); color: white; }
-    #roster-game-filter { padding: 8px; border-radius: 8px; border: 1px solid #555; background: rgba(255,255,255,0.08); color: white; }
-    #select-whole-team-btn { padding: 8px 12px; border-radius: 8px; border: 1px solid white; background: rgba(51,153,255,0.3); color: white; }
+    #roster-game-filter, #formation-select { padding: 8px; border-radius: 8px; border: 1px solid #555; background: rgba(255,255,255,0.08); color: white; }
+    #select-whole-team-btn, #randomize-squad-btn { padding: 8px 12px; border-radius: 8px; border: 1px solid white; background: rgba(51,153,255,0.3); color: white; }
     #select-whole-team-btn:disabled { opacity: 0.4; }
+
+    .avatar {
+      width: 22px; height: 22px; border-radius: 50%; display: inline-flex;
+      align-items: center; justify-content: center; font-size: 9px; font-weight: bold;
+      color: rgba(0,0,0,0.75); flex-shrink: 0; border: 1px solid rgba(255,255,255,0.4);
+    }
+    .roster-card .name-row { display: flex; align-items: center; gap: 6px; }
 
     #roster-count { font-size: 11px; opacity: 0.7; margin-bottom: 6px; }
     #roster-list {
@@ -116,6 +128,19 @@
       padding: 10px 14px; border-radius: 10px; border: 2px solid white;
       background: rgba(20,20,20,0.75); color: white; font-size: 13px; display: none;
     }
+    #formation-button {
+      position: fixed; bottom: 16px; right: 130px; z-index: 15;
+      padding: 10px 14px; border-radius: 10px; border: 2px solid white;
+      background: rgba(20,20,20,0.75); color: white; font-size: 13px; display: none;
+    }
+    #formation-panel {
+      position: fixed; inset: 0; z-index: 30; background: rgba(6, 26, 14, 0.97);
+      display: none; flex-direction: column; align-items: center; padding: 16px; justify-content: center;
+    }
+    #formation-options { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 400px; }
+    #formation-options button {
+      padding: 12px 18px; border-radius: 10px; border: 2px solid white; background: rgba(20,20,20,0.85); color: white; font-size: 14px;
+    }
     #sub-panel {
       position: fixed; inset: 0; z-index: 30; background: rgba(6, 26, 14, 0.97);
       display: none; flex-direction: column; align-items: center; padding: 16px; overflow-y: auto;
@@ -126,14 +151,20 @@
 </head>
 <body>
   <div id="room-ui">Room: <span id="room-code">-</span></div>
-  <div id="scoreboard">0 - 0</div>
+  <div id="scoreboard">
+    <div class="score">0 - 0</div>
+    <div class="clock" id="match-clock">1st half — 3:00</div>
+  </div>
   <div id="ai-badge">Playing vs AI</div>
   <div id="game-container"></div>
 
-  <div id="sp-bar-wrap"><div id="sp-bar-fill"></div></div>
+  <div id="sp-bar-wrap">PT: <span id="sp-value">100/100</span></div>
+
+  <div id="confrontation-result"></div>
 
   <div id="confrontation-ui">
     <div id="confrontation-title">Duel!</div>
+    <div id="confrontation-player-info"></div>
     <div id="confrontation-timer-wrap"><div id="confrontation-timer-fill"></div></div>
     <div id="confrontation-buttons">
       <button class="conf-btn" id="conf-normal">Normal action</button>
@@ -142,6 +173,12 @@
   </div>
 
   <button id="sub-button">Substitute</button>
+  <button id="formation-button">Formation</button>
+  <div id="formation-panel">
+    <h2>Change formation</h2>
+    <div id="formation-options"></div>
+    <button id="formation-cancel-btn" style="margin-top:16px;">Cancel</button>
+  </div>
   <div id="sub-panel">
     <h2 id="sub-panel-title">Who comes off?</h2>
     <div id="sub-list" class="roster-card-list"></div>
@@ -150,7 +187,7 @@
 
   <div id="team-select-ui">
     <h1>Choose your squad (11 starters)</h1>
-    <p class="hint">Tap a player to add them to your starting 11 (in order — the first one you pick becomes your goalkeeper slot if they play GK). You can also bench extra players to substitute later.</p>
+    <p class="hint">Tap a player to add them to your starting 11 (in order — the first GK you pick becomes your goalkeeper slot). Bench up to 5 extra players to substitute later. Pick a formation too — you can change it mid-match.</p>
 
     <div id="squad-preview">
       <div class="squad-row"><span class="squad-title">Starters (<span id="starter-count">0</span>/11)</span></div>
@@ -162,7 +199,14 @@
     <div id="roster-controls">
       <input id="roster-search" type="text" placeholder="Search by name..." />
       <select id="roster-game-filter"><option value="">All games</option></select>
+      <select id="formation-select">
+        <option value="4-4-2">4-4-2</option>
+        <option value="4-3-3">4-3-3</option>
+        <option value="4-2-3-1">4-2-3-1</option>
+        <option value="3-5-2">3-5-2</option>
+      </select>
       <button id="select-whole-team-btn" disabled title="Pick a specific game above first">Use this whole team</button>
+      <button id="randomize-squad-btn">🎲 Randomize squad</button>
     </div>
     <div id="roster-count"></div>
     <div id="roster-list"></div>

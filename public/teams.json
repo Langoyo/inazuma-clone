@@ -1,0 +1,388 @@
+{
+  "Raimon": {
+    "kitColors": {
+      "Home": "#ffee7a",
+      "Home GK": "#db9234",
+      "Away": "#e5d5c5",
+      "Away GK": "#99c0e3",
+      "Third": "#23688f"
+    }
+  },
+  "Royal": {
+    "kitColors": {
+      "Home": "#425e50",
+      "Home GK": "#d88038",
+      "Away": "#e5d5c5",
+      "Away GK": "#d88038",
+      "Third": "#ba390f"
+    }
+  },
+  "Umbrella": {
+    "kitColors": {
+      "Home": "#90b0c0",
+      "Home GK": "#e5d5c5",
+      "Away": "#97bc73",
+      "Away GK": "#262626",
+      "Third": "#40607a"
+    }
+  },
+  "Occult": {
+    "kitColors": {
+      "Home": "#605880",
+      "Away": "#e5d5c5",
+      "Away GK": "#605880"
+    }
+  },
+  "Wild": {
+    "kitColors": {
+      "Home": "#589060",
+      "Home GK": "#589060",
+      "Away": "#e5d5c5",
+      "Away GK": "#589060",
+      "Third": "#f59702"
+    }
+  },
+  "Brainwashing": {
+    "kitColors": {
+      "Home": "#e5d5c5",
+      "Home GK": "#a09080",
+      "Away": "#8083a0",
+      "Away GK": "#281e1e",
+      "Third": "#281e1e"
+    }
+  },
+  "Otaku": {
+    "kitColors": {
+      "Home": "#d8a8a8",
+      "Home GK": "#585080",
+      "Away": "#e5d5c5",
+      "Away GK": "#262626",
+      "Third": "#e73352"
+    }
+  },
+  "Shuriken": {
+    "kitColors": {
+      "Home": "#584060",
+      "Home GK": "#606e6f",
+      "Away": "#e5d5c5",
+      "Away GK": "#262626"
+    }
+  },
+  "Farm": {
+    "kitColors": {
+      "Home": "#ae912d",
+      "Home GK": "#e5d5c5",
+      "Away": "#e5d5c5",
+      "Away GK": "#554838"
+    }
+  },
+  "Kirkwood": {
+    "kitColors": {
+      "Home": "#b81010",
+      "Home GK": "#b0b878",
+      "Away": "#e5d5c5",
+      "Away GK": "#b81010",
+      "Third": "#b81010"
+    }
+  },
+  "Zeus": {
+    "kitColors": {
+      "Home": "#e0e0e0",
+      "Away": "#7d7081",
+      "Away GK": "#7b1fa2",
+      "Third": "#e0e0e0"
+    }
+  },
+  "Alpine": {
+    "kitColors": {
+      "Home": "#f8f8e0",
+      "Home GK": "#f8f8e0",
+      "Away": "#4171a8",
+      "Away GK": "#393341",
+      "Third": "#d2effa"
+    }
+  },
+  "Cloister": {
+    "kitColors": {
+      "Home": "#eaa33d",
+      "Home GK": "#246c92",
+      "Away": "#bdd7eb",
+      "Away GK": "#e8e616",
+      "Third": "#ead2a1"
+    }
+  },
+  "CCC": {
+    "kitColors": {
+      "Home": "#f9a9d4",
+      "Home GK": "#323232",
+      "Away": "#377dcd",
+      "Away GK": "#56e95b"
+    }
+  },
+  "Fauxshore": {
+    "kitColors": {
+      "Home": "#60a8e0",
+      "Home GK": "#c86000",
+      "Away": "#e5d5c5",
+      "Away GK": "#3a6b3d"
+    }
+  },
+  "Mary Times": {
+    "kitColors": {
+      "Home": "#289890",
+      "Home GK": "#e5d5c5",
+      "Away": "#9ff530",
+      "Away GK": "#282828",
+      "Third": "#e5d5c5"
+    }
+  },
+  "Alius": {
+    "kitColors": {
+      "Home": "#383037",
+      "Home GK": "#7840b8",
+      "Away": "#b13a4a",
+      "Away GK": "#282828",
+      "Third": "#726a62",
+      "Third GK": "#4a6a99"
+    }
+  },
+  "Chaos": {
+    "kitColors": {
+      "Home": "#d82818",
+      "Home GK": "#e5d5c5",
+      "Away": "#e5d5c5",
+      "Away GK": "#5e595b",
+      "Third": "#2870a0"
+    }
+  },
+  "Inazuma Eleven": {
+    "kitColors": {
+      "Home": "#594a66",
+      "Home GK": "#8e2b13",
+      "Away": "#e5d5c5",
+      "Away GK": "#8e2b13",
+      "Third": "#23688f"
+    }
+  },
+  "Card": {
+    "kitColors": {
+      "Home": "#880000",
+      "Home GK": "#c86000",
+      "Away": "#e5d5c5",
+      "Away GK": "#404048"
+    }
+  },
+  "Inazuma KFC": {
+    "kitColors": {
+      "Home": "#c51919",
+      "Home GK": "#215a7b",
+      "Away": "#e5d5c5",
+      "Away GK": "#262626"
+    }
+  },
+  "Wrong Crowd": {
+    "kitColors": {
+      "Home": "#282837",
+      "Away": "#e5d5c5"
+    }
+  },
+  "Mangrove": {
+    "kitColors": {
+      "Home": "#55557c",
+      "Away": "#e5d5c5"
+    }
+  },
+  "Pierrot": {
+    "kitColors": {
+      "Home": "#589850",
+      "Home GK": "#f0c050",
+      "Away": "#9850f0"
+    }
+  },
+  "PistonBerryz": {
+    "kitColors": {
+      "Home": "#e5d5c5",
+      "Away": "#90c8d8"
+    }
+  },
+  "Ghoul Hangers": {
+    "kitColors": {
+      "Home": "#424242",
+      "Away": "#e5d5c5"
+    }
+  },
+  "Tokugawa": {
+    "kitColors": {
+      "Home": "#ee1c25",
+      "Away": "#5e595b"
+    }
+  },
+  "Nihon": {
+    "kitColors": {
+      "Home": "#e5d5c5",
+      "Away": "#017bc2"
+    }
+  },
+  "Inazuma Town": {
+    "kitColors": {
+      "Home": "#282848",
+      "Away": "#f8c000"
+    }
+  },
+  "Narikiri Sentai": {
+    "kitColors": {
+      "Home": "#c50008",
+      "Away": "#3173b5",
+      "Third": "#f794b5"
+    }
+  },
+  "Big Waves": {
+    "kitColors": {
+      "Home": "#f5cf5c",
+      "Home GK": "#bbd851",
+      "Away": "#e5d5c5"
+    }
+  },
+  "Desert Lions": {
+    "kitColors": {
+      "Home": "#e5d5c5",
+      "Home GK": "#496b94",
+      "Away": "#642983",
+      "Away GK": "#533a2e"
+    }
+  },
+  "Fire Dragon": {
+    "kitColors": {
+      "Home": "#ad1821",
+      "Home GK": "#bdbdbd",
+      "Away": "#e5d5c5",
+      "Away GK": "#a8c8e0",
+      "Third": "#39298c"
+    }
+  },
+  "Knights of Queen": {
+    "kitColors": {
+      "Home": "#e5d5c5",
+      "Home GK": "#254881",
+      "Away": "#c2181f",
+      "Away GK": "#262626"
+    }
+  },
+  "The Empire": {
+    "kitColors": {
+      "Home": "#84accf",
+      "Home GK": "#1a3a51",
+      "Away": "#c67b7b",
+      "Away GK": "#262626"
+    }
+  },
+  "Unicorn": {
+    "kitColors": {
+      "Home": "#e5d5c5",
+      "Home GK": "#29296b",
+      "Away": "#e5d5c5",
+      "Away GK": "#1a4a2a",
+      "Third": "#29296b"
+    }
+  },
+  "Orpheus": {
+    "kitColors": {
+      "Home": "#4a73b5",
+      "Home GK": "#de3110",
+      "Away": "#e5d5c5",
+      "Away GK": "#008442"
+    }
+  },
+  "The Kingdom": {
+    "kitColors": {
+      "Home": "#ffcd00",
+      "Home GK": "#31642a",
+      "Away": "#274296",
+      "Away GK": "#323b38"
+    }
+  },
+  "Little Gigantes": {
+    "kitColors": {
+      "Home": "#5aa584",
+      "Home GK": "#b51818",
+      "Away": "#e5d5c5",
+      "Away GK": "#294263"
+    }
+  },
+  "Red Matador": {
+    "kitColors": {
+      "Home": "#d84018",
+      "Home GK": "#7ccef7",
+      "Away": "#e5d5c5",
+      "Away GK": "#7b7b7b"
+    }
+  },
+  "Rose Griffons": {
+    "kitColors": {
+      "Home": "#203898",
+      "Home GK": "#383838",
+      "Away": "#e5d5c5",
+      "Away GK": "#11495a"
+    }
+  },
+  "Brocken Brigade": {
+    "kitColors": {
+      "Home": "#e5d5c5",
+      "Home GK": "#4a5a5a",
+      "Away": "#4a5a5a",
+      "Away GK": "#5aa584"
+    }
+  },
+  "The Great Horn": {
+    "kitColors": {
+      "Home": "#007048",
+      "Home GK": "#ac2117",
+      "Away": "#dfad11"
+    }
+  },
+  "Dark Angels": {
+    "kitColors": {
+      "Home": "#e76a2b",
+      "Home GK": "#31426b",
+      "Away": "#262626",
+      "Away GK": "#b4060a",
+      "Third": "#e5d5c5",
+      "Third GK": "#ede07e"
+    }
+  },
+  "Team Ogre": {
+    "kitColors": {
+      "Home": "#ad3142",
+      "Home GK": "#5aa584",
+      "Away": "#e5d5c5",
+      "Away GK": "#8cc629"
+    }
+  },
+  "Barracudas": {
+    "kitColors": {
+      "Home": "#0a9a3d",
+      "Home GK": "#5aa584",
+      "Away": "#e5d5c5"
+    }
+  },
+  "Iceland": {
+    "kitColors": {
+      "Home": "#0962a9",
+      "Away": "#e5d5c5"
+    }
+  },
+  "The Middle Kings": {
+    "kitColors": {
+      "Home": "#ee1c25",
+      "Away": "#e5d5c5"
+    }
+  },
+  "Other Nationals": {
+    "kitColors": {
+      "Home": "#017bc2",
+      "Home GK": "#f8a53d",
+      "Away": "#e5d5c5",
+      "Away GK": "#50667c"
+    }
+  }
+}

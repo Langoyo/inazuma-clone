@@ -1,16 +1,14 @@
 // Very simple rule-based AI for whichever of the AI team's 11 players is
-// currently "active" (closest to the ball — see GameScene). Field is
-// vertical: ownGoalY/rivalGoalY are Y coordinates now, not X.
-const FIELD_H = 760;
-
-/**
- * @returns {{ target: {x:number,y:number} }}
- */
-export function decideAIMove({ selfPos, ballPos, ownGoalY, rivalGoalY }) {
-  const attacking = Math.sign(rivalGoalY - ownGoalY);
+// currently "active" (closest to the ball — see GameScene). Written to be
+// orientation-agnostic: the caller says which axis is the attacking axis
+// ('x' for a horizontal field, 'y' for a vertical one) and where each
+// goal sits along it.
+export function decideAIMove({ selfPos, ballPos, axis, ownGoalValue, rivalGoalValue, fieldPrimarySize }) {
+  const attacking = Math.sign(rivalGoalValue - ownGoalValue);
+  const ballPrimary = ballPos[axis];
   const ballIsOnMySide = attacking > 0
-    ? ballPos.y < FIELD_H * 0.6
-    : ballPos.y > FIELD_H * 0.4;
+    ? ballPrimary < fieldPrimarySize * 0.6
+    : ballPrimary > fieldPrimarySize * 0.4;
 
   const distToBall = Math.hypot(ballPos.x - selfPos.x, ballPos.y - selfPos.y);
 
@@ -18,10 +16,7 @@ export function decideAIMove({ selfPos, ballPos, ownGoalY, rivalGoalY }) {
     return { target: { x: ballPos.x, y: ballPos.y } };
   }
 
-  return {
-    target: {
-      x: ballPos.x,
-      y: (ballPos.y + ownGoalY) / 2
-    }
-  };
+  const target = { x: ballPos.x, y: ballPos.y };
+  target[axis] = (ballPrimary + ownGoalValue) / 2;
+  return { target };
 }

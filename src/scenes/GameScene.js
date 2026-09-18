@@ -5,31 +5,70 @@ import { createPlayerStats, applyRosterPlayerToStats, canActivate } from '../dat
 import { loadRoster, getPlayerById, getGames } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
 
-// --- Field: vertical, like the original games ---
-const FIELD_W = 480;
-const FIELD_H = 760;
-const STATE_HZ = 20;
 const GOAL_HALF_WIDTH = 55;
-const GOAL_CLICK_MARGIN = 60;   // how close to the goal (in Y) you must tap to "shoot"
+const GOAL_CLICK_MARGIN = 60;
 const WAYPOINT_RADIUS = 14;
 const MIN_PATH_POINT_DIST = 14;
-const CONFRONTATION_WINDOW_MS = 1500;
+const PLAYER_SELECT_RADIUS = 26;
+const DRAG_THRESHOLD = 14; // less than this on release = a tap (pass), more = a drag (move)
+const CONFRONTATION_WINDOW_MS = 20000;
+const RESULT_BANNER_MS = 2200;
 const POSSESSION_OFFSET = 20;
+const PASS_SPEED = 3.2;
 const TEAM_SIZE = 11;
+const BENCH_MAX = 5;
+const HALF_DURATION_S = 3 * 60;
+const STATE_HZ = 20;
 
-// Slower, more deliberate pace than a first pass at "arcade" felt.
-const STEER_FORCE = 0.0011;      // was 0.0025
-const FORMATION_STEER_FORCE = 0.0007; // teammates holding shape move a bit lazier
-const BASE_MAX_SPEED = 2.6;      // soft speed cap via velocity clamping
+const STEER_FORCE = 0.00045;
+const FORMATION_STEER_FORCE = 0.00028;
+const BASE_MAX_SPEED = 1.15;
 
-// Formation (1-4-3-3), normalized within a team's OWN half, y=0 at their
-// own goal line, y=1 at the halfway line. Index 0 is always the keeper slot.
-const FORMATION = [
-  { x: 0.50, y: 0.07 }, // GK
-  { x: 0.16, y: 0.24 }, { x: 0.38, y: 0.20 }, { x: 0.62, y: 0.20 }, { x: 0.84, y: 0.24 }, // DF x4
-  { x: 0.25, y: 0.44 }, { x: 0.50, y: 0.40 }, { x: 0.75, y: 0.44 }, // MF x3
-  { x: 0.22, y: 0.62 }, { x: 0.50, y: 0.66 }, { x: 0.78, y: 0.62 } // FW x3
-];
+// Every formation is 11 slots: index 0 is always the keeper. x = spread
+// across the goal line (0..1), y = progress from your own goal line (0)
+// towards the halfway line (1) — orientation-independent; see
+// formationPosition() for how this maps onto an actual horizontal or
+// vertical field.
+const FORMATIONS = {
+  '4-4-2': [
+    { x: 0.50, y: 0.07 },
+    { x: 0.15, y: 0.24 }, { x: 0.38, y: 0.20 }, { x: 0.62, y: 0.20 }, { x: 0.85, y: 0.24 },
+    { x: 0.15, y: 0.44 }, { x: 0.38, y: 0.42 }, { x: 0.62, y: 0.42 }, { x: 0.85, y: 0.44 },
+    { x: 0.35, y: 0.64 }, { x: 0.65, y: 0.64 }
+  ],
+  '4-3-3': [
+    { x: 0.50, y: 0.07 },
+    { x: 0.16, y: 0.24 }, { x: 0.38, y: 0.20 }, { x: 0.62, y: 0.20 }, { x: 0.84, y: 0.24 },
+    { x: 0.25, y: 0.44 }, { x: 0.50, y: 0.40 }, { x: 0.75, y: 0.44 },
+    { x: 0.22, y: 0.62 }, { x: 0.50, y: 0.66 }, { x: 0.78, y: 0.62 }
+  ],
+  '4-2-3-1': [
+    { x: 0.50, y: 0.07 },
+    { x: 0.15, y: 0.22 }, { x: 0.38, y: 0.18 }, { x: 0.62, y: 0.18 }, { x: 0.85, y: 0.22 },
+    { x: 0.35, y: 0.36 }, { x: 0.65, y: 0.36 },
+    { x: 0.20, y: 0.52 }, { x: 0.50, y: 0.50 }, { x: 0.80, y: 0.52 },
+    { x: 0.50, y: 0.68 }
+  ],
+  '3-5-2': [
+    { x: 0.50, y: 0.07 },
+    { x: 0.25, y: 0.20 }, { x: 0.50, y: 0.18 }, { x: 0.75, y: 0.20 },
+    { x: 0.12, y: 0.40 }, { x: 0.32, y: 0.36 }, { x: 0.50, y: 0.34 }, { x: 0.68, y: 0.36 }, { x: 0.88, y: 0.40 },
+    { x: 0.38, y: 0.62 }, { x: 0.62, y: 0.62 }
+  ]
+};
+const DEFAULT_FORMATION = '4-4-2';
+
+// Deterministic fallback colors (by game tag) for players whose real team
+// kit color we don't have.
+const GAME_FALLBACK_COLOR = {
+  IE1: 0x3399ff, IE2: 0xff9933, IE3: 0x66cc66, GO1: 0xcc66ff, GO2: 0xff6699, GO3: 0x66cccc, Ares: 0xcccc33, VR: 0x999999
+};
+
+function hexToInt(hex) {
+  if (!hex) return null;
+  const n = parseInt(hex.replace('#', ''), 16);
+  return Number.isNaN(n) ? null : n;
+}
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -37,73 +76,81 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // --- P2P networking ---
+    // --- Orientation: horizontal field on a wide/landscape screen, vertical on a narrow one ---
+    this.horizontal = window.innerWidth > window.innerHeight;
+    this.FIELD_W = this.horizontal ? 760 : 480;
+    this.FIELD_H = this.horizontal ? 480 : 760;
+
     const roomCode = getOrCreateRoomCode();
     document.getElementById('room-code').textContent = roomCode;
     this.net = connectToRoom(roomCode);
-    this.role = this.net.isHost() ? 'A' : 'B'; // host = A, client = B, for the whole match
+    this.role = this.net.isHost() ? 'A' : 'B';
 
-    // --- Field (vertical) ---
-    this.add.rectangle(FIELD_W / 2, FIELD_H / 2, FIELD_W, FIELD_H, 0x1e7a3c).setStrokeStyle(4, 0xffffff);
-    this.add.line(0, 0, 0, FIELD_H / 2, FIELD_W, FIELD_H / 2, 0xffffff, 0.5).setOrigin(0, 0); // halfway line
-    this.add.rectangle(FIELD_W / 2, 10, GOAL_HALF_WIDTH * 2, 6, 0xffffff);
-    this.add.rectangle(FIELD_W / 2, FIELD_H - 10, GOAL_HALF_WIDTH * 2, 6, 0xffffff);
+    this.drawField();
 
-    // --- Physics ---
-    this.matter.world.setBounds(0, 0, FIELD_W, FIELD_H);
-    this.ball = this.matter.add.circle(FIELD_W / 2, FIELD_H / 2, 7, { restitution: 0.7, frictionAir: 0.02, label: 'ball' });
+    this.pathGraphics = this.add.graphics();
+
+    this.matter.world.setBounds(0, 0, this.FIELD_W, this.FIELD_H);
+    this.ball = this.matter.add.circle(this.FIELD_W / 2, this.FIELD_H / 2, 7, { restitution: 0.7, frictionAir: 0.02, label: 'ball' });
     this.ballGfx = this.add.circle(this.ball.position.x, this.ball.position.y, 7, 0xffffff);
 
-    this.goalTop = this.matter.add.rectangle(FIELD_W / 2, 0, GOAL_HALF_WIDTH * 2, 12, { isSensor: true, isStatic: true, label: 'goalTop' });
-    this.goalBottom = this.matter.add.rectangle(FIELD_W / 2, FIELD_H, GOAL_HALF_WIDTH * 2, 12, { isSensor: true, isStatic: true, label: 'goalBottom' });
+    this.drawGoals();
 
     this.possessionRing = this.add.circle(0, 0, 15).setStrokeStyle(3, 0xffd966).setFillStyle(0x000000, 0).setVisible(false);
 
-    // --- Teams: filled in once both squads are chosen (startMatch) ---
-    this.teamA = []; // [{ id, body, gfx, slot }] x11, role A defends the top goal
-    this.teamB = []; // role B defends the bottom goal
-    this.statsMapA = new Map(); // rosterId -> in-match stats (SP, cooldowns...)
+    this.teamA = [];
+    this.teamB = [];
+    this.statsMapA = new Map();
     this.statsMapB = new Map();
-    this.activeIdA = null; // rosterId of whichever of A's 11 is closest to the ball
+    this.activeIdA = null;
     this.activeIdB = null;
     this.score = { a: 0, b: 0 };
+    this.clientTeamsBuilt = false;
+    this.formation = { A: DEFAULT_FORMATION, B: DEFAULT_FORMATION };
+    this.pendingFormationChange = null;
+
+    this.matchClock = { half: 1, secondsRemaining: HALF_DURATION_S, ended: false };
 
     this.possessorRole = null;
     this.currentPossession = null;
     this.duelLockUntil = 0;
-    this.confrontation = null; // { type, attackerRole, defenderRole, attackerId, defenderId, deadline, attackerChoice, defenderChoice }
+    this.confrontation = null;
+    this.confrontationResult = null;
 
-    // --- Match doesn't begin until both squads are chosen ---
     this.matchStarted = false;
-    this.mySquad = { starterIds: [], benchIds: new Set() };
+    this.mySquad = { starterIds: [], benchIds: new Set(), formation: DEFAULT_FORMATION };
     this.mySquadConfirmed = false;
     this.mySquadPayload = null;
     this.remoteSquadPayload = null;
 
-    // --- Path drawing with the pointer ---
-    this.path = [];
+    this.myPaths = new Map();
     this.drawing = false;
+    this.selectedPlayerId = null;
+    this.pendingSelectedPlayerId = null;
+    this.gestureStart = null;
+    this.gestureMoved = false;
     this.pendingShootRequest = false;
+    this.pendingPassTarget = null;
     this.pendingConfrontationChoice = null;
-    this.pendingSubRequest = null; // { outId, inId }
+    this.pendingSubRequest = null;
     this.subOutSelection = null;
 
     this.input.on('pointerdown', (p) => this.handlePointerDown(p));
     this.input.on('pointermove', (p) => { if (p.isDown) this.extendPath(p); });
-    this.input.on('pointerup', () => { this.drawing = false; });
-    this.input.on('pointerupoutside', () => { this.drawing = false; });
+    this.input.on('pointerup', (p) => this.handlePointerUp(p));
+    this.input.on('pointerupoutside', (p) => this.handlePointerUp(p));
 
     document.getElementById('conf-normal').addEventListener('pointerdown', (e) => { e.stopPropagation(); this.pendingConfrontationChoice = 'normal'; });
     document.getElementById('conf-technique').addEventListener('pointerdown', (e) => { e.stopPropagation(); this.pendingConfrontationChoice = 'technique'; });
 
     document.getElementById('sub-button').addEventListener('click', () => this.openSubPanel());
     document.getElementById('sub-cancel-btn').addEventListener('click', () => { document.getElementById('sub-panel').style.display = 'none'; });
+    document.getElementById('formation-button').addEventListener('click', () => this.openFormationPanel());
+    document.getElementById('formation-cancel-btn').addEventListener('click', () => { document.getElementById('formation-panel').style.display = 'none'; });
 
-    // --- Team select overlay ---
     this.rosterAll = [];
     document.getElementById('roster-list').innerHTML = '<p style="opacity:0.85;">Loading roster (this can take a moment, it\'s a ~2 MB file)...</p>';
     loadRoster().then((data) => {
-      console.log('[roster] loaded', data.length, 'players');
       this.rosterAll = data;
       const gameSelect = document.getElementById('roster-game-filter');
       getGames().forEach((g) => {
@@ -115,15 +162,12 @@ export default class GameScene extends Phaser.Scene {
     }).catch((err) => {
       console.error('[roster] failed to load:', err);
       document.getElementById('roster-list').innerHTML =
-        `<p style="color:#ff8080; font-size:14px; font-weight:bold;">Couldn't load the roster.</p>
-         <p style="color:#ffcccc; font-size:12px;">${err.message}</p>
-         <p style="color:#ffcccc; font-size:12px;">Check: is <code>public/roster.json</code> present, and are you loading this through a server (not opening the file directly)?</p>`;
+        `<p style="color:#ff8080; font-size:14px; font-weight:bold;">Couldn't load the roster.</p><p style="color:#ffcccc; font-size:12px;">${err.message}</p>`;
     });
     document.getElementById('confirm-squad-btn').addEventListener('click', () => this.confirmSquad());
 
-    // --- Networking callbacks ---
     this.remoteState = null;
-    this.remoteInput = { x: FIELD_W / 2, y: FIELD_H / 2 };
+    this.remoteInput = { targets: [], shootRequest: false, passTarget: null, confrontationChoice: null, subRequest: null, formationChange: null };
     this.net.onInput((data) => { this.remoteInput = data; });
     this.net.onState((data) => this.handleIncomingState(data));
     this.net.onSquad((data) => {
@@ -138,14 +182,64 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ---------------------------------------------------------------------
+  // Field drawing (orientation-aware)
+  // ---------------------------------------------------------------------
+
+  drawField() {
+    const { FIELD_W: w, FIELD_H: h } = this;
+    this.add.rectangle(w / 2, h / 2, w, h, 0x1e7a3c).setStrokeStyle(4, 0xffffff);
+    if (this.horizontal) {
+      this.add.rectangle(w / 2, h / 2, 1, h, 0xffffff).setAlpha(0.4);
+    } else {
+      this.add.rectangle(w / 2, h / 2, w, 1, 0xffffff).setAlpha(0.4);
+    }
+  }
+
+  drawGoals() {
+    const { FIELD_W: w, FIELD_H: h } = this;
+    if (this.horizontal) {
+      this.add.rectangle(10, h / 2, 6, GOAL_HALF_WIDTH * 2, 0xffffff);
+      this.add.rectangle(w - 10, h / 2, 6, GOAL_HALF_WIDTH * 2, 0xffffff);
+      // "min" goal (x=0) is scored by/attacked by role B, defended by role A
+      this.goalMin = this.matter.add.rectangle(0, h / 2, 12, GOAL_HALF_WIDTH * 2, { isSensor: true, isStatic: true, label: 'goalMin' });
+      this.goalMax = this.matter.add.rectangle(w, h / 2, 12, GOAL_HALF_WIDTH * 2, { isSensor: true, isStatic: true, label: 'goalMax' });
+    } else {
+      this.add.rectangle(w / 2, 10, GOAL_HALF_WIDTH * 2, 6, 0xffffff);
+      this.add.rectangle(w / 2, h - 10, GOAL_HALF_WIDTH * 2, 6, 0xffffff);
+      this.goalMin = this.matter.add.rectangle(w / 2, 0, GOAL_HALF_WIDTH * 2, 12, { isSensor: true, isStatic: true, label: 'goalMin' });
+      this.goalMax = this.matter.add.rectangle(w / 2, h, GOAL_HALF_WIDTH * 2, 12, { isSensor: true, isStatic: true, label: 'goalMax' });
+    }
+  }
+
+  primaryAxis() { return this.horizontal ? 'x' : 'y'; }
+  secondaryAxis() { return this.horizontal ? 'y' : 'x'; }
+  primarySize() { return this.horizontal ? this.FIELD_W : this.FIELD_H; }
+  secondarySize() { return this.horizontal ? this.FIELD_H : this.FIELD_W; }
+
+  // ---------------------------------------------------------------------
   // Team select
   // ---------------------------------------------------------------------
+
+  playerColor(rosterPlayer, fallbackHex) {
+    const hex = rosterPlayer && rosterPlayer.teamColor ? hexToInt(rosterPlayer.teamColor) : null;
+    if (hex !== null) return hex;
+    if (rosterPlayer && GAME_FALLBACK_COLOR[rosterPlayer.game] !== undefined) return GAME_FALLBACK_COLOR[rosterPlayer.game];
+    return fallbackHex;
+  }
+
+  avatarHtml(p) {
+    const hex = p.teamColor || '#888888';
+    const initials = (p.nickname || p.name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+    return `<span class="avatar" style="background:${hex};">${initials}</span>`;
+  }
 
   renderRosterUI() {
     const list = document.getElementById('roster-list');
     const searchInput = document.getElementById('roster-search');
     const gameSelect = document.getElementById('roster-game-filter');
     const wholeTeamBtn = document.getElementById('select-whole-team-btn');
+    const randomizeBtn = document.getElementById('randomize-squad-btn');
+    const formationSelect = document.getElementById('formation-select');
     const countEl = document.getElementById('roster-count');
     const MAX_RENDERED = 150;
 
@@ -163,7 +257,6 @@ export default class GameScene extends Phaser.Scene {
       countEl.textContent = matches.length > MAX_RENDERED
         ? `Showing ${MAX_RENDERED} of ${matches.length} matches — search or pick a game to narrow it down`
         : `${matches.length} player${matches.length === 1 ? '' : 's'}`;
-
       wholeTeamBtn.disabled = !gameSelect.value;
       wholeTeamBtn.title = gameSelect.value ? '' : 'Pick a specific game above first';
 
@@ -171,16 +264,17 @@ export default class GameScene extends Phaser.Scene {
       matches.slice(0, MAX_RENDERED).forEach((p) => {
         const isStarter = this.mySquad.starterIds.includes(p.id);
         const isBench = this.mySquad.benchIds.has(p.id);
+        const benchFull = this.mySquad.benchIds.size >= BENCH_MAX && !isBench;
         const card = document.createElement('div');
         card.className = `roster-card${isStarter ? ' is-starter' : ''}${isBench ? ' is-bench' : ''}`;
         card.dataset.id = p.id;
         const starterFull = this.mySquad.starterIds.length >= TEAM_SIZE && !isStarter;
         card.innerHTML = `
-          <div class="name">${p.nickname || p.name}</div>
-          <div class="pos">${p.position} · ${p.game}</div>
+          <div class="name-row">${this.avatarHtml(p)}<div class="name">${p.nickname || p.name}</div></div>
+          <div class="pos">${p.position} · ${p.team || p.game}</div>
           <div class="pos">SPD ${p.stats.speed} SHT ${p.stats.shotPower} DRB ${p.stats.dribblePower}</div>
           <div class="row"><button class="starter-btn" ${starterFull ? 'disabled' : ''}>${isStarter ? '✓ In starting 11' : 'Add to starting 11'}</button></div>
-          <label><input type="checkbox" class="bench-check" ${isStarter ? 'disabled' : ''} ${isBench ? 'checked' : ''} /> Bench</label>
+          <label><input type="checkbox" class="bench-check" ${isStarter ? 'disabled' : ''} ${benchFull ? 'disabled' : ''} ${isBench ? 'checked' : ''} /> Bench (${this.mySquad.benchIds.size}/${BENCH_MAX})</label>
         `;
         list.appendChild(card);
 
@@ -196,22 +290,45 @@ export default class GameScene extends Phaser.Scene {
         });
         card.querySelector('.bench-check').addEventListener('change', (e) => {
           if (isStarter) { e.target.checked = false; return; }
-          if (e.target.checked) this.mySquad.benchIds.add(p.id);
-          else this.mySquad.benchIds.delete(p.id);
+          if (e.target.checked) {
+            if (this.mySquad.benchIds.size < BENCH_MAX) this.mySquad.benchIds.add(p.id);
+            else e.target.checked = false;
+          } else {
+            this.mySquad.benchIds.delete(p.id);
+          }
           this.refreshSquadUI();
+          draw();
         });
       });
     };
 
     searchInput.addEventListener('input', draw);
     gameSelect.addEventListener('change', draw);
+    formationSelect.addEventListener('change', () => { this.mySquad.formation = formationSelect.value; });
+
     wholeTeamBtn.addEventListener('click', () => {
       const matches = currentMatches();
       if (!matches.length) return;
       const gk = matches.find((p) => p.position === 'GK');
       const ordered = gk ? [gk, ...matches.filter((p) => p.id !== gk.id)] : matches;
       this.mySquad.starterIds = ordered.slice(0, TEAM_SIZE).map((p) => p.id);
-      this.mySquad.benchIds = new Set(ordered.slice(TEAM_SIZE, TEAM_SIZE + 6).map((p) => p.id));
+      this.mySquad.benchIds = new Set(ordered.slice(TEAM_SIZE, TEAM_SIZE + BENCH_MAX).map((p) => p.id));
+      this.refreshSquadUI();
+      draw();
+    });
+
+    randomizeBtn.addEventListener('click', () => {
+      const pool = [...this.rosterAll];
+      Phaser.Utils.Array.Shuffle(pool);
+      const gk = pool.find((p) => p.position === 'GK');
+      const rest = pool.filter((p) => !gk || p.id !== gk.id);
+      const starters = gk ? [gk, ...rest.slice(0, TEAM_SIZE - 1)] : rest.slice(0, TEAM_SIZE);
+      const bench = rest.slice(starters.length - (gk ? 1 : 0), starters.length - (gk ? 1 : 0) + BENCH_MAX);
+      this.mySquad.starterIds = starters.map((p) => p.id);
+      this.mySquad.benchIds = new Set(bench.map((p) => p.id));
+      const formations = Object.keys(FORMATIONS);
+      this.mySquad.formation = Phaser.Utils.Array.GetRandom(formations);
+      formationSelect.value = this.mySquad.formation;
       this.refreshSquadUI();
       draw();
     });
@@ -230,7 +347,7 @@ export default class GameScene extends Phaser.Scene {
       if (!p) return;
       const chip = document.createElement('span');
       chip.className = 'squad-chip';
-      chip.innerHTML = `${p.nickname || p.name} (${p.position})<button>×</button>`;
+      chip.innerHTML = `${this.avatarHtml(p)}${p.nickname || p.name} (${p.position})<button>×</button>`;
       chip.querySelector('button').addEventListener('click', () => {
         this.mySquad.starterIds = this.mySquad.starterIds.filter((sid) => sid !== id);
         this.refreshSquadUI();
@@ -246,7 +363,7 @@ export default class GameScene extends Phaser.Scene {
       if (!p) return;
       const chip = document.createElement('span');
       chip.className = 'squad-chip bench-chip';
-      chip.innerHTML = `${p.nickname || p.name}<button>×</button>`;
+      chip.innerHTML = `${this.avatarHtml(p)}${p.nickname || p.name}<button>×</button>`;
       chip.querySelector('button').addEventListener('click', () => {
         this.mySquad.benchIds.delete(id);
         this.refreshSquadUI();
@@ -259,7 +376,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   confirmSquad() {
-    const payload = { starterIds: [...this.mySquad.starterIds], benchIds: [...this.mySquad.benchIds] };
+    const payload = { starterIds: [...this.mySquad.starterIds], benchIds: [...this.mySquad.benchIds], formation: this.mySquad.formation };
     this.mySquadPayload = payload;
     this.mySquadConfirmed = true;
     this.net.sendSquad(payload);
@@ -284,7 +401,8 @@ export default class GameScene extends Phaser.Scene {
     const ordered = gk ? [gk, ...pool.filter((p) => p.id !== gk.id)] : pool;
     return {
       starterIds: ordered.slice(0, TEAM_SIZE).map((p) => p.id),
-      benchIds: ordered.slice(TEAM_SIZE, TEAM_SIZE + 3).map((p) => p.id)
+      benchIds: ordered.slice(TEAM_SIZE, TEAM_SIZE + 3).map((p) => p.id),
+      formation: DEFAULT_FORMATION
     };
   }
 
@@ -292,15 +410,16 @@ export default class GameScene extends Phaser.Scene {
   // Match setup
   // ---------------------------------------------------------------------
 
-  buildTeam(role, starterIds) {
+  buildTeam(role, starterIds, withPhysics) {
     const team = [];
     const map = role === 'A' ? this.statsMapA : this.statsMapB;
     starterIds.forEach((id, slot) => {
       const rosterPlayer = getPlayerById(id);
       if (!rosterPlayer) return;
-      const pos = this.formationPosition(role, slot, { x: FIELD_W / 2, y: FIELD_H / 2 });
-      const body = this.matter.add.circle(pos.x, pos.y, 9, { frictionAir: 0.1, label: `${role}${slot}` });
-      const gfx = this.add.circle(pos.x, pos.y, 9, role === 'A' ? 0x3399ff : 0xff4444);
+      const pos = this.formationPosition(role, slot, { x: this.FIELD_W / 2, y: this.FIELD_H / 2 });
+      const body = withPhysics ? this.matter.add.circle(pos.x, pos.y, 9, { frictionAir: 0.14, label: `${role}${slot}` }) : null;
+      const color = this.playerColor(rosterPlayer, role === 'A' ? 0x3399ff : 0xff4444);
+      const gfx = this.add.circle(pos.x, pos.y, 9, color);
       team.push({ id, body, gfx, slot });
       const stats = createPlayerStats();
       applyRosterPlayerToStats(stats, rosterPlayer);
@@ -318,8 +437,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   startMatch(payloadA, payloadB) {
-    this.teamA = this.buildTeam('A', payloadA.starterIds);
-    this.teamB = this.buildTeam('B', payloadB.starterIds);
+    this.formation.A = payloadA.formation || DEFAULT_FORMATION;
+    this.formation.B = payloadB.formation || DEFAULT_FORMATION;
+    this.teamA = this.buildTeam('A', payloadA.starterIds, true);
+    this.teamB = this.buildTeam('B', payloadB.starterIds, true);
     this.benchA = (payloadA.benchIds || []).filter((id) => getPlayerById(id));
     this.benchB = (payloadB.benchIds || []).filter((id) => getPlayerById(id));
     this.gkIdA = this.findGoalkeeperId(payloadA.starterIds);
@@ -328,18 +449,60 @@ export default class GameScene extends Phaser.Scene {
     this.activeIdB = this.teamB[0] ? this.teamB[0].id : null;
     this.matchStarted = true;
     document.getElementById('team-select-ui').style.display = 'none';
+    document.getElementById('formation-button').style.display = 'block';
   }
 
-  // Formation slot -> world position. role 'A' defends the top goal (y=0);
-  // role 'B' defends the bottom goal (y=FIELD_H) — mirrored vertically.
+  buildClientTeams() {
+    if (this.clientTeamsBuilt || !this.mySquadPayload || !this.remoteSquadPayload) return;
+    this.formation.A = this.remoteSquadPayload.formation || DEFAULT_FORMATION;
+    this.formation.B = this.mySquadPayload.formation || DEFAULT_FORMATION;
+    this.teamA = this.buildTeam('A', this.remoteSquadPayload.starterIds, false);
+    this.teamB = this.buildTeam('B', this.mySquadPayload.starterIds, false);
+    this.benchA = this.remoteSquadPayload.benchIds || [];
+    this.benchB = this.mySquadPayload.benchIds || [];
+    this.gkIdA = this.findGoalkeeperId(this.remoteSquadPayload.starterIds);
+    this.gkIdB = this.findGoalkeeperId(this.mySquadPayload.starterIds);
+    this.clientTeamsBuilt = true;
+    document.getElementById('formation-button').style.display = 'block';
+  }
+
+  /** slot -> world position. Uses this.formation[role] and is
+   * orientation-aware: "primary" is the attacking axis (x if horizontal,
+   * y if vertical), "secondary" spreads players across the goal line. */
   formationPosition(role, slot, ballPos) {
-    const f = FORMATION[slot] || FORMATION[FORMATION.length - 1];
-    const halfH = FIELD_H / 2 - 24;
-    let x = f.x * FIELD_W;
-    let y = f.y * halfH + 20;
-    if (role === 'B') y = FIELD_H - y;
-    x += Phaser.Math.Clamp((ballPos.x - FIELD_W / 2) * 0.12, -35, 35);
-    return { x, y };
+    const preset = FORMATIONS[this.formation[role]] || FORMATIONS[DEFAULT_FORMATION];
+    const f = preset[slot] || preset[preset.length - 1];
+    const primarySize = this.primarySize();
+    const secondarySize = this.secondarySize();
+    const margin = 24;
+    const halfPrimary = primarySize / 2 - margin;
+
+    let primary = f.y * halfPrimary + margin;
+    if (role === 'B') primary = primarySize - primary;
+    let secondary = f.x * secondarySize;
+    const ballSecondary = ballPos[this.secondaryAxis()];
+    secondary += Phaser.Math.Clamp((ballSecondary - secondarySize / 2) * 0.12, -35, 35);
+
+    return this.horizontal ? { x: primary, y: secondary } : { x: secondary, y: primary };
+  }
+
+  // ---------------------------------------------------------------------
+  // Formation change (mid-match)
+  // ---------------------------------------------------------------------
+
+  openFormationPanel() {
+    const wrap = document.getElementById('formation-options');
+    wrap.innerHTML = '';
+    Object.keys(FORMATIONS).forEach((name) => {
+      const btn = document.createElement('button');
+      btn.textContent = name;
+      btn.addEventListener('click', () => {
+        this.pendingFormationChange = name;
+        document.getElementById('formation-panel').style.display = 'none';
+      });
+      wrap.appendChild(btn);
+    });
+    document.getElementById('formation-panel').style.display = 'flex';
   }
 
   // ---------------------------------------------------------------------
@@ -356,13 +519,8 @@ export default class GameScene extends Phaser.Scene {
     const title = document.getElementById('sub-panel-title');
     const list = document.getElementById('sub-list');
     list.innerHTML = '';
-
-    const myStarterIds = this.role === 'A'
-      ? this.teamA.map((e) => e.id)
-      : ((this.remoteState && this.remoteState.starterIds && this.remoteState.starterIds.b) || this.mySquadPayload.starterIds);
-    const myBenchIds = this.role === 'A'
-      ? this.benchA || []
-      : ((this.remoteState && this.remoteState.benchIds && this.remoteState.benchIds.b) || this.mySquadPayload.benchIds || []);
+    const myStarterIds = this.role === 'A' ? this.teamA.map((e) => e.id) : this.teamB.map((e) => e.id);
+    const myBenchIds = this.role === 'A' ? (this.benchA || []) : (this.benchB || []);
 
     if (!this.subOutSelection) {
       title.textContent = 'Who comes off?';
@@ -371,24 +529,18 @@ export default class GameScene extends Phaser.Scene {
         if (!p) return;
         const card = document.createElement('div');
         card.className = 'roster-card';
-        card.innerHTML = `<div class="name">${p.nickname || p.name}</div><div class="pos">${p.position}</div><button class="bring-on-btn">Sub off</button>`;
-        card.querySelector('.bring-on-btn').addEventListener('click', () => {
-          this.subOutSelection = id;
-          this.renderSubPanelStep();
-        });
+        card.innerHTML = `<div class="name-row">${this.avatarHtml(p)}<div class="name">${p.nickname || p.name}</div></div><div class="pos">${p.position}</div><button class="bring-on-btn">Sub off</button>`;
+        card.querySelector('.bring-on-btn').addEventListener('click', () => { this.subOutSelection = id; this.renderSubPanelStep(); });
         list.appendChild(card);
       });
     } else {
       title.textContent = 'Who comes on?';
       const bench = myBenchIds.map(getPlayerById).filter(Boolean);
-      if (!bench.length) {
-        list.innerHTML = '<p>No bench players available.</p>';
-        return;
-      }
+      if (!bench.length) { list.innerHTML = '<p>No bench players available.</p>'; return; }
       bench.forEach((p) => {
         const card = document.createElement('div');
         card.className = 'roster-card';
-        card.innerHTML = `<div class="name">${p.nickname || p.name}</div><div class="pos">${p.position}</div><button class="bring-on-btn">Bring on</button>`;
+        card.innerHTML = `<div class="name-row">${this.avatarHtml(p)}<div class="name">${p.nickname || p.name}</div></div><div class="pos">${p.position}</div><button class="bring-on-btn">Bring on</button>`;
         card.querySelector('.bring-on-btn').addEventListener('click', () => {
           this.pendingSubRequest = { outId: this.subOutSelection, inId: p.id };
           document.getElementById('sub-panel').style.display = 'none';
@@ -403,21 +555,16 @@ export default class GameScene extends Phaser.Scene {
     const team = role === 'A' ? this.teamA : this.teamB;
     const bench = role === 'A' ? this.benchA : this.benchB;
     const map = role === 'A' ? this.statsMapA : this.statsMapB;
-
     const benchIdx = bench.indexOf(subReq.inId);
     const slotEntry = team.find((t) => t.id === subReq.outId);
     if (benchIdx === -1 || !slotEntry) return;
-
     const incoming = getPlayerById(subReq.inId);
     if (!incoming) return;
-
     slotEntry.id = incoming.id;
     const stats = createPlayerStats();
     applyRosterPlayerToStats(stats, incoming);
     map.set(incoming.id, stats);
-
-    bench.splice(benchIdx, 1, subReq.outId); // outgoing player goes to the bench (reversible)
-
+    bench.splice(benchIdx, 1, subReq.outId);
     if (role === 'A' && this.activeIdA === subReq.outId) this.activeIdA = incoming.id;
     if (role === 'B' && this.activeIdB === subReq.outId) this.activeIdB = incoming.id;
     if (role === 'A' && this.gkIdA === subReq.outId) this.gkIdA = incoming.id;
@@ -425,54 +572,106 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ---------------------------------------------------------------------
-  // Input: path drawing and shooting
+  // Input: tap a player and drag to move them (path drawing, several at
+  // once); a quick tap elsewhere (no drag) passes the ball there instead.
   // ---------------------------------------------------------------------
 
   handlePointerDown(pointer) {
-    if (!this.matchStarted) return;
-    const attackSide = this.role === 'A' ? 'bottom' : 'top';
-    if (this.iHavePossession() && this.inGoalRegion(pointer.x, pointer.y, attackSide) && !this.confrontation) {
+    if (!this.matchStarted || this.matchClock.ended) return;
+    const myAttackTowardMax = this.role === 'A';
+    if (this.iHavePossession() && this.inGoalRegion(pointer.x, pointer.y, myAttackTowardMax) && !this.confrontation) {
       this.pendingShootRequest = true;
       return;
     }
+    if (this.confrontation) return;
+
+    this.gestureStart = { x: pointer.x, y: pointer.y };
+    this.gestureMoved = false;
+
+    const myTeam = this.role === 'A' ? this.teamA : this.teamB;
+    let nearest = null;
+    let nearestDist = PLAYER_SELECT_RADIUS;
+    myTeam.forEach((entry) => {
+      const d = Phaser.Math.Distance.Between(entry.gfx.x, entry.gfx.y, pointer.x, pointer.y);
+      if (d < nearestDist) { nearestDist = d; nearest = entry; }
+    });
+    const activeId = this.role === 'A' ? this.activeIdA : this.activeIdB;
+    this.pendingSelectedPlayerId = nearest ? nearest.id : activeId;
     this.drawing = true;
-    this.path = [{ x: pointer.x, y: pointer.y }];
   }
 
   extendPath(pointer) {
     if (!this.drawing) return;
-    const last = this.path[this.path.length - 1];
+    if (!this.gestureMoved) {
+      if (!this.gestureStart || Phaser.Math.Distance.Between(this.gestureStart.x, this.gestureStart.y, pointer.x, pointer.y) < DRAG_THRESHOLD) return;
+      this.gestureMoved = true;
+      this.selectedPlayerId = this.pendingSelectedPlayerId;
+      this.myPaths.set(this.selectedPlayerId, [{ x: this.gestureStart.x, y: this.gestureStart.y }, { x: pointer.x, y: pointer.y }]);
+      return;
+    }
+    const path = this.myPaths.get(this.selectedPlayerId);
+    if (!path) return;
+    const last = path[path.length - 1];
     if (!last || Phaser.Math.Distance.Between(last.x, last.y, pointer.x, pointer.y) > MIN_PATH_POINT_DIST) {
-      this.path.push({ x: pointer.x, y: pointer.y });
+      path.push({ x: pointer.x, y: pointer.y });
     }
   }
 
-  inGoalRegion(x, y, side) {
-    const withinX = Math.abs(x - FIELD_W / 2) < GOAL_HALF_WIDTH + 30;
-    const withinY = side === 'top' ? y < GOAL_CLICK_MARGIN : y > FIELD_H - GOAL_CLICK_MARGIN;
-    return withinX && withinY;
+  handlePointerUp() {
+    if (this.drawing && !this.gestureMoved && this.gestureStart && this.matchStarted && !this.confrontation) {
+      // it was a tap, not a drag: pass the ball there if I have it
+      if (this.iHavePossession()) this.pendingPassTarget = { x: this.gestureStart.x, y: this.gestureStart.y };
+    }
+    this.drawing = false;
+    this.gestureStart = null;
+  }
+
+  inGoalRegion(x, y, attackingTowardMax) {
+    const primaryVal = this.horizontal ? x : y;
+    const secondaryVal = this.horizontal ? y : x;
+    const primaryMax = this.primarySize();
+    const withinSecondary = Math.abs(secondaryVal - this.secondarySize() / 2) < GOAL_HALF_WIDTH + 30;
+    const withinPrimary = attackingTowardMax ? primaryVal > primaryMax - GOAL_CLICK_MARGIN : primaryVal < GOAL_CLICK_MARGIN;
+    return withinSecondary && withinPrimary;
   }
 
   iHavePossession() {
     return this.currentPossession === this.role;
   }
 
-  /** My active player's gfx (the one I'm currently steering). */
-  myActiveGfx() {
-    const team = this.role === 'A' ? this.teamA : this.teamB;
-    const activeId = this.role === 'A' ? this.activeIdA : this.activeIdB;
-    const entry = team.find((t) => t.id === activeId);
-    return entry ? entry.gfx : null;
+  computeMyTargets() {
+    const myTeam = this.role === 'A' ? this.teamA : this.teamB;
+    const targets = [];
+    for (const entry of myTeam) {
+      const path = this.myPaths.get(entry.id);
+      if (!path || !path.length) continue;
+      const posRef = entry.body ? entry.body.position : entry.gfx;
+      while (path.length && Phaser.Math.Distance.Between(posRef.x, posRef.y, path[0].x, path[0].y) < WAYPOINT_RADIUS) {
+        path.shift();
+      }
+      if (path.length) targets.push({ id: entry.id, x: path[0].x, y: path[0].y });
+      else this.myPaths.delete(entry.id);
+    }
+    return targets;
   }
 
-  updateMyPathTarget() {
-    const gfx = this.myActiveGfx();
-    if (!gfx) return { x: FIELD_W / 2, y: FIELD_H / 2 };
-    while (this.path.length && Phaser.Math.Distance.Between(gfx.x, gfx.y, this.path[0].x, this.path[0].y) < WAYPOINT_RADIUS) {
-      this.path.shift();
-    }
-    if (this.path.length) return { x: this.path[0].x, y: this.path[0].y };
-    return { x: gfx.x, y: gfx.y };
+  drawMyPaths() {
+    this.pathGraphics.clear();
+    if (!this.matchStarted) return;
+    const myTeam = this.role === 'A' ? this.teamA : this.teamB;
+    this.pathGraphics.lineStyle(2, 0xffe066, 0.85);
+    myTeam.forEach((entry) => {
+      const path = this.myPaths.get(entry.id);
+      if (!path || !path.length) return;
+      const posRef = entry.body ? entry.body.position : entry.gfx;
+      this.pathGraphics.beginPath();
+      this.pathGraphics.moveTo(posRef.x, posRef.y);
+      path.forEach((pt) => this.pathGraphics.lineTo(pt.x, pt.y));
+      this.pathGraphics.strokePath();
+      const last = path[path.length - 1];
+      this.pathGraphics.fillStyle(0xffe066, 1);
+      this.pathGraphics.fillCircle(last.x, last.y, 4);
+    });
   }
 
   // ---------------------------------------------------------------------
@@ -486,33 +685,46 @@ export default class GameScene extends Phaser.Scene {
     if (dist < 4) return;
     const force = forceScale * baseSpeed;
     this.matter.body.applyForce(body, body.position, { x: (dx / dist) * force, y: (dy / dist) * force });
-
     const v = body.velocity;
     const speed = Math.hypot(v.x, v.y);
     const maxSpeed = BASE_MAX_SPEED * baseSpeed;
-    if (speed > maxSpeed) {
-      this.matter.body.setVelocity(body, { x: (v.x / speed) * maxSpeed, y: (v.y / speed) * maxSpeed });
-    }
+    if (speed > maxSpeed) this.matter.body.setVelocity(body, { x: (v.x / speed) * maxSpeed, y: (v.y / speed) * maxSpeed });
   }
 
   glueBallToPossessor() {
     if (!this.possessorRole) return;
     const entry = this.activeEntry(this.possessorRole);
-    if (!entry) return;
+    if (!entry || !entry.body) return;
     const body = entry.body;
     const vel = body.velocity;
     const speed = Math.hypot(vel.x, vel.y);
-    const dirX = speed > 0.05 ? vel.x / speed : 0;
-    const dirY = speed > 0.05 ? vel.y / speed : (this.possessorRole === 'A' ? 1 : -1);
+    let dirX = 0, dirY = 0;
+    if (speed > 0.05) { dirX = vel.x / speed; dirY = vel.y / speed; }
+    else {
+      const primary = this.primaryAxis();
+      const sign = this.possessorRole === 'A' ? 1 : -1;
+      if (primary === 'x') dirX = sign; else dirY = sign;
+    }
     this.matter.body.setPosition(this.ball, { x: body.position.x + dirX * POSSESSION_OFFSET, y: body.position.y + dirY * POSSESSION_OFFSET });
     this.matter.body.setVelocity(this.ball, { x: 0, y: 0 });
   }
 
+  doPass(role, target) {
+    const entry = this.activeEntry(role);
+    if (!entry || !entry.body) return;
+    const dx = target.x - entry.body.position.x;
+    const dy = target.y - entry.body.position.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    this.possessorRole = null;
+    this.matter.body.setVelocity(this.ball, { x: (dx / dist) * PASS_SPEED, y: (dy / dist) * PASS_SPEED });
+  }
+
   knockback(loserEntry, winnerEntry) {
+    if (!loserEntry.body || !winnerEntry.body) return;
     const dx = loserEntry.body.position.x - winnerEntry.body.position.x;
     const dy = loserEntry.body.position.y - winnerEntry.body.position.y;
     const dist = Math.hypot(dx, dy) || 1;
-    this.matter.body.setVelocity(loserEntry.body, { x: (dx / dist) * 4, y: (dy / dist) * 4 });
+    this.matter.body.setVelocity(loserEntry.body, { x: (dx / dist) * 3, y: (dy / dist) * 3 });
   }
 
   activeEntry(role) {
@@ -521,9 +733,6 @@ export default class GameScene extends Phaser.Scene {
     return team.find((t) => t.id === activeId) || null;
   }
 
-  /** Recomputes which of a team's 11 is closest to the ball, with a little
-   * hysteresis so the active player doesn't flicker between two who are
-   * nearly equidistant. */
   updateActivePlayer(role) {
     const team = role === 'A' ? this.teamA : this.teamB;
     if (!team.length) return;
@@ -537,16 +746,12 @@ export default class GameScene extends Phaser.Scene {
     if (best.id !== currentId) {
       const current = team.find((t) => t.id === currentId);
       const currentDist = current ? Phaser.Math.Distance.Between(current.body.position.x, current.body.position.y, ballPos.x, ballPos.y) : Infinity;
-      if (currentDist - bestDist > 18) { // only switch if meaningfully closer
-        if (role === 'A') this.activeIdA = best.id; else this.activeIdB = best.id;
-      }
+      if (currentDist - bestDist > 18) { if (role === 'A') this.activeIdA = best.id; else this.activeIdB = best.id; }
     }
   }
 
   // ---------------------------------------------------------------------
-  // Collisions (host-authoritative) — only the ACTIVE player of each side
-  // meaningfully interacts with the ball/opponent; the other 10 are
-  // formation scenery for now (see README for why).
+  // Collisions
   // ---------------------------------------------------------------------
 
   handleCollisions(event) {
@@ -559,7 +764,6 @@ export default class GameScene extends Phaser.Scene {
     for (const pair of event.pairs) {
       const labels = [pair.bodyA.label, pair.bodyB.label];
       const bodies = [pair.bodyA, pair.bodyB];
-
       const touchesBall = labels.includes('ball');
       const activeABody = bodies.includes(activeA.body);
       const activeBBody = bodies.includes(activeB.body);
@@ -567,44 +771,34 @@ export default class GameScene extends Phaser.Scene {
       if (touchesBall && (activeABody || activeBBody) && !this.possessorRole && !this.confrontation) {
         this.possessorRole = activeABody ? 'A' : 'B';
       }
-
       if (activeABody && activeBBody && this.possessorRole && !this.confrontation && now >= this.duelLockUntil) {
         const attackerRole = this.possessorRole;
         const defenderRole = attackerRole === 'A' ? 'B' : 'A';
         this.startConfrontation('duel', attackerRole, defenderRole, now);
       }
-
-      if (labels.includes('ball') && labels.includes('goalTop')) this.onGoal('b');
-      if (labels.includes('ball') && labels.includes('goalBottom')) this.onGoal('a');
+      if (labels.includes('ball') && labels.includes('goalMin')) this.onGoal('b');
+      if (labels.includes('ball') && labels.includes('goalMax')) this.onGoal('a');
     }
   }
 
   // ---------------------------------------------------------------------
-  // Confrontations: duel (dribble vs tackle) and shot (shot vs save)
+  // Confrontations
   // ---------------------------------------------------------------------
 
   startConfrontation(type, attackerRole, defenderRole, now) {
     const attackerId = attackerRole === 'A' ? this.activeIdA : this.activeIdB;
-    // A shot is defended by the goalkeeper, not whoever happens to be "active".
-    const defenderId = type === 'shot'
-      ? (defenderRole === 'A' ? this.gkIdA : this.gkIdB)
-      : (defenderRole === 'A' ? this.activeIdA : this.activeIdB);
-    this.confrontation = {
-      type, attackerRole, defenderRole, attackerId, defenderId,
-      deadline: now + CONFRONTATION_WINDOW_MS, attackerChoice: null, defenderChoice: null
-    };
+    const defenderId = type === 'shot' ? (defenderRole === 'A' ? this.gkIdA : this.gkIdB) : (defenderRole === 'A' ? this.activeIdA : this.activeIdB);
+    this.confrontation = { type, attackerRole, defenderRole, attackerId, defenderId, deadline: now + CONFRONTATION_WINDOW_MS, attackerChoice: null, defenderChoice: null };
   }
 
-  aiConfrontationChoice(stats, category, now) {
-    if (canActivate(stats, category, now) && Math.random() < 0.55) return 'technique';
+  aiConfrontationChoice(stats, category) {
+    if (canActivate(stats, category) && Math.random() < 0.55) return 'technique';
     return 'normal';
   }
 
-  tryActivateTechnique(stats, category, now) {
-    if (!canActivate(stats, category, now)) return false;
-    const tech = stats.techniques[category];
-    stats.sp -= tech.cost;
-    stats.cooldowns[category] = now + tech.cooldown;
+  tryActivateTechnique(stats, category) {
+    if (!canActivate(stats, category)) return false;
+    stats.sp -= stats.techniques[category].cost;
     return true;
   }
 
@@ -621,44 +815,42 @@ export default class GameScene extends Phaser.Scene {
 
     const attackTechId = c.type === 'duel' ? 'dribble' : 'shot';
     const defendTechId = c.type === 'duel' ? 'defense' : 'keeper';
-
-    const attackerUsedTech = c.attackerChoice === 'technique' && this.tryActivateTechnique(attackerStats, attackTechId, now);
-    const defenderUsedTech = c.defenderChoice === 'technique' && this.tryActivateTechnique(defenderStats, defendTechId, now);
-
+    const attackerUsedTech = c.attackerChoice === 'technique' && this.tryActivateTechnique(attackerStats, attackTechId);
+    const defenderUsedTech = c.defenderChoice === 'technique' && this.tryActivateTechnique(defenderStats, defendTechId);
     const attackPower = (attackerUsedTech ? attackerStats.techniques[attackTechId].power : NORMAL_ACTION_POWER) * attackerStats[STAT_FIELD_FOR_TECH[attackTechId]];
     const defendPower = (defenderUsedTech ? defenderStats.techniques[defendTechId].power : NORMAL_ACTION_POWER) * defenderStats[STAT_FIELD_FOR_TECH[defendTechId]];
     const attackerWins = Math.random() < attackPower / (attackPower + defendPower);
 
+    let resultText;
     if (c.type === 'duel') {
       const attackerEntry = this.activeEntry(c.attackerRole);
       const defenderEntry = this.activeEntry(c.defenderRole);
-      if (attackerWins) {
-        this.knockback(defenderEntry, attackerEntry);
-      } else {
-        this.possessorRole = c.defenderRole;
-        this.knockback(attackerEntry, defenderEntry);
-      }
+      if (attackerWins) { this.knockback(defenderEntry, attackerEntry); resultText = `${attackerStats.name} gets past ${defenderStats.name}!`; }
+      else { this.possessorRole = c.defenderRole; this.knockback(attackerEntry, defenderEntry); resultText = `${defenderStats.name} wins the ball off ${attackerStats.name}!`; }
       this.duelLockUntil = now + 1000;
     } else if (attackerWins) {
       this.onGoal(c.attackerRole === 'A' ? 'a' : 'b');
+      resultText = `GOAL! ${attackerStats.name} scores${attackerUsedTech ? ' with a supertechnique' : ''}!`;
     } else {
-      this.possessorRole = c.defenderRole; // the keeper catches/clears it
+      this.possessorRole = c.defenderRole;
+      resultText = `Saved! ${defenderStats.name} keeps it out.`;
     }
 
+    this.confrontationResult = { text: resultText, until: now + RESULT_BANNER_MS };
     this.confrontation = null;
   }
 
   onGoal(scorer) {
     this.score[scorer] += 1;
-    document.getElementById('scoreboard').textContent = `${this.score.a} - ${this.score.b}`;
+    document.querySelector('#scoreboard .score').textContent = `${this.score.a} - ${this.score.b}`;
     this.possessorRole = null;
-    this.matter.body.setPosition(this.ball, { x: FIELD_W / 2, y: FIELD_H / 2 });
+    this.matter.body.setPosition(this.ball, { x: this.FIELD_W / 2, y: this.FIELD_H / 2 });
     this.matter.body.setVelocity(this.ball, { x: 0, y: 0 });
     this.resetFormationPositions();
   }
 
   resetFormationPositions() {
-    const ballPos = { x: FIELD_W / 2, y: FIELD_H / 2 };
+    const ballPos = { x: this.FIELD_W / 2, y: this.FIELD_H / 2 };
     this.teamA.forEach((entry) => {
       const pos = this.formationPosition('A', entry.slot, ballPos);
       this.matter.body.setPosition(entry.body, pos);
@@ -669,12 +861,46 @@ export default class GameScene extends Phaser.Scene {
       this.matter.body.setPosition(entry.body, pos);
       this.matter.body.setVelocity(entry.body, { x: 0, y: 0 });
     });
+    this.myPaths.clear();
   }
 
   regenSP(map, deltaMs) {
-    for (const stats of map.values()) {
-      stats.sp = Math.min(stats.maxSP, stats.sp + stats.spRegenPerSec * (deltaMs / 1000));
+    for (const stats of map.values()) stats.sp = Math.min(stats.maxSP, stats.sp + stats.spRegenPerSec * (deltaMs / 1000));
+  }
+
+  // ---------------------------------------------------------------------
+  // Match clock
+  // ---------------------------------------------------------------------
+
+  tickMatchClock(delta) {
+    if (this.matchClock.ended) return;
+    this.matchClock.secondsRemaining -= delta / 1000;
+    if (this.matchClock.secondsRemaining <= 0) {
+      if (this.matchClock.half === 1) {
+        this.matchClock.half = 2;
+        this.matchClock.secondsRemaining = HALF_DURATION_S;
+        this.possessorRole = null;
+        this.confrontation = null;
+        this.matter.body.setPosition(this.ball, { x: this.FIELD_W / 2, y: this.FIELD_H / 2 });
+        this.matter.body.setVelocity(this.ball, { x: 0, y: 0 });
+        this.resetFormationPositions();
+      } else {
+        this.matchClock.ended = true;
+        this.matchClock.secondsRemaining = 0;
+      }
     }
+  }
+
+  static formatClock(secs) {
+    const s = Math.max(0, Math.ceil(secs));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${r < 10 ? '0' : ''}${r}`;
+  }
+
+  renderClock(clock) {
+    if (!clock) return;
+    document.getElementById('match-clock').textContent = clock.ended ? 'Full time' : `${clock.half === 1 ? '1st' : '2nd'} half — ${GameScene.formatClock(clock.secondsRemaining)}`;
   }
 
   // ---------------------------------------------------------------------
@@ -683,31 +909,35 @@ export default class GameScene extends Phaser.Scene {
 
   update(time, delta) {
     const amHost = this.role === 'A';
-    const myTarget = this.matchStarted ? this.updateMyPathTarget() : { x: FIELD_W / 2, y: FIELD_H / 2 };
+    if (!amHost && this.matchStarted && !this.clientTeamsBuilt) this.buildClientTeams();
 
+    const targets = this.matchStarted ? this.computeMyTargets() : [];
     const myInput = {
-      x: myTarget.x, y: myTarget.y,
+      targets,
       shootRequest: this.pendingShootRequest,
+      passTarget: this.pendingPassTarget,
       confrontationChoice: this.pendingConfrontationChoice,
-      subRequest: this.pendingSubRequest
+      subRequest: this.pendingSubRequest,
+      formationChange: this.pendingFormationChange
     };
     this.pendingShootRequest = false;
+    this.pendingPassTarget = null;
     this.pendingConfrontationChoice = null;
     this.pendingSubRequest = null;
+    this.pendingFormationChange = null;
     this.net.sendInput(myInput);
 
     if (amHost) {
-      if (this.matchStarted) {
-        this.updateAsHost(time, delta, myInput);
-      } else if (time - this.lastStateSent > 1000 / STATE_HZ) {
-        this.lastStateSent = time;
-        this.net.sendState({ matchStarted: false });
-      }
+      if (this.matchStarted) this.updateAsHost(time, delta, myInput);
+      else if (time - this.lastStateSent > 1000 / STATE_HZ) { this.lastStateSent = time; this.net.sendState({ matchStarted: false }); }
     } else {
       this.updateAsClient(time);
     }
 
-    if (this.matchStarted) this.updateConfrontationUI(this.confrontation, time);
+    if (this.matchStarted) {
+      this.updateConfrontationUI(this.confrontation, time);
+      this.drawMyPaths();
+    }
   }
 
   updateAsHost(now, delta, myInput) {
@@ -718,40 +948,50 @@ export default class GameScene extends Phaser.Scene {
     if (aiActive) {
       const activeB = this.activeEntry('B');
       const ai = decideAIMove({
-        selfPos: activeB ? activeB.body.position : { x: FIELD_W / 2, y: FIELD_H },
+        selfPos: activeB ? activeB.body.position : { x: this.FIELD_W / 2, y: this.FIELD_H },
         ballPos: this.ball.position,
-        ownGoalY: FIELD_H, rivalGoalY: 0
+        axis: this.primaryAxis(),
+        ownGoalValue: this.primarySize(), rivalGoalValue: 0,
+        fieldPrimarySize: this.primarySize()
       });
-      inputB = { x: ai.target.x, y: ai.target.y, shootRequest: false, confrontationChoice: null, subRequest: null };
+      inputB = { targets: activeB ? [{ id: activeB.id, x: ai.target.x, y: ai.target.y }] : [], shootRequest: false, passTarget: null, confrontationChoice: null, subRequest: null, formationChange: null };
     }
 
     this.regenSP(this.statsMapA, delta);
     this.regenSP(this.statsMapB, delta);
     this.currentPossession = this.possessorRole;
 
-    this.updateActivePlayer('A');
-    this.updateActivePlayer('B');
+    if (myInput.formationChange) this.formation.A = myInput.formationChange;
+    if (!aiActive && inputB.formationChange) this.formation.B = inputB.formationChange;
+
+    if (!this.matchClock.ended) this.tickMatchClock(delta);
 
     if (this.confrontation) {
       this.progressConfrontation(now, myInput, inputB, aiActive);
+    } else if (this.matchClock.ended) {
+      // full time — no more orders processed
     } else {
-      this.moveTeam('A', myInput);
-      this.moveTeam('B', inputB);
+      this.updateActivePlayer('A');
+      this.updateActivePlayer('B');
 
-      if (myInput.shootRequest && this.possessorRole === 'A') {
-        this.startConfrontation('shot', 'A', 'B', now);
-      } else if (!aiActive && inputB.shootRequest && this.possessorRole === 'B') {
-        this.startConfrontation('shot', 'B', 'A', now);
-      } else if (aiActive && this.possessorRole === 'B') {
+      this.moveTeam('A', myInput.targets);
+      this.moveTeam('B', inputB.targets);
+
+      if (myInput.passTarget && this.possessorRole === 'A') this.doPass('A', myInput.passTarget);
+      else if (!aiActive && inputB.passTarget && this.possessorRole === 'B') this.doPass('B', inputB.passTarget);
+
+      if (myInput.shootRequest && this.possessorRole === 'A') this.startConfrontation('shot', 'A', 'B', now);
+      else if (!aiActive && inputB.shootRequest && this.possessorRole === 'B') this.startConfrontation('shot', 'B', 'A', now);
+      else if (aiActive && this.possessorRole === 'B') {
         const activeB = this.activeEntry('B');
-        if (activeB && activeB.body.position.y > FIELD_H - 160 && Math.random() < 0.02) {
-          this.startConfrontation('shot', 'B', 'A', now);
-        }
+        const primary = this.primaryAxis();
+        const closeToGoal = activeB && activeB.body.position[primary] < 160;
+        if (closeToGoal && Math.random() < 0.02) this.startConfrontation('shot', 'B', 'A', now);
       }
 
       if (this.confrontation && this.confrontation.defenderRole === 'B' && aiActive) {
         const defStats = this.statsFor('B', this.confrontation.defenderId);
-        this.confrontation.defenderChoice = this.aiConfrontationChoice(defStats, 'keeper', now);
+        this.confrontation.defenderChoice = this.aiConfrontationChoice(defStats, 'keeper');
       }
 
       if (myInput.subRequest) this.trySub('A', myInput.subRequest);
@@ -760,13 +1000,17 @@ export default class GameScene extends Phaser.Scene {
 
     this.glueBallToPossessor();
     this.syncGfxFromPhysics();
+    this.renderClock(this.matchClock);
+    this.renderResultBanner(this.confrontationResult, now);
+
     const myActiveStats = this.statsFor('A', this.activeIdA);
-    if (myActiveStats) this.paintHUD(myActiveStats.sp, myActiveStats.cooldowns, now);
+    if (myActiveStats) this.paintHUD(myActiveStats.sp, myActiveStats.maxSP);
     document.getElementById('sub-button').style.display = (this.benchA && this.benchA.length) ? 'block' : 'none';
 
     if (now - this.lastStateSent > 1000 / STATE_HZ) {
       this.lastStateSent = now;
       const activeAStats = this.statsFor('A', this.activeIdA);
+      const activeBStats = this.statsFor('B', this.activeIdB);
       this.net.sendState({
         matchStarted: true,
         ball: { x: this.ball.position.x, y: this.ball.position.y },
@@ -774,32 +1018,29 @@ export default class GameScene extends Phaser.Scene {
         teamB: this.teamB.map((e) => ({ x: e.body.position.x, y: e.body.position.y })),
         activeIdA: this.activeIdA, activeIdB: this.activeIdB,
         score: this.score,
-        sp: { a: activeAStats ? activeAStats.sp : 0, b: (this.statsFor('B', this.activeIdB) || {}).sp || 0 },
-        cooldowns: { a: activeAStats ? activeAStats.cooldowns : {}, b: (this.statsFor('B', this.activeIdB) || {}).cooldowns || {} },
+        sp: { a: activeAStats ? activeAStats.sp : 0, b: activeBStats ? activeBStats.sp : 0 },
+        maxSp: { a: activeAStats ? activeAStats.maxSP : 100, b: activeBStats ? activeBStats.maxSP : 100 },
         possession: this.possessorRole,
         confrontation: this.confrontation
-          ? { type: this.confrontation.type, attackerRole: this.confrontation.attackerRole, defenderRole: this.confrontation.defenderRole, deadline: this.confrontation.deadline }
+          ? { type: this.confrontation.type, attackerRole: this.confrontation.attackerRole, defenderRole: this.confrontation.defenderRole, attackerId: this.confrontation.attackerId, defenderId: this.confrontation.defenderId, deadline: this.confrontation.deadline }
           : null,
+        confrontationResult: (this.confrontationResult && now < this.confrontationResult.until) ? this.confrontationResult : null,
         benchIds: { a: this.benchA, b: this.benchB },
-        starterIds: { a: this.teamA.map((e) => e.id), b: this.teamB.map((e) => e.id) }
+        starterIds: { a: this.teamA.map((e) => e.id), b: this.teamB.map((e) => e.id) },
+        clock: { half: this.matchClock.half, secondsRemaining: this.matchClock.secondsRemaining, ended: this.matchClock.ended }
       });
     }
   }
 
-  /** Steers the active player toward `input`, and everyone else toward
-   * their formation slot (loosely following the ball). */
-  moveTeam(role, input) {
+  moveTeam(role, targets) {
     const team = role === 'A' ? this.teamA : this.teamB;
-    const activeId = role === 'A' ? this.activeIdA : this.activeIdB;
-    const stats = this.statsFor(role, activeId);
-    const baseSpeed = stats ? stats.speed : 1;
+    const byId = new Map(targets.map((t) => [t.id, t]));
     team.forEach((entry) => {
-      if (entry.id === activeId) {
-        this.steerTowards(entry.body, input, baseSpeed, STEER_FORCE);
-      } else {
-        const pos = this.formationPosition(role, entry.slot, this.ball.position);
-        this.steerTowards(entry.body, pos, 1, FORMATION_STEER_FORCE);
-      }
+      const stats = this.statsFor(role, entry.id);
+      const speed = stats ? stats.speed : 1;
+      const t = byId.get(entry.id);
+      if (t) this.steerTowards(entry.body, t, speed, STEER_FORCE);
+      else this.steerTowards(entry.body, this.formationPosition(role, entry.slot, this.ball.position), 1, FORMATION_STEER_FORCE);
     });
   }
 
@@ -818,16 +1059,9 @@ export default class GameScene extends Phaser.Scene {
         if (c.type === 'duel') return role === c.attackerRole ? 'dribble' : 'defense';
         return role === c.attackerRole ? 'shot' : 'keeper';
       };
-      if (c.attackerRole === 'B' && c.attackerChoice === null) {
-        const s = this.statsFor('B', c.attackerId);
-        c.attackerChoice = s ? this.aiConfrontationChoice(s, techForRole('B'), now) : 'normal';
-      }
-      if (c.defenderRole === 'B' && c.defenderChoice === null) {
-        const s = this.statsFor('B', c.defenderId);
-        c.defenderChoice = s ? this.aiConfrontationChoice(s, techForRole('B'), now) : 'normal';
-      }
+      if (c.attackerRole === 'B' && c.attackerChoice === null) { const s = this.statsFor('B', c.attackerId); c.attackerChoice = s ? this.aiConfrontationChoice(s, techForRole('B')) : 'normal'; }
+      if (c.defenderRole === 'B' && c.defenderChoice === null) { const s = this.statsFor('B', c.defenderId); c.defenderChoice = s ? this.aiConfrontationChoice(s, techForRole('B')) : 'normal'; }
     }
-
     const bothChosen = c.attackerChoice !== null && c.defenderChoice !== null;
     if (bothChosen || now >= c.deadline) {
       if (c.attackerChoice === null) c.attackerChoice = 'normal';
@@ -845,34 +1079,26 @@ export default class GameScene extends Phaser.Scene {
   }
 
   updateAsClient(time) {
-    if (!this.remoteState || !this.remoteState.matchStarted) return;
+    if (!this.remoteState || !this.remoteState.matchStarted || !this.clientTeamsBuilt) return;
     const lerp = 0.3;
+    this.syncTeamIdentities(this.remoteState);
 
     this.ballGfx.x = Phaser.Math.Linear(this.ballGfx.x, this.remoteState.ball.x, lerp);
     this.ballGfx.y = Phaser.Math.Linear(this.ballGfx.y, this.remoteState.ball.y, lerp);
-
-    this.teamA.forEach((entry, i) => {
-      const p = this.remoteState.teamA[i];
-      if (!p) return;
-      entry.gfx.x = Phaser.Math.Linear(entry.gfx.x, p.x, lerp);
-      entry.gfx.y = Phaser.Math.Linear(entry.gfx.y, p.y, lerp);
-    });
-    this.teamB.forEach((entry, i) => {
-      const p = this.remoteState.teamB[i];
-      if (!p) return;
-      entry.gfx.x = Phaser.Math.Linear(entry.gfx.x, p.x, lerp);
-      entry.gfx.y = Phaser.Math.Linear(entry.gfx.y, p.y, lerp);
-    });
+    this.teamA.forEach((entry, i) => { const p = this.remoteState.teamA[i]; if (!p) return; entry.gfx.x = Phaser.Math.Linear(entry.gfx.x, p.x, lerp); entry.gfx.y = Phaser.Math.Linear(entry.gfx.y, p.y, lerp); });
+    this.teamB.forEach((entry, i) => { const p = this.remoteState.teamB[i]; if (!p) return; entry.gfx.x = Phaser.Math.Linear(entry.gfx.x, p.x, lerp); entry.gfx.y = Phaser.Math.Linear(entry.gfx.y, p.y, lerp); });
 
     this.activeIdA = this.remoteState.activeIdA;
     this.activeIdB = this.remoteState.activeIdB;
     this.highlightActivePlayers();
 
-    document.getElementById('scoreboard').textContent = `${this.remoteState.score.a} - ${this.remoteState.score.b}`;
+    document.querySelector('#scoreboard .score').textContent = `${this.remoteState.score.a} - ${this.remoteState.score.b}`;
+    this.renderClock(this.remoteState.clock);
     this.currentPossession = this.remoteState.possession;
     this.confrontation = this.remoteState.confrontation;
+    this.renderResultBanner(this.remoteState.confrontationResult, time);
 
-    this.paintHUD(this.remoteState.sp.b, this.remoteState.cooldowns.b, time);
+    this.paintHUD(this.remoteState.sp.b, (this.remoteState.maxSp && this.remoteState.maxSp.b) || 100);
     this.updatePossessionRing();
     const benchB = (this.remoteState.benchIds && this.remoteState.benchIds.b) || [];
     document.getElementById('sub-button').style.display = benchB.length ? 'block' : 'none';
@@ -882,22 +1108,45 @@ export default class GameScene extends Phaser.Scene {
   // HUD
   // ---------------------------------------------------------------------
 
-  paintHUD(sp, cooldowns, now) {
-    const pct = Math.max(0, Math.min(100, (sp / 100) * 100));
-    document.getElementById('sp-bar-fill').style.width = `${pct}%`;
+  syncTeamIdentities(remoteState) {
+    if (!remoteState.starterIds) return;
+    ['A', 'B'].forEach((role) => {
+      const team = role === 'A' ? this.teamA : this.teamB;
+      const ids = role === 'A' ? remoteState.starterIds.a : remoteState.starterIds.b;
+      const map = role === 'A' ? this.statsMapA : this.statsMapB;
+      team.forEach((entry, i) => {
+        const newId = ids[i];
+        if (newId && newId !== entry.id) {
+          entry.id = newId;
+          if (!map.has(newId)) {
+            const rosterPlayer = getPlayerById(newId);
+            if (rosterPlayer) { const stats = createPlayerStats(); applyRosterPlayerToStats(stats, rosterPlayer); map.set(newId, stats); }
+          }
+        }
+      });
+    });
+    if (remoteState.benchIds) { this.benchA = remoteState.benchIds.a || this.benchA; this.benchB = remoteState.benchIds.b || this.benchB; }
+  }
+
+  paintHUD(sp, maxSp) {
+    document.getElementById('sp-value').textContent = `${Math.round(sp)}/${Math.round(maxSp || 100)}`;
+  }
+
+  renderResultBanner(result, now) {
+    const el = document.getElementById('confrontation-result');
+    if (result && now < result.until) { el.textContent = result.text; el.style.display = 'block'; }
+    else el.style.display = 'none';
   }
 
   updateConfrontationUI(confrontation, now) {
     const panel = document.getElementById('confrontation-ui');
     if (!confrontation) { panel.style.display = 'none'; return; }
-
     const amAttacker = confrontation.attackerRole === this.role;
     const amDefender = confrontation.defenderRole === this.role;
     if (!amAttacker && !amDefender) { panel.style.display = 'none'; return; }
 
     panel.style.display = 'flex';
     const techId = confrontation.type === 'duel' ? (amAttacker ? 'dribble' : 'defense') : (amAttacker ? 'shot' : 'keeper');
-
     document.getElementById('confrontation-title').textContent = confrontation.type === 'duel'
       ? (amAttacker ? 'Duel! You\u2019re being tackled' : 'Duel! Go for the tackle')
       : (amAttacker ? 'Shoot for goal!' : 'Save the shot!');
@@ -905,17 +1154,17 @@ export default class GameScene extends Phaser.Scene {
       ? (amAttacker ? 'Normal dribble' : 'Normal tackle')
       : (amAttacker ? 'Normal shot' : 'Normal save');
 
-    const activeId = this.role === 'A' ? this.activeIdA : this.activeIdB;
-    const relevantId = amAttacker
-      ? (this.role === 'A' ? this.activeIdA : this.activeIdB)
-      : (techId === 'keeper' ? (this.role === 'A' ? this.gkIdA : this.gkIdB) : activeId);
-    const stats = this.statsFor(this.role, relevantId);
+    const relevantId = amAttacker ? confrontation.attackerId : confrontation.defenderId;
+    const relevantRole = amAttacker ? confrontation.attackerRole : confrontation.defenderRole;
+    const stats = this.statsFor(relevantRole, relevantId);
+    document.getElementById('confrontation-player-info').textContent = stats ? `${stats.name} — PT ${Math.round(stats.sp)}/${Math.round(stats.maxSP)}` : '';
+
     const techBtn = document.getElementById('conf-technique');
     const tech = stats ? stats.techniques[techId] : null;
     if (tech) {
       techBtn.style.display = 'block';
-      techBtn.innerHTML = `${tech.name}<span class="cost">${tech.cost} SP</span>`;
-      techBtn.disabled = !canActivate(stats, techId, now);
+      techBtn.innerHTML = `${tech.name}<span class="cost">${tech.cost} PT</span>`;
+      techBtn.disabled = !stats || !canActivate(stats, techId);
     } else {
       techBtn.style.display = 'none';
     }
@@ -932,8 +1181,6 @@ export default class GameScene extends Phaser.Scene {
     this.updatePossessionRing();
   }
 
-  /** Gives both teams' currently-active player a thin white outline so
-   * it's clear at a glance who you're steering right now. */
   highlightActivePlayers() {
     this.teamA.forEach((e) => e.gfx.setStrokeStyle(e.id === this.activeIdA ? 2 : 0, 0xffffff));
     this.teamB.forEach((e) => e.gfx.setStrokeStyle(e.id === this.activeIdB ? 2 : 0, 0xffffff));
