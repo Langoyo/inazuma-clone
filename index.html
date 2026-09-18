@@ -68,6 +68,24 @@
     #sub-button       { right: 16px; }
     #formation-button { right: 130px; }
 
+    /* Scroll buttons (mobile) */
+    #scroll-controls {
+      position: fixed; left: 8px; bottom: 16px; z-index: 15;
+      display: none; flex-direction: column; align-items: center; gap: 2px;
+    }
+    .scroll-row { display: flex; gap: 2px; }
+    .scroll-btn {
+      width: 40px; height: 40px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.5);
+      background: rgba(20,20,20,0.72); color: white; font-size: 16px;
+      display: flex; align-items: center; justify-content: center; touch-action: none; user-select: none;
+    }
+    /* Player stat popup */
+    #player-stat-panel {
+      position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 35;
+      background: rgba(4,18,30,0.96); border: 2px solid rgba(51,153,255,0.6); border-radius: 12px;
+      padding: 12px 14px; max-width: 340px; width: 94vw; display: none; font-size: 12px;
+    }
+
     /* ------------------------------------------------------------------ Panels (overlays) */
     .panel-overlay {
       position: fixed; inset: 0; z-index: 30; background: rgba(4,18,10,0.97);
@@ -258,6 +276,19 @@
       <div id="squad-status"></div>
     </div>
   </div>
+
+  <!-- Scroll controls (mobile, also respond to keyboard via JS) -->
+  <div id="scroll-controls">
+    <div class="scroll-row"><div class="scroll-btn" id="scroll-up">▲</div></div>
+    <div class="scroll-row">
+      <div class="scroll-btn" id="scroll-left">◀</div>
+      <div class="scroll-btn" id="scroll-down">▼</div>
+      <div class="scroll-btn" id="scroll-right">▶</div>
+    </div>
+  </div>
+
+  <!-- Player stat panel (shown on tap in squad editor / sub panel) -->
+  <div id="player-stat-panel"></div>
 
   <script type="module" src="/src/main.js"></script>
 </body>

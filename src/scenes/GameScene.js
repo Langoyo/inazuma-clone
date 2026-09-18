@@ -5,465 +5,419 @@ import { createPlayerStats, applyRosterPlayerToStats, canActivate } from '../dat
 import { loadRoster, getPlayerById, getGames } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
 
-// ─── Field & physics constants ────────────────────────────────────────
-const GOAL_HALF_WIDTH       = 55;
-const GOAL_CLICK_MARGIN     = 60;
-const WAYPOINT_RADIUS       = 14;
-const MIN_PATH_POINT_DIST   = 14;
-const PLAYER_SELECT_RADIUS  = 26;
-const DRAG_THRESHOLD        = 12;
-const CONFRONTATION_WINDOW_MS = 20000;
-const RESULT_BANNER_MS      = 3500;
-const RESULT_OUTCOME_DELAY  = 800;
-const POSSESSION_OFFSET     = 20;
-const PASS_SPEED            = 3.0;
-const TEAM_SIZE             = 11;
-const BENCH_MAX             = 5;
-const HALF_DURATION_S       = 3 * 60;
-const STATE_HZ              = 20;
+// ─── Constants ────────────────────────────────────────────────────────────
+// The logical field is big — the VIEWPORT (what the canvas shows) is smaller.
+// Scroll is handled by moving the Phaser camera over the world.
+const FIELD_LOGICAL_W   = 960;   // world size (px)
+const FIELD_LOGICAL_H   = 1520;
+const VIEWPORT_W        = 480;   // canvas size — what the player actually sees
+const VIEWPORT_H        = 760;
+const GOAL_HALF_WIDTH   = 70;
+const GOAL_CLICK_MARGIN = 80;
+const WAYPOINT_RADIUS   = 20;
+const MIN_PATH_PT_DIST  = 18;
+const PLAYER_SEL_RADIUS = 36;
+const DRAG_THRESHOLD    = 14;
+const CONFRONT_MS       = 20000;
+const RESULT_MS         = 3500;
+const RESULT_DELAY_MS   = 800;
+const POSSESS_OFFSET    = 24;
+const PASS_SPEED        = 4.5;
+const STUN_MS           = 2500;  // how long the loser is frozen after a duel
+const TEAM_SIZE         = 11;
+const BENCH_MAX         = 5;
+const HALF_S            = 3 * 60;
+const STATE_HZ          = 20;
+const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 
-const STEER_FORCE           = 0.00028;   // very slow — RPG pace
-const FORMATION_STEER_FORCE = 0.00016;
-const BASE_MAX_SPEED        = 0.7;
+// Physics forces — slow and deliberate
+const STEER_FORCE           = 0.00040;
+const AUTO_STEER_FORCE      = 0.00012; // teammates drifting autonomously
+const BASE_MAX_SPEED        = 0.85;
+const AUTO_MAX_SPEED        = 0.40;
 
-// ─── Formation presets ────────────────────────────────────────────────
-// Slot 0 = keeper. x = 0..1 across secondary axis; y = 0..1 from own
-// goal (0) to halfway line (1). Orientation-independent.
+// ─── Formation presets ───────────────────────────────────────────────────
+// Slot 0 = keeper. x=0..1 secondary axis, y=0..1 primary from own goal→halfway
 const FORMATIONS = {
   '4-4-2': [
-    {x:.50,y:.07},
-    {x:.15,y:.24},{x:.38,y:.20},{x:.62,y:.20},{x:.85,y:.24},
-    {x:.15,y:.43},{x:.38,y:.41},{x:.62,y:.41},{x:.85,y:.43},
-    {x:.35,y:.63},{x:.65,y:.63}
+    {x:.50,y:.06},{x:.15,y:.22},{x:.38,y:.18},{x:.62,y:.18},{x:.85,y:.22},
+    {x:.15,y:.42},{x:.38,y:.40},{x:.62,y:.40},{x:.85,y:.42},
+    {x:.35,y:.62},{x:.65,y:.62}
   ],
   '4-3-3': [
-    {x:.50,y:.07},
-    {x:.16,y:.24},{x:.38,y:.20},{x:.62,y:.20},{x:.84,y:.24},
-    {x:.25,y:.43},{x:.50,y:.40},{x:.75,y:.43},
-    {x:.22,y:.62},{x:.50,y:.66},{x:.78,y:.62}
+    {x:.50,y:.06},{x:.16,y:.22},{x:.38,y:.18},{x:.62,y:.18},{x:.84,y:.22},
+    {x:.25,y:.42},{x:.50,y:.38},{x:.75,y:.42},
+    {x:.22,y:.60},{x:.50,y:.64},{x:.78,y:.60}
   ],
   '4-2-3-1': [
-    {x:.50,y:.07},
-    {x:.15,y:.22},{x:.38,y:.18},{x:.62,y:.18},{x:.85,y:.22},
-    {x:.35,y:.35},{x:.65,y:.35},
-    {x:.20,y:.52},{x:.50,y:.50},{x:.80,y:.52},
-    {x:.50,y:.68}
+    {x:.50,y:.06},{x:.15,y:.20},{x:.38,y:.16},{x:.62,y:.16},{x:.85,y:.20},
+    {x:.35,y:.33},{x:.65,y:.33},
+    {x:.20,y:.50},{x:.50,y:.48},{x:.80,y:.50},{x:.50,y:.66}
   ],
   '3-5-2': [
-    {x:.50,y:.07},
-    {x:.25,y:.20},{x:.50,y:.18},{x:.75,y:.20},
-    {x:.12,y:.40},{x:.32,y:.36},{x:.50,y:.34},{x:.68,y:.36},{x:.88,y:.40},
-    {x:.38,y:.62},{x:.62,y:.62}
+    {x:.50,y:.06},{x:.25,y:.19},{x:.50,y:.17},{x:.75,y:.19},
+    {x:.12,y:.38},{x:.32,y:.34},{x:.50,y:.32},{x:.68,y:.34},{x:.88,y:.38},
+    {x:.38,y:.61},{x:.62,y:.61}
   ]
 };
 const DEFAULT_FORMATION = '4-4-2';
 
-// Fallback color per game tag (used when a player has no team color)
-const GAME_FALLBACK = {
-  IE1:0x3399ff, IE2:0xff9933, IE3:0x66cc66,
-  GO1:0xcc66ff, GO2:0xff6699, GO3:0x66cccc,
-  Ares:0xcccc33, VR:0x999999
+// Slot-role mapping: GK=keeper, DF=last rows, MF=mid, FW=front
+const SLOT_ROLES = {
+  '4-4-2': ['GK','DF','DF','DF','DF','MF','MF','MF','MF','FW','FW'],
+  '4-3-3': ['GK','DF','DF','DF','DF','MF','MF','MF','FW','FW','FW'],
+  '4-2-3-1':['GK','DF','DF','DF','DF','MF','MF','MF','MF','MF','FW'],
+  '3-5-2': ['GK','DF','DF','DF','MF','MF','MF','MF','MF','FW','FW']
 };
-function hexToInt(hex){ const n=parseInt((hex||'').replace('#',''),16); return isNaN(n)?null:n; }
+
+// ─── Colour helpers ───────────────────────────────────────────────────────
+const GAME_FALLBACK = {
+  IE1:0x3399ff,IE2:0xff8800,IE3:0x44cc55,
+  GO1:0xcc44ff,GO2:0xff4488,GO3:0x44cccc,
+  Ares:0xddcc22,VR:0x888888
+};
+function hexToInt(h){ const n=parseInt((h||'').replace('#',''),16); return isNaN(n)?null:n; }
+
+/** Guarantee two colors are visually distinct (≥100 luminance distance). */
+function distinctColor(baseColor, takenColor){
+  const OPTIONS=[0x3399ff,0xff4444,0x44cc55,0xffdd00,0xcc44ff,0xff8800,0x00cccc,0xff6699];
+  function dist(a,b){
+    const ra=(a>>16)&0xff,ga=(a>>8)&0xff,ba=a&0xff;
+    const rb=(b>>16)&0xff,gb=(b>>8)&0xff,bb=b&0xff;
+    return Math.abs(ra-rb)+Math.abs(ga-gb)+Math.abs(ba-bb);
+  }
+  if(dist(baseColor,takenColor)>100) return baseColor;
+  const alt=OPTIONS.find(c=>dist(c,takenColor)>100&&dist(c,baseColor)>40);
+  return alt??0xffffff;
+}
 
 export default class GameScene extends Phaser.Scene {
   constructor(){ super('GameScene'); }
 
+  // ════════════════════════════════════════════════════════════════════
   create(){
-    this.horizontal = window.innerWidth > window.innerHeight;
-    this.FIELD_W = this.horizontal ? 760 : 480;
-    this.FIELD_H = this.horizontal ? 480 : 760;
+    // Always use the fixed logical field; viewport is the canvas (set in main.js)
+    this.FIELD_W = FIELD_LOGICAL_W;
+    this.FIELD_H = FIELD_LOGICAL_H;
+    this.VP_W    = VIEWPORT_W;
+    this.VP_H    = VIEWPORT_H;
 
-    const roomCode = getOrCreateRoomCode();
-    document.getElementById('room-code').textContent = roomCode;
-    this.net = connectToRoom(roomCode);
-    this.role = this.net.isHost() ? 'A' : 'B';
+    const roomCode=getOrCreateRoomCode();
+    document.getElementById('room-code').textContent=roomCode;
+    this.net=connectToRoom(roomCode);
+    this.role=this.net.isHost()?'A':'B';
 
     this._drawField();
-    this.pathGraphics = this.add.graphics();
+    this.pathGfx=this.add.graphics();
 
-    // Physics world
-    this.matter.world.setBounds(0, 0, this.FIELD_W, this.FIELD_H);
-    this.ball = this.matter.add.circle(this.FIELD_W/2, this.FIELD_H/2, 7,
-      {restitution:.7, frictionAir:.02, label:'ball'});
-    this.ballGfx = this.add.circle(this.ball.position.x, this.ball.position.y, 7, 0xffffff);
+    this.matter.world.setBounds(0,0,this.FIELD_W,this.FIELD_H);
+    this.ball=this.matter.add.circle(this.FIELD_W/2,this.FIELD_H/2,10,
+      {restitution:.7,frictionAir:.018,label:'ball'});
+    this.ballGfx=this.add.circle(this.ball.position.x,this.ball.position.y,10,0xffffff).setDepth(3);
     this._drawGoals();
 
-    this.possessionRing = this.add.circle(0,0,15)
-      .setStrokeStyle(3,0xffd966).setFillStyle(0,0).setVisible(false);
+    this.possRing=this.add.circle(0,0,20).setStrokeStyle(3,0xffd966).setFillStyle(0,0).setVisible(false).setDepth(4);
+
+    // Camera setup: camera scrolls over the logical world
+    this.cameras.main.setBounds(0,0,this.FIELD_W,this.FIELD_H);
+    this.cameras.main.scrollX=this.FIELD_W/2-this.VP_W/2;
+    this.cameras.main.scrollY=this.FIELD_H/2-this.VP_H/2;
+    this.scrollKeys={up:false,down:false,left:false,right:false};
+    this._setupScrollInput();
 
     // Teams
     this.teamA=[]; this.teamB=[];
     this.statsMapA=new Map(); this.statsMapB=new Map();
     this.activeIdA=null; this.activeIdB=null;
     this.teamColorA=0x3399ff; this.teamColorB=0xff4444;
+    this.stunMap=new Map(); // rosterId -> unstun timestamp
     this.score={a:0,b:0};
     this.clientTeamsBuilt=false;
-    this.formation={A:DEFAULT_FORMATION, B:DEFAULT_FORMATION};
-    this.pendingFormationChange=null;
+    this.formation={A:DEFAULT_FORMATION,B:DEFAULT_FORMATION};
+    this.pendingFormChange=null;
 
-    this.matchClock={half:1, secondsRemaining:HALF_DURATION_S, ended:false};
-
-    this.possessorRole=null; this.currentPossession=null;
+    this.matchClock={half:1,secondsRemaining:HALF_S,ended:false};
+    this.possRole=null; this.currentPossession=null;
     this.duelLockUntil=0; this.confrontation=null;
-    this.confrontationResult=null;
-    this.resultCountdown=null;
+    this.confrontResult=null;
 
     this.matchStarted=false;
-    // Squad is now stored as a list-of-slots (starterIds[slot]) + bench
-    this.squadSlots=Array(TEAM_SIZE).fill(null);   // [rosterId | null]
+    this.squadSlots=Array(TEAM_SIZE).fill(null);
     this.benchIds=new Set();
     this.chosenFormation=DEFAULT_FORMATION;
     this.mySquadConfirmed=false;
     this.mySquadPayload=null;
     this.remoteSquadPayload=null;
 
-    // Input state
     this.myPaths=new Map();
     this.drawing=false;
     this.selectedPlayerId=null;
-    this.gestureStart=null;
-    this.gestureMoved=false;
-    this.pendingShootRequest=false;
-    this.pendingPassTarget=null;
-    this.pendingConfrontationChoice=null;
-    this.pendingSubRequest=null;
-    this.subOutSelection=null;
+    this.gestureStart=null; this.gestureMoved=false;
+    this.pendingShoot=false; this.pendingPass=null;
+    this.pendingChoice=null; this.pendingSub=null; this.subOutSel=null;
+    this.lastStateSent=0;
 
-    // Pointer handlers (for in-game path drawing / passing)
-    this.input.on('pointerdown',   (p)=>this._onPointerDown(p));
-    this.input.on('pointermove',   (p)=>{ if(p.isDown) this._extendPath(p); });
-    this.input.on('pointerup',     (p)=>this._onPointerUp(p));
-    this.input.on('pointerupoutside',(p)=>this._onPointerUp(p));
+    // Pointer handlers
+    this.input.on('pointerdown',(p)=>this._pointerDown(p));
+    this.input.on('pointermove',(p)=>{ if(p.isDown) this._pointerMove(p); });
+    this.input.on('pointerup',(p)=>this._pointerUp(p));
+    this.input.on('pointerupoutside',(p)=>this._pointerUp(p));
 
-    // Confrontation panel buttons
-    document.getElementById('conf-normal').addEventListener('pointerdown',(e)=>{
-      e.stopPropagation(); this.pendingConfrontationChoice='normal';
-    });
-    document.getElementById('conf-technique').addEventListener('pointerdown',(e)=>{
-      e.stopPropagation(); this.pendingConfrontationChoice='technique';
-    });
-
-    // In-match UI buttons
+    document.getElementById('conf-normal').addEventListener('pointerdown',(e)=>{e.stopPropagation();this.pendingChoice='normal';});
+    document.getElementById('conf-technique').addEventListener('pointerdown',(e)=>{e.stopPropagation();this.pendingChoice='technique';});
     document.getElementById('sub-button').addEventListener('click',()=>this._openSubPanel());
-    document.getElementById('sub-cancel-btn').addEventListener('click',()=>{
-      document.getElementById('sub-panel').style.display='none';
-    });
-    document.getElementById('formation-button').addEventListener('click',()=>this._openFormationPickPanel());
-    document.getElementById('formation-pick-close').addEventListener('click',()=>{
-      document.getElementById('formation-pick-panel').style.display='none';
-    });
+    document.getElementById('sub-cancel-btn').addEventListener('click',()=>{document.getElementById('sub-panel').style.display='none';});
+    document.getElementById('formation-button').addEventListener('click',()=>this._openFormPickPanel());
+    document.getElementById('formation-pick-close').addEventListener('click',()=>{document.getElementById('formation-pick-panel').style.display='none';});
 
-    // Build squad-editor UI
+    // Roster load → squad editor
     this.rosterAll=[];
-    document.getElementById('squad-pick-list').innerHTML=
-      '<p style="opacity:.8;font-size:12px;">Loading roster…</p>';
-    loadRoster().then((data)=>{
+    document.getElementById('squad-pick-list').innerHTML='<p style="opacity:.8;font-size:12px;">Loading roster…</p>';
+    loadRoster().then(data=>{
       this.rosterAll=data;
       const gs=document.getElementById('squad-game-filter');
-      getGames().forEach((g)=>{
-        const o=document.createElement('option');
-        o.value=g; o.textContent=g; gs.appendChild(o);
-      });
+      getGames().forEach(g=>{ const o=document.createElement('option'); o.value=g; o.textContent=g; gs.appendChild(o); });
       this._initSquadEditor();
-    }).catch((err)=>{
-      console.error('[roster]',err);
-      document.getElementById('squad-pick-list').innerHTML=
-        `<p style="color:#f88">Couldn't load roster.<br>${err.message}</p>`;
-    });
+    }).catch(err=>{ document.getElementById('squad-pick-list').innerHTML=`<p style="color:#f88">Couldn't load roster.<br>${err.message}</p>`; });
 
     document.getElementById('confirm-squad-btn').addEventListener('click',()=>this._confirmSquad());
 
     // Networking
     this.remoteState=null;
     this.remoteInput={targets:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,formationChange:null};
-    this.net.onInput((d)=>{ this.remoteInput=d; });
-    this.net.onState((d)=>this._handleIncomingState(d));
-    this.net.onSquad((d)=>{
-      this.remoteSquadPayload=d;
-      if(this.role==='A' && this.mySquadConfirmed && !this.matchStarted)
-        this._startMatch(this.mySquadPayload, d);
-    });
-
-    this.matter.world.on('collisionstart',(ev)=>this._handleCollisions(ev));
-    this.lastStateSent=0;
+    this.net.onInput(d=>{ this.remoteInput=d; });
+    this.net.onState(d=>this._incomingState(d));
+    this.net.onSquad(d=>{ this.remoteSquadPayload=d; if(this.role==='A'&&this.mySquadConfirmed&&!this.matchStarted) this._startMatch(this.mySquadPayload,d); });
+    this.matter.world.on('collisionstart',ev=>this._collisions(ev));
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // Field drawing
+  // Field & camera
   // ════════════════════════════════════════════════════════════════════
   _drawField(){
-    const {FIELD_W:w,FIELD_H:h}=this;
-    this.add.rectangle(w/2,h/2,w,h,0x1e7a3c).setStrokeStyle(4,0xffffff);
-    if(this.horizontal)
-      this.add.rectangle(w/2,h/2,1,h,0xffffff).setAlpha(0.4);
-    else
-      this.add.rectangle(w/2,h/2,w,1,0xffffff).setAlpha(0.4);
+    const w=this.FIELD_W, h=this.FIELD_H;
+    // Full field background
+    this.add.rectangle(w/2,h/2,w,h,0x1e7a3c).setStrokeStyle(5,0xffffff).setDepth(0);
+    // Halfway line
+    this.add.rectangle(w/2,h/2,w,2,0xffffff).setAlpha(0.5).setDepth(1);
+    // Centre circle
+    this.add.circle(w/2,h/2,60).setStrokeStyle(2,0xffffff,0.5).setFillStyle(0,0).setDepth(1);
+    // Penalty areas
+    const paW=w*0.5, paH=h*0.12;
+    this.add.rectangle(w/2,paH/2,paW,paH).setStrokeStyle(2,0xffffff,0.5).setFillStyle(0,0).setDepth(1);
+    this.add.rectangle(w/2,h-paH/2,paW,paH).setStrokeStyle(2,0xffffff,0.5).setFillStyle(0,0).setDepth(1);
   }
+
   _drawGoals(){
-    const {FIELD_W:w,FIELD_H:h}=this;
-    if(this.horizontal){
-      this.add.rectangle(10,h/2,6,GOAL_HALF_WIDTH*2,0xffffff);
-      this.add.rectangle(w-10,h/2,6,GOAL_HALF_WIDTH*2,0xffffff);
-      this.goalMin=this.matter.add.rectangle(0,h/2,12,GOAL_HALF_WIDTH*2,{isSensor:true,isStatic:true,label:'goalMin'});
-      this.goalMax=this.matter.add.rectangle(w,h/2,12,GOAL_HALF_WIDTH*2,{isSensor:true,isStatic:true,label:'goalMax'});
-    } else {
-      this.add.rectangle(w/2,10,GOAL_HALF_WIDTH*2,6,0xffffff);
-      this.add.rectangle(w/2,h-10,GOAL_HALF_WIDTH*2,6,0xffffff);
-      this.goalMin=this.matter.add.rectangle(w/2,0,GOAL_HALF_WIDTH*2,12,{isSensor:true,isStatic:true,label:'goalMin'});
-      this.goalMax=this.matter.add.rectangle(w/2,h,GOAL_HALF_WIDTH*2,12,{isSensor:true,isStatic:true,label:'goalMax'});
-    }
+    const w=this.FIELD_W, h=this.FIELD_H;
+    // Visual
+    this.add.rectangle(w/2,8,GOAL_HALF_WIDTH*2,12,0xffffff).setDepth(2);
+    this.add.rectangle(w/2,h-8,GOAL_HALF_WIDTH*2,12,0xffffff).setDepth(2);
+    // Physics sensors
+    this.goalMin=this.matter.add.rectangle(w/2,0,GOAL_HALF_WIDTH*2,16,{isSensor:true,isStatic:true,label:'goalMin'});
+    this.goalMax=this.matter.add.rectangle(w/2,h,GOAL_HALF_WIDTH*2,16,{isSensor:true,isStatic:true,label:'goalMax'});
   }
-  _primaryAxis()    { return this.horizontal?'x':'y'; }
-  _secondaryAxis()  { return this.horizontal?'y':'x'; }
-  _primarySize()    { return this.horizontal?this.FIELD_W:this.FIELD_H; }
-  _secondarySize()  { return this.horizontal?this.FIELD_H:this.FIELD_W; }
 
-  // ════════════════════════════════════════════════════════════════════
-  // Avatar helpers
-  // ════════════════════════════════════════════════════════════════════
-  _rosterColor(p){ return hexToInt(p&&p.teamColor) ?? (GAME_FALLBACK[p&&p.game]??0x999999); }
-  _initials(p){
-    return (p.nickname||p.name||'?').split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
-  }
-  _css3Color(intColor){ return '#'+intColor.toString(16).padStart(6,'0'); }
-
-  // ════════════════════════════════════════════════════════════════════
-  // Squad editor (topological / pitch-based)
-  // ════════════════════════════════════════════════════════════════════
-
-  _initSquadEditor(){
-    const formSel=document.getElementById('formation-select');
-    formSel.addEventListener('change',()=>{
-      this.chosenFormation=formSel.value;
-      this._renderPitch();
+  _setupScrollInput(){
+    // Keyboard (PC)
+    const kb=this.input.keyboard;
+    kb.on('keydown-UP',    ()=>{this.scrollKeys.up=true;});
+    kb.on('keyup-UP',      ()=>{this.scrollKeys.up=false;});
+    kb.on('keydown-DOWN',  ()=>{this.scrollKeys.down=true;});
+    kb.on('keyup-DOWN',    ()=>{this.scrollKeys.down=false;});
+    kb.on('keydown-LEFT',  ()=>{this.scrollKeys.left=true;});
+    kb.on('keyup-LEFT',    ()=>{this.scrollKeys.left=false;});
+    kb.on('keydown-RIGHT', ()=>{this.scrollKeys.right=true;});
+    kb.on('keyup-RIGHT',   ()=>{this.scrollKeys.right=false;});
+    // Mobile scroll buttons are in HTML — they poke scrollKeys directly
+    ['scroll-up','scroll-down','scroll-left','scroll-right'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      const dir=id.split('-')[1];
+      el.addEventListener('pointerdown',()=>{this.scrollKeys[dir]=true;});
+      el.addEventListener('pointerup',  ()=>{this.scrollKeys[dir]=false;});
+      el.addEventListener('pointerleave',()=>{this.scrollKeys[dir]=false;});
     });
-
-    document.getElementById('randomize-squad-btn').addEventListener('click',()=>this._randomizeSquad());
-    document.getElementById('squad-whole-team-btn').addEventListener('click',()=>this._useWholeTeam());
-
-    const searchEl=document.getElementById('squad-search');
-    const gameEl=document.getElementById('squad-game-filter');
-    searchEl.addEventListener('input',()=>this._renderPickList());
-    gameEl.addEventListener('change',()=>this._renderPickList());
-
-    this._renderPitch();
-    this._renderPickList();
-    this._refreshConfirmBtn();
   }
 
-  _slotMatches(){
-    return this.squadSlots.filter(Boolean).length;
+  _tickScroll(delta){
+    const cam=this.cameras.main;
+    const spd=SCROLL_SPEED*(delta/1000);
+    if(this.scrollKeys.up)    cam.scrollY=Math.max(0,cam.scrollY-spd);
+    if(this.scrollKeys.down)  cam.scrollY=Math.min(this.FIELD_H-this.VP_H,cam.scrollY+spd);
+    if(this.scrollKeys.left)  cam.scrollX=Math.max(0,cam.scrollX-spd);
+    if(this.scrollKeys.right) cam.scrollX=Math.min(this.FIELD_W-this.VP_W,cam.scrollX+spd);
+  }
+
+  /** Convert screen (pointer) coords to world coords accounting for camera. */
+  _toWorld(x,y){
+    const cam=this.cameras.main;
+    return {x:x+cam.scrollX, y:y+cam.scrollY};
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // Avatar / color helpers
+  // ════════════════════════════════════════════════════════════════════
+  _rosterColor(p){ return hexToInt(p&&p.teamColor)??(GAME_FALLBACK[p&&p.game]??0x999999); }
+  _initials(p){ return (p.nickname||p.name||'?').split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase(); }
+  _css3(intC){ return '#'+intC.toString(16).padStart(6,'0'); }
+
+  _squadColor(ids, fallback){
+    const counts={};
+    ids.forEach(id=>{ const p=getPlayerById(id); const c=p?.teamColor; if(c) counts[c]=(counts[c]||0)+1; });
+    const top=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
+    return top?hexToInt(top[0]):fallback;
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // Squad editor (topological pitch)
+  // ════════════════════════════════════════════════════════════════════
+  _initSquadEditor(){
+    document.getElementById('formation-select').addEventListener('change',e=>{
+      this.chosenFormation=e.target.value; this._renderPitch();
+    });
+    document.getElementById('randomize-squad-btn').addEventListener('click',()=>this._randomize());
+    document.getElementById('squad-whole-team-btn').addEventListener('click',()=>this._useWholeTeam());
+    document.getElementById('squad-search').addEventListener('input',()=>this._renderPickList());
+    document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickList());
+    this._renderPitch(); this._renderPickList();
   }
 
   _allInSquad(){
-    const set=new Set(this.squadSlots.filter(Boolean));
-    for(const id of this.benchIds) set.add(id);
-    return set;
+    const s=new Set(this.squadSlots.filter(Boolean));
+    this.benchIds.forEach(id=>s.add(id)); return s;
   }
-
-  // ---- Pitch rendering -------------------------------------------------
 
   _renderPitch(){
     const pitch=document.getElementById('formation-pitch');
     pitch.innerHTML='<div class="pitch-line-h"></div>';
-
     const preset=FORMATIONS[this.chosenFormation]||FORMATIONS[DEFAULT_FORMATION];
-
+    const roles=SLOT_ROLES[this.chosenFormation]||SLOT_ROLES[DEFAULT_FORMATION];
     preset.forEach((f,slot)=>{
       const pin=document.createElement('div');
-      pin.className='slot-pin';
-      pin.dataset.slot=slot;
-      // x=secondary(across pitch), y=primary(from own goal)
-      // The pitch HTML element is always portrait (aspect-ratio:2/3)
-      // secondary maps to left, primary maps to top (from bottom = own goal)
+      pin.className='slot-pin'; pin.dataset.slot=slot;
       pin.style.left=(f.x*100)+'%';
-      pin.style.top = ((1-f.y)*100)+'%';   // invert: 0=own goal=bottom
-
-      const pid=this.squadSlots[slot];
-      const p=pid?getPlayerById(pid):null;
+      pin.style.top =((1-f.y)*100)+'%';
+      const pid=this.squadSlots[slot]; const p=pid?getPlayerById(pid):null;
       if(p){
-        const color=this._css3Color(this._rosterColor(p));
-        pin.innerHTML=`<div class="pin-avatar" style="background:${color}">${this._initials(p)}</div><div class="pin-name">${p.nickname||p.name}</div>`;
+        const col=this._css3(this._rosterColor(p));
+        pin.innerHTML=`<div class="pin-avatar" style="background:${col}">${this._initials(p)}</div><div class="pin-name">${p.nickname||p.name}</div>`;
       } else {
         pin.classList.add('empty');
-        pin.innerHTML=`<div style="font-size:10px;opacity:.5;">slot ${slot===0?'GK':slot}</div>`;
+        pin.innerHTML=`<div style="font-size:9px;opacity:.55">${roles[slot]}</div>`;
       }
-      this._makePinDraggable(pin, 'slot', slot);
+      pin.addEventListener('click',()=>{ if(!p) return; this._showPlayerStats(p); });
+      this._makeDraggable(pin,'slot',slot);
       pitch.appendChild(pin);
     });
-
-    // bench strip
-    const strip=document.getElementById('bench-strip');
-    strip.innerHTML='';
-    [...this.benchIds].forEach((pid)=>{
-      const p=getPlayerById(pid);
-      if(!p) return;
-      const pin=document.createElement('div');
-      pin.className='bench-pin';
-      pin.dataset.benchId=pid;
-      const color=this._css3Color(this._rosterColor(p));
-      pin.innerHTML=`<div class="pin-avatar" style="background:${color};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div><div class="pin-name">${p.nickname||p.name}</div>`;
-      this._makePinDraggable(pin, 'bench', pid);
+    const strip=document.getElementById('bench-strip'); strip.innerHTML='';
+    [...this.benchIds].forEach(pid=>{
+      const p=getPlayerById(pid); if(!p) return;
+      const pin=document.createElement('div'); pin.className='bench-pin'; pin.dataset.benchId=pid;
+      const col=this._css3(this._rosterColor(p));
+      pin.innerHTML=`<div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div><div class="pin-name">${p.nickname||p.name}</div>`;
+      pin.addEventListener('click',()=>this._showPlayerStats(p));
+      this._makeDraggable(pin,'bench',pid);
       strip.appendChild(pin);
     });
-
     document.getElementById('bench-count').textContent=this.benchIds.size;
-    document.getElementById('squad-fill-count').textContent=`${this._slotMatches()}/11 filled`;
-    this._refreshConfirmBtn();
+    const filled=this.squadSlots.filter(Boolean).length;
+    document.getElementById('squad-fill-count').textContent=`${filled}/11 filled`;
+    const btn=document.getElementById('confirm-squad-btn');
+    btn.textContent=`Confirm squad (${filled}/11)`; btn.disabled=filled!==TEAM_SIZE;
   }
 
-  // ---- Drag-and-drop between pitch slots and the pick list ---------------
+  _showPlayerStats(p){
+    // Populate and show the stat panel overlay
+    const el=document.getElementById('player-stat-panel');
+    const col=this._css3(this._rosterColor(p));
+    const techs=['shot','dribble','defense','keeper'].map(cat=>{
+      const t=p.techniques&&p.techniques[cat];
+      return t?`<div style="display:flex;justify-content:space-between;gap:8px"><span>${t.name}</span><span style="opacity:.7">${t.cost} PT</span></div>`:'';
+    }).join('');
+    const st=p.stats;
+    el.innerHTML=`
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <span style="width:44px;height:44px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:bold;color:rgba(0,0,0,.8);flex-shrink:0">${this._initials(p)}</span>
+        <div>
+          <div style="font-weight:bold;font-size:15px">${p.name}</div>
+          <div style="font-size:12px;opacity:.75">${p.position} · ${p.team||p.game}</div>
+        </div>
+        <button onclick="document.getElementById('player-stat-panel').style.display='none'" style="margin-left:auto;background:none;border:none;color:white;font-size:20px;cursor:pointer">×</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px;">
+        <div>⚡ Shot <b>${st.shotPower.toFixed(2)}</b></div>
+        <div>💨 Dribble <b>${st.dribblePower.toFixed(2)}</b></div>
+        <div>🛡 Defense <b>${st.defensePower.toFixed(2)}</b></div>
+        <div>🧤 Keeper <b>${st.keeperPower.toFixed(2)}</b></div>
+        <div>🏃 Speed <b>${st.speed.toFixed(2)}</b></div>
+      </div>
+      ${techs?`<div style="font-size:11px;opacity:.7;margin-bottom:4px">Supertechniques:</div><div style="font-size:12px;display:flex;flex-direction:column;gap:3px">${techs}</div>`:'<div style="font-size:11px;opacity:.5">No supertechniques</div>'}
+    `;
+    el.style.display='block';
+  }
 
-  _dragState=null;   // {type:'slot'|'bench'|'list', id, el, ghost}
-
-  _makePinDraggable(el, type, idOrSlot){
-    el.addEventListener('pointerdown',(e)=>{
-      e.stopPropagation();
-      el.setPointerCapture(e.pointerId);
-      const ghost=el.cloneNode(true);
-      ghost.style.cssText+=';position:fixed;pointer-events:none;opacity:0.85;z-index:100;';
-      ghost.classList.add('dragging');
-      document.body.appendChild(ghost);
-      this._dragState={type, id:idOrSlot, el, ghost,
-        startX:e.clientX, startY:e.clientY, moved:false};
-      this._moveDragGhost(e.clientX, e.clientY);
+  _dragState=null;
+  _makeDraggable(el,type,idOrSlot){
+    el.addEventListener('pointerdown',e=>{
+      e.stopPropagation(); el.setPointerCapture(e.pointerId);
+      const g=el.cloneNode(true); g.style.cssText+=';position:fixed;pointer-events:none;opacity:.85;z-index:200;'; g.classList.add('dragging'); document.body.appendChild(g);
+      this._dragState={type,id:idOrSlot,el,ghost:g,moved:false};
+      this._moveGhost(e.clientX,e.clientY);
     });
-    el.addEventListener('pointermove',(e)=>{
-      if(!this._dragState||this._dragState.el!==el) return;
-      this._dragState.moved=true;
-      this._moveDragGhost(e.clientX, e.clientY);
-    });
-    el.addEventListener('pointerup',(e)=>{
+    el.addEventListener('pointermove',e=>{ if(!this._dragState||this._dragState.el!==el) return; this._dragState.moved=true; this._moveGhost(e.clientX,e.clientY); });
+    el.addEventListener('pointerup',e=>{
       if(!this._dragState||this._dragState.el!==el) return;
       this._dragState.ghost.remove();
-      if(this._dragState.moved) this._dropAt(e.clientX, e.clientY, this._dragState);
+      if(this._dragState.moved) this._drop(e.clientX,e.clientY,this._dragState);
       this._dragState=null;
     });
   }
-
-  _moveDragGhost(cx,cy){
-    const g=this._dragState.ghost;
-    g.style.left=(cx-22)+'px'; g.style.top=(cy-22)+'px';
-  }
-
-  _dropAt(cx,cy,drag){
-    // Find what's under the pointer: another slot-pin, bench-pin, or pick-card?
+  _moveGhost(cx,cy){ const g=this._dragState.ghost; g.style.left=(cx-22)+'px'; g.style.top=(cy-22)+'px'; }
+  _drop(cx,cy,drag){
     const els=document.elementsFromPoint(cx,cy);
-
-    // Priority 1: drop on a slot-pin
-    const targetSlotEl=els.find(el=>el.classList.contains('slot-pin')&&!el.classList.contains('dragging'));
-    if(targetSlotEl){
-      const targetSlot=parseInt(targetSlotEl.dataset.slot);
-      this._swapToSlot(drag, targetSlot);
-      this._renderPitch();
-      this._renderPickList();
-      return;
-    }
-
-    // Priority 2: drop on bench strip or a bench-pin
-    const benchArea=document.getElementById('bench-strip');
-    const inBench=els.includes(benchArea)||els.find(el=>el.classList.contains('bench-pin')&&!el.classList.contains('dragging'));
-    if(inBench){
-      this._moveToBench(drag);
-      this._renderPitch();
-      this._renderPickList();
-      return;
-    }
-
-    // No valid target — drop back (no-op, already cleaned up)
-  }
-
-  _swapToSlot(drag, targetSlot){
-    const currentInTarget=this.squadSlots[targetSlot];
-    if(drag.type==='slot'){
-      const sourceSlot=drag.id;
-      this.squadSlots[targetSlot]=this.squadSlots[sourceSlot];
-      this.squadSlots[sourceSlot]=currentInTarget;
-    } else if(drag.type==='bench'){
-      const pid=drag.id;
-      if(currentInTarget) this.benchIds.add(currentInTarget);
-      this.squadSlots[targetSlot]=pid;
-      this.benchIds.delete(pid);
-    } else if(drag.type==='list'){
-      const pid=drag.id;
-      if(currentInTarget && !this._allInSquad().has(currentInTarget)){
-        // was nowhere; just remove from slot cleanly
-      } else if(currentInTarget){
-        this.squadSlots[this.squadSlots.indexOf(currentInTarget)]=null;
-      }
-      if(currentInTarget) { /* push old occupant out — it's just removed */ }
-      this.squadSlots[targetSlot]=pid;
+    const tSlot=els.find(e=>e.classList.contains('slot-pin')&&!e.classList.contains('dragging'));
+    if(tSlot){ this._swapToSlot(drag,parseInt(tSlot.dataset.slot)); this._renderPitch(); this._renderPickList(); return; }
+    const bench=document.getElementById('bench-strip');
+    if(els.includes(bench)||els.find(e=>e.classList.contains('bench-pin')&&!e.classList.contains('dragging'))){
+      this._moveToBench(drag); this._renderPitch(); this._renderPickList(); return;
     }
   }
-
+  _swapToSlot(drag,tSlot){
+    const cur=this.squadSlots[tSlot];
+    if(drag.type==='slot'){ const s=drag.id; this.squadSlots[tSlot]=this.squadSlots[s]; this.squadSlots[s]=cur; }
+    else if(drag.type==='bench'){ if(cur) this.benchIds.add(cur); this.squadSlots[tSlot]=drag.id; this.benchIds.delete(drag.id); }
+    else if(drag.type==='list'){ if(cur){ const oIdx=this.squadSlots.indexOf(cur); if(oIdx!==-1) this.squadSlots[oIdx]=null; } this.squadSlots[tSlot]=drag.id; }
+  }
   _moveToBench(drag){
-    if(this.benchIds.size>=BENCH_MAX && drag.type!=='bench') return;
-    if(drag.type==='slot'){
-      const pid=this.squadSlots[drag.id];
-      if(!pid) return;
-      if(this.benchIds.size<BENCH_MAX){
-        this.benchIds.add(pid);
-        this.squadSlots[drag.id]=null;
-      }
-    } else if(drag.type==='list'){
-      if(this.benchIds.size<BENCH_MAX) this.benchIds.add(drag.id);
-    }
-    // bench→bench: no-op (already there)
+    if(drag.type==='slot'){ const pid=this.squadSlots[drag.id]; if(!pid||this.benchIds.size>=BENCH_MAX) return; this.benchIds.add(pid); this.squadSlots[drag.id]=null; }
+    else if(drag.type==='list'){ if(this.benchIds.size<BENCH_MAX) this.benchIds.add(drag.id); }
   }
-
-  // ---- Pick list (roster search) ----------------------------------------
 
   _renderPickList(){
     const list=document.getElementById('squad-pick-list');
     const q=(document.getElementById('squad-search').value||'').toLowerCase();
     const gf=document.getElementById('squad-game-filter').value;
-    const inSquad=this._allInSquad();
-    const MAX=120;
-
-    const matches=this.rosterAll.filter(p=>
-      (!gf||p.game===gf)&&
-      (!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q))
-    );
-    document.getElementById('pick-count').textContent=
-      matches.length>MAX?`Showing ${MAX} of ${matches.length} — narrow the search`:`${matches.length} players`;
-
+    const inSquad=this._allInSquad(); const MAX=120;
+    const matches=this.rosterAll.filter(p=>(!gf||p.game===gf)&&(!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q)));
+    document.getElementById('pick-count').textContent=matches.length>MAX?`Showing ${MAX} of ${matches.length}`:`${matches.length} players`;
     list.innerHTML='';
     matches.slice(0,MAX).forEach(p=>{
       const card=document.createElement('div');
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'');
-      const color=this._css3Color(this._rosterColor(p));
-      card.innerHTML=`
-        <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
-          <span class="av" style="width:20px;height:20px;font-size:8px;background:${color}">${this._initials(p)}</span>
-          <span class="pick-name">${p.nickname||p.name}</span>
-        </div>
-        <div style="font-size:10px;opacity:.7">${p.position} · ${p.team||p.game}</div>
-        <div style="font-size:10px;opacity:.6">SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>`;
-
-      // Tap to fill first empty slot
-      card.addEventListener('click',()=>{
-        if(inSquad.has(p.id)) return;
-        const empty=this.squadSlots.findIndex(s=>s===null);
-        if(empty===-1 && this.benchIds.size<BENCH_MAX){ this.benchIds.add(p.id); }
-        else if(empty!==-1){ this.squadSlots[empty]=p.id; }
-        this._renderPitch(); this._renderPickList();
-      });
-      // Drag from list
-      this._makePinDraggable(card,'list',p.id);
+      const col=this._css3(this._rosterColor(p));
+      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span><span class="pick-name">${p.nickname||p.name}</span></div><div style="font-size:10px;opacity:.7">${p.position} · ${p.team||p.game}</div><div style="font-size:10px;opacity:.6">SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>`;
+      card.addEventListener('click',()=>{ if(inSquad.has(p.id)){this._showPlayerStats(p);return;} const e=this.squadSlots.findIndex(s=>s===null); if(e!==-1){this.squadSlots[e]=p.id;}else if(this.benchIds.size<BENCH_MAX){this.benchIds.add(p.id);} this._renderPitch();this._renderPickList(); });
+      this._makeDraggable(card,'list',p.id);
       list.appendChild(card);
     });
-
-    // enable "use whole team" only when a game is filtered
     document.getElementById('squad-whole-team-btn').disabled=!gf;
   }
 
   _useWholeTeam(){
-    const gf=document.getElementById('squad-game-filter').value;
-    if(!gf) return;
+    const gf=document.getElementById('squad-game-filter').value; if(!gf) return;
     const pool=this.rosterAll.filter(p=>p.game===gf);
-    const gk=pool.find(p=>p.position==='GK');
-    const rest=pool.filter(p=>!gk||p.id!==gk.id);
+    const gk=pool.find(p=>p.position==='GK'), rest=pool.filter(p=>!gk||p.id!==gk.id);
     const ordered=gk?[gk,...rest]:rest;
     this.squadSlots=ordered.slice(0,TEAM_SIZE).map(p=>p.id);
     while(this.squadSlots.length<TEAM_SIZE) this.squadSlots.push(null);
@@ -471,225 +425,211 @@ export default class GameScene extends Phaser.Scene {
     this._renderPitch(); this._renderPickList();
   }
 
-  _randomizeSquad(){
-    const pool=[...this.rosterAll];
-    Phaser.Utils.Array.Shuffle(pool);
-    const gk=pool.find(p=>p.position==='GK');
-    const rest=pool.filter(p=>!gk||p.id!==gk.id);
+  _randomize(){
+    const pool=[...this.rosterAll]; Phaser.Utils.Array.Shuffle(pool);
+    const gk=pool.find(p=>p.position==='GK'), rest=pool.filter(p=>!gk||p.id!==gk.id);
     const ordered=gk?[gk,...rest]:rest;
     this.squadSlots=ordered.slice(0,TEAM_SIZE).map(p=>p.id);
     while(this.squadSlots.length<TEAM_SIZE) this.squadSlots.push(null);
     this.benchIds=new Set(ordered.slice(TEAM_SIZE,TEAM_SIZE+BENCH_MAX).map(p=>p.id));
-    const fkeys=Object.keys(FORMATIONS);
-    this.chosenFormation=Phaser.Utils.Array.GetRandom(fkeys);
+    const fk=Object.keys(FORMATIONS); this.chosenFormation=Phaser.Utils.Array.GetRandom(fk);
     document.getElementById('formation-select').value=this.chosenFormation;
     this._renderPitch(); this._renderPickList();
   }
 
-  _refreshConfirmBtn(){
-    const filled=this._slotMatches();
-    const btn=document.getElementById('confirm-squad-btn');
-    btn.textContent=`Confirm squad (${filled}/11)`;
-    btn.disabled=filled!==TEAM_SIZE;
-  }
-
   _confirmSquad(){
-    const starterIds=this.squadSlots.filter(Boolean);
-    if(starterIds.length!==TEAM_SIZE) return;
-    const payload={
-      starterIds,
-      benchIds:[...this.benchIds],
-      formation:this.chosenFormation
-    };
-    this.mySquadPayload=payload;
-    this.mySquadConfirmed=true;
+    const starterIds=this.squadSlots.filter(Boolean); if(starterIds.length!==TEAM_SIZE) return;
+    const payload={starterIds,benchIds:[...this.benchIds],formation:this.chosenFormation};
+    this.mySquadPayload=payload; this.mySquadConfirmed=true;
     this.net.sendSquad(payload);
     document.getElementById('confirm-squad-btn').disabled=true;
-
     if(this.role==='A'){
-      if(!this.net.hasPeer()){
-        this._startMatch(payload, this._defaultAISquad());
-      } else if(this.remoteSquadPayload){
-        this._startMatch(payload, this.remoteSquadPayload);
-      } else {
-        document.getElementById('squad-status').textContent='Waiting for opponent…';
-      }
-    } else {
-      document.getElementById('squad-status').textContent='Waiting for match to start…';
-    }
+      if(!this.net.hasPeer()) this._startMatch(payload,this._defaultAISquad());
+      else if(this.remoteSquadPayload) this._startMatch(payload,this.remoteSquadPayload);
+      else document.getElementById('squad-status').textContent='Waiting for opponent…';
+    } else { document.getElementById('squad-status').textContent='Waiting for match to start…'; }
   }
 
   _defaultAISquad(){
-    const pool=this.rosterAll;
-    const gk=pool.find(p=>p.position==='GK');
-    const rest=pool.filter(p=>!gk||p.id!==gk.id);
+    const pool=this.rosterAll, gk=pool.find(p=>p.position==='GK'), rest=pool.filter(p=>!gk||p.id!==gk.id);
     const ordered=gk?[gk,...rest]:rest;
-    return{
-      starterIds:ordered.slice(0,TEAM_SIZE).map(p=>p.id),
-      benchIds:ordered.slice(TEAM_SIZE,TEAM_SIZE+3).map(p=>p.id),
-      formation:DEFAULT_FORMATION
-    };
+    return{starterIds:ordered.slice(0,TEAM_SIZE).map(p=>p.id),benchIds:ordered.slice(TEAM_SIZE,TEAM_SIZE+3).map(p=>p.id),formation:DEFAULT_FORMATION};
   }
 
   // ════════════════════════════════════════════════════════════════════
   // Match setup
   // ════════════════════════════════════════════════════════════════════
-
-  /** Derive one "team color" from the majority kit color of the squad. */
-  _squadColor(starterIds, fallback){
-    const colorCounts={};
-    for(const id of starterIds){
-      const p=getPlayerById(id);
-      const col=p&&p.teamColor?p.teamColor:null;
-      if(col) colorCounts[col]=(colorCounts[col]||0)+1;
-    }
-    const top=Object.entries(colorCounts).sort((a,b)=>b[1]-a[1])[0];
-    return top?hexToInt(top[0]):fallback;
-  }
-
   _buildTeam(role, starterIds, withPhysics){
-    const team=[];
-    const map=role==='A'?this.statsMapA:this.statsMapB;
-    const teamColor=role==='A'?this.teamColorA:this.teamColorB;
+    const team=[]; const map=role==='A'?this.statsMapA:this.statsMapB;
+    const tColor=role==='A'?this.teamColorA:this.teamColorB;
     starterIds.forEach((id,slot)=>{
-      const rp=getPlayerById(id);
-      if(!rp) return;
-      const pos=this._formPos(role, slot, {x:this.FIELD_W/2, y:this.FIELD_H/2});
-      const body=withPhysics?this.matter.add.circle(pos.x,pos.y,9,{frictionAir:.14,label:`${role}${slot}`}):null;
-      const gfx=this.add.circle(pos.x,pos.y,9,teamColor);
-      // Name label
-      const label=this.add.text(pos.x, pos.y+13, rp.nickname||rp.name,
-        {fontSize:'6px', color:'#ffffff', stroke:'#000', strokeThickness:2, resolution:3});
-      label.setOrigin(0.5,0);
-      team.push({id, body, gfx, label, slot});
-      const stats=createPlayerStats();
-      applyRosterPlayerToStats(stats,rp);
-      map.set(id,stats);
+      const rp=getPlayerById(id); if(!rp) return;
+      const pos=this._formPos(role,slot,{x:this.FIELD_W/2,y:this.FIELD_H/2});
+      const body=withPhysics?this.matter.add.circle(pos.x,pos.y,12,{frictionAir:.16,label:`${role}${slot}`}):null;
+      const gfx=this.add.circle(pos.x,pos.y,12,tColor).setDepth(5);
+      const label=this.add.text(pos.x,pos.y+15,rp.nickname||rp.name,
+        {fontSize:'7px',color:'#fff',stroke:'#000',strokeThickness:3,resolution:3}).setOrigin(.5,0).setDepth(6);
+      team.push({id,body,gfx,label,slot});
+      const st=createPlayerStats(); applyRosterPlayerToStats(st,rp); map.set(id,st);
     });
     return team;
   }
 
-  _findGkId(starterIds){
-    const found=starterIds.find(id=>{ const p=getPlayerById(id); return p&&p.position==='GK'; });
-    return found||starterIds[0];
-  }
+  _findGkId(ids){ return ids.find(id=>getPlayerById(id)?.position==='GK')||ids[0]; }
 
-  _startMatch(payloadA, payloadB){
+  _startMatch(payloadA,payloadB){
     this.formation.A=payloadA.formation||DEFAULT_FORMATION;
     this.formation.B=payloadB.formation||DEFAULT_FORMATION;
-    this.teamColorA=this._squadColor(payloadA.starterIds,0x3399ff);
-    this.teamColorB=this._squadColor(payloadB.starterIds,0xff4444);
+    // Ensure distinct team colors
+    const rawA=this._squadColor(payloadA.starterIds,0x3399ff);
+    const rawB=this._squadColor(payloadB.starterIds,0xff4444);
+    this.teamColorA=rawA;
+    this.teamColorB=distinctColor(rawB,rawA);
     this.teamA=this._buildTeam('A',payloadA.starterIds,true);
     this.teamB=this._buildTeam('B',payloadB.starterIds,true);
     this.benchA=(payloadA.benchIds||[]).filter(id=>getPlayerById(id));
     this.benchB=(payloadB.benchIds||[]).filter(id=>getPlayerById(id));
     this.gkIdA=this._findGkId(payloadA.starterIds);
     this.gkIdB=this._findGkId(payloadB.starterIds);
-    this.activeIdA=this.teamA[0]?this.teamA[0].id:null;
-    this.activeIdB=this.teamB[0]?this.teamB[0].id:null;
+    this.activeIdA=this.teamA[0]?.id; this.activeIdB=this.teamB[0]?.id;
     this.matchStarted=true;
     document.getElementById('squad-editor-panel').style.display='none';
     document.getElementById('formation-button').style.display='block';
+    document.getElementById('scroll-controls').style.display='flex';
   }
 
   _buildClientTeams(){
     if(this.clientTeamsBuilt||!this.mySquadPayload||!this.remoteSquadPayload) return;
     this.formation.A=this.remoteSquadPayload.formation||DEFAULT_FORMATION;
     this.formation.B=this.mySquadPayload.formation||DEFAULT_FORMATION;
-    this.teamColorA=this._squadColor(this.remoteSquadPayload.starterIds,0x3399ff);
-    this.teamColorB=this._squadColor(this.mySquadPayload.starterIds,0xff4444);
+    const rawA=this._squadColor(this.remoteSquadPayload.starterIds,0x3399ff);
+    const rawB=this._squadColor(this.mySquadPayload.starterIds,0xff4444);
+    this.teamColorA=rawA; this.teamColorB=distinctColor(rawB,rawA);
     this.teamA=this._buildTeam('A',this.remoteSquadPayload.starterIds,false);
     this.teamB=this._buildTeam('B',this.mySquadPayload.starterIds,false);
-    this.benchA=this.remoteSquadPayload.benchIds||[];
-    this.benchB=this.mySquadPayload.benchIds||[];
+    this.benchA=this.remoteSquadPayload.benchIds||[]; this.benchB=this.mySquadPayload.benchIds||[];
     this.gkIdA=this._findGkId(this.remoteSquadPayload.starterIds);
     this.gkIdB=this._findGkId(this.mySquadPayload.starterIds);
     this.clientTeamsBuilt=true;
     document.getElementById('formation-button').style.display='block';
+    document.getElementById('scroll-controls').style.display='flex';
   }
 
-  _formPos(role, slot, ballPos){
+  /** Formation position in world coords. Defensive slot roles (GK/DF) stay deep;
+   *  offensive ones (MF/FW) pull toward the ball's Y. */
+  _formPos(role,slot,ballPos){
     const preset=FORMATIONS[this.formation[role]]||FORMATIONS[DEFAULT_FORMATION];
+    const roles=SLOT_ROLES[this.formation[role]]||SLOT_ROLES[DEFAULT_FORMATION];
     const f=preset[slot]||preset[preset.length-1];
-    const pSize=this._primarySize(), sSize=this._secondarySize(), margin=24;
+    const slotRole=roles[slot]||'MF';
+
+    const pSize=this.FIELD_H, sSize=this.FIELD_W, margin=40;
     const halfP=pSize/2-margin;
+
+    // Base Y from own goal→halfway
     let primary=f.y*halfP+margin;
     if(role==='B') primary=pSize-primary;
+
+    // Secondary spread (X) tracks ball loosely
     let secondary=f.x*sSize;
-    secondary+=Phaser.Math.Clamp((ballPos[this._secondaryAxis()]-sSize/2)*0.12,-35,35);
-    return this.horizontal?{x:primary,y:secondary}:{x:secondary,y:primary};
+    secondary+=Phaser.Math.Clamp((ballPos.x-sSize/2)*0.15,-50,50);
+
+    // Autonomous "find space": pull forward/backward toward ball based on role
+    const ballY=ballPos.y;
+    const ownGoalY=role==='A'?0:pSize;
+    const attackDir=role==='A'?1:-1;
+    const toBall=(ballY-primary)*attackDir;  // +ve means ball is in front of us
+
+    // Role-based position bias
+    let yBias=0;
+    if(slotRole==='FW')       yBias= Math.min(toBall*0.28, 120);   // forwards chase ball aggressively
+    else if(slotRole==='MF')  yBias= Math.min(toBall*0.14,  60);   // mids follow somewhat
+    else if(slotRole==='DF')  yBias= Math.max(toBall*0.06, -20);   // defenders hold back
+    // GK never moves from goal line
+    if(slot===0){ yBias=0; secondary=sSize/2; }   // keeper always central
+
+    primary = Phaser.Math.Clamp(primary+yBias*attackDir, margin, pSize-margin);
+    return {x:secondary, y:primary};
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // Formation change (mid-match)
+  // Formation pick (mid-match) + substitution panel (pitch view)
   // ════════════════════════════════════════════════════════════════════
-  _openFormationPickPanel(){
-    const wrap=document.getElementById('formation-preset-btns');
-    wrap.innerHTML='';
+  _openFormPickPanel(){
+    const wrap=document.getElementById('formation-preset-btns'); wrap.innerHTML='';
     Object.keys(FORMATIONS).forEach(name=>{
-      const btn=document.createElement('button');
-      btn.textContent=name;
-      btn.addEventListener('click',()=>{
-        this.pendingFormationChange=name;
-        document.getElementById('formation-pick-panel').style.display='none';
-      });
+      const btn=document.createElement('button'); btn.textContent=name;
+      btn.addEventListener('click',()=>{ this.pendingFormChange=name; document.getElementById('formation-pick-panel').style.display='none'; });
       wrap.appendChild(btn);
     });
     document.getElementById('formation-pick-panel').style.display='flex';
   }
 
-  // ════════════════════════════════════════════════════════════════════
-  // Substitutions
-  // ════════════════════════════════════════════════════════════════════
   _openSubPanel(){
-    this.subOutSelection=null;
-    this._renderSubStep();
+    this.subOutSel=null; this._renderSubStep();
     document.getElementById('sub-panel').style.display='flex';
   }
   _renderSubStep(){
     const title=document.getElementById('sub-panel-title');
-    const listEl=document.getElementById('sub-list-inner');
-    listEl.innerHTML='';
+    const listEl=document.getElementById('sub-list-inner'); listEl.innerHTML='';
     const myTeam=this.role==='A'?this.teamA:this.teamB;
     const myBench=this.role==='A'?(this.benchA||[]):(this.benchB||[]);
-    if(!this.subOutSelection){
+    if(!this.subOutSel){
       title.textContent='Who comes off?';
-      myTeam.forEach(entry=>{
-        const p=getPlayerById(entry.id); if(!p) return;
-        const c=document.createElement('div'); c.className='sub-card';
-        const color=this._css3Color(this._rosterColor(p));
-        c.innerHTML=`<div style="display:flex;align-items:center;gap:6px;"><span class="av" style="width:24px;height:24px;font-size:9px;background:${color};flex-shrink:0">${this._initials(p)}</span><b>${p.nickname||p.name}</b></div><div style="font-size:10px;opacity:.7">${p.position}</div><button>Sub off</button>`;
-        c.querySelector('button').addEventListener('click',()=>{ this.subOutSelection=entry.id; this._renderSubStep(); });
-        listEl.appendChild(c);
+      // Render a mini pitch showing current formation
+      const pitchHtml=this._renderMiniPitch(myTeam,this.role);
+      listEl.innerHTML=pitchHtml;
+      // Bind click events on the slot-pins inside
+      listEl.querySelectorAll('.slot-pin[data-roster-id]').forEach(pin=>{
+        pin.addEventListener('click',()=>{ this.subOutSel=pin.dataset.rosterId; this._renderSubStep(); });
       });
     } else {
       title.textContent='Who comes on?';
       const bench=myBench.map(id=>getPlayerById(id)).filter(Boolean);
       if(!bench.length){ listEl.innerHTML='<p>No bench players.</p>'; return; }
+      // Render bench as a mini grid
       bench.forEach(p=>{
         const c=document.createElement('div'); c.className='sub-card';
-        const color=this._css3Color(this._rosterColor(p));
-        c.innerHTML=`<div style="display:flex;align-items:center;gap:6px;"><span class="av" style="width:24px;height:24px;font-size:9px;background:${color};flex-shrink:0">${this._initials(p)}</span><b>${p.nickname||p.name}</b></div><div style="font-size:10px;opacity:.7">${p.position}</div><button>Bring on</button>`;
-        c.querySelector('button').addEventListener('click',()=>{
-          this.pendingSubRequest={outId:this.subOutSelection, inId:p.id};
-          document.getElementById('sub-panel').style.display='none';
-        });
+        const col=this._css3(this._rosterColor(p));
+        c.innerHTML=`<div style="display:flex;align-items:center;gap:6px;"><span class="av" style="width:24px;height:24px;font-size:9px;background:${col};flex-shrink:0">${this._initials(p)}</span><b>${p.nickname||p.name}</b></div><div style="font-size:10px;opacity:.7">${p.position}</div><button>Bring on</button>`;
+        c.querySelector('button').addEventListener('click',()=>{ this.pendingSub={outId:this.subOutSel,inId:p.id}; document.getElementById('sub-panel').style.display='none'; });
         listEl.appendChild(c);
       });
     }
   }
-  _trySub(role, req){
-    if(!req||!req.outId||!req.inId) return;
+
+  /** Render a simplified pitch HTML with current player positions for use in
+   *  the sub panel and mid-match formation view (same look as squad editor). */
+  _renderMiniPitch(team, role){
+    const preset=FORMATIONS[this.formation[role]]||FORMATIONS[DEFAULT_FORMATION];
+    const teamColor=role==='A'?this._css3(this.teamColorA):this._css3(this.teamColorB);
+    const pins=preset.map((f,slot)=>{
+      const entry=team[slot]; const p=entry?getPlayerById(entry.id):null;
+      const col=p?this._css3(this._rosterColor(p)):teamColor;
+      const left=(f.x*100).toFixed(1)+'%';
+      const top =((1-f.y)*100).toFixed(1)+'%';
+      if(p){
+        return `<div class="slot-pin" style="left:${left};top:${top}" data-roster-id="${entry.id}">
+          <div class="pin-avatar" style="background:${col}">${this._initials(p)}</div>
+          <div class="pin-name">${p.nickname||p.name}</div>
+        </div>`;
+      }
+      return `<div class="slot-pin empty" style="left:${left};top:${top}"><div style="font-size:9px;opacity:.5">–</div></div>`;
+    }).join('');
+    return `<div id="formation-pitch" style="pointer-events:auto;touch-action:none;cursor:pointer"><div class="pitch-line-h"></div>${pins}</div>`;
+  }
+
+  _trySub(role,req){
+    if(!req?.outId||!req?.inId) return;
     const team=role==='A'?this.teamA:this.teamB;
     const bench=role==='A'?this.benchA:this.benchB;
     const map=role==='A'?this.statsMapA:this.statsMapB;
-    const benchIdx=bench.indexOf(req.inId);
-    const entry=team.find(t=>t.id===req.outId);
-    if(benchIdx===-1||!entry) return;
+    const bIdx=bench.indexOf(req.inId); const entry=team.find(t=>t.id===req.outId);
+    if(bIdx===-1||!entry) return;
     const rp=getPlayerById(req.inId); if(!rp) return;
     entry.id=req.inId;
     const st=createPlayerStats(); applyRosterPlayerToStats(st,rp); map.set(req.inId,st);
-    bench.splice(benchIdx,1,req.outId);
+    bench.splice(bIdx,1,req.outId);
     if(role==='A'&&this.activeIdA===req.outId) this.activeIdA=req.inId;
     if(role==='B'&&this.activeIdB===req.outId) this.activeIdB=req.inId;
     if(role==='A'&&this.gkIdA===req.outId) this.gkIdA=req.inId;
@@ -697,161 +637,128 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // In-game input
+  // In-game pointer input (converts screen → world coords)
   // ════════════════════════════════════════════════════════════════════
-  _onPointerDown(pointer){
+  _pointerDown(pointer){
     if(!this.matchStarted||this.matchClock.ended) return;
-    const towardMax=this.role==='A';
-    if(this._iHavePossession()&&this._inGoalRegion(pointer.x,pointer.y,towardMax)&&!this.confrontation){
-      this.pendingShootRequest=true; return;
-    }
+    const w=this._toWorld(pointer.x,pointer.y);
+    if(this._iHavePossession()&&this._inGoalRegion(w)&&!this.confrontation){ this.pendingShoot=true; return; }
     if(this.confrontation) return;
-    this.gestureStart={x:pointer.x,y:pointer.y};
-    this.gestureMoved=false;
+    this.gestureStart={x:w.x,y:w.y,sx:pointer.x,sy:pointer.y}; this.gestureMoved=false;
     const myTeam=this.role==='A'?this.teamA:this.teamB;
-    let nearest=null, nearestD=PLAYER_SELECT_RADIUS;
-    myTeam.forEach(e=>{
-      const d=Phaser.Math.Distance.Between(e.gfx.x,e.gfx.y,pointer.x,pointer.y);
-      if(d<nearestD){nearestD=d;nearest=e;}
-    });
+    let nearest=null, nearestD=PLAYER_SEL_RADIUS;
+    myTeam.forEach(e=>{ const d=Phaser.Math.Distance.Between(e.gfx.x,e.gfx.y,w.x,w.y); if(d<nearestD){nearestD=d;nearest=e;} });
     const activeId=this.role==='A'?this.activeIdA:this.activeIdB;
     this.pendingSelectedPlayerId=nearest?nearest.id:activeId;
     this.drawing=true;
   }
-  _extendPath(pointer){
+  _pointerMove(pointer){
     if(!this.drawing) return;
     if(!this.gestureMoved){
-      if(!this.gestureStart||Phaser.Math.Distance.Between(this.gestureStart.x,this.gestureStart.y,pointer.x,pointer.y)<DRAG_THRESHOLD) return;
+      if(!this.gestureStart||Phaser.Math.Distance.Between(this.gestureStart.sx,this.gestureStart.sy,pointer.x,pointer.y)<DRAG_THRESHOLD) return;
       this.gestureMoved=true;
       this.selectedPlayerId=this.pendingSelectedPlayerId;
-      this.myPaths.set(this.selectedPlayerId,[{x:this.gestureStart.x,y:this.gestureStart.y},{x:pointer.x,y:pointer.y}]);
+      const w=this._toWorld(pointer.x,pointer.y);
+      this.myPaths.set(this.selectedPlayerId,[{x:this.gestureStart.x,y:this.gestureStart.y},{x:w.x,y:w.y}]);
       return;
     }
-    const path=this.myPaths.get(this.selectedPlayerId);
-    if(!path) return;
-    const last=path[path.length-1];
-    if(!last||Phaser.Math.Distance.Between(last.x,last.y,pointer.x,pointer.y)>MIN_PATH_POINT_DIST)
-      path.push({x:pointer.x,y:pointer.y});
+    const path=this.myPaths.get(this.selectedPlayerId); if(!path) return;
+    const w=this._toWorld(pointer.x,pointer.y); const last=path[path.length-1];
+    if(!last||Phaser.Math.Distance.Between(last.x,last.y,w.x,w.y)>MIN_PATH_PT_DIST) path.push({x:w.x,y:w.y});
   }
-  _onPointerUp(){
-    if(this.drawing&&!this.gestureMoved&&this.gestureStart&&this.matchStarted&&!this.confrontation)
-      if(this._iHavePossession()) this.pendingPassTarget={x:this.gestureStart.x,y:this.gestureStart.y};
+  _pointerUp(){
+    if(this.drawing&&!this.gestureMoved&&this.gestureStart&&this.matchStarted&&!this.confrontation&&this._iHavePossession())
+      this.pendingPass={x:this.gestureStart.x,y:this.gestureStart.y};
     this.drawing=false; this.gestureStart=null;
   }
-  _inGoalRegion(x,y,towardMax){
-    const pv=this.horizontal?x:y, sv=this.horizontal?y:x;
-    const ps=this._primarySize(), ss=this._secondarySize();
-    return Math.abs(sv-ss/2)<GOAL_HALF_WIDTH+30&&(towardMax?pv>ps-GOAL_CLICK_MARGIN:pv<GOAL_CLICK_MARGIN);
+  _inGoalRegion(w){
+    const half=this.FIELD_W/2;
+    const towardMax=this.role==='A';
+    const withinX=Math.abs(w.x-half)<GOAL_HALF_WIDTH+40;
+    return withinX&&(towardMax?w.y>this.FIELD_H-GOAL_CLICK_MARGIN:w.y<GOAL_CLICK_MARGIN);
   }
   _iHavePossession(){ return this.currentPossession===this.role; }
 
-  _computeMyTargets(){
-    const myTeam=this.role==='A'?this.teamA:this.teamB;
-    const targets=[];
-    for(const entry of myTeam){
-      const path=this.myPaths.get(entry.id);
-      if(!path||!path.length) continue;
-      const pos=entry.body?entry.body.position:entry.gfx;
+  _computeTargets(){
+    const myTeam=this.role==='A'?this.teamA:this.teamB; const targets=[];
+    for(const e of myTeam){
+      const path=this.myPaths.get(e.id); if(!path||!path.length) continue;
+      const pos=e.body?e.body.position:e.gfx;
       while(path.length&&Phaser.Math.Distance.Between(pos.x,pos.y,path[0].x,path[0].y)<WAYPOINT_RADIUS) path.shift();
-      if(path.length) targets.push({id:entry.id,x:path[0].x,y:path[0].y});
-      else this.myPaths.delete(entry.id);
+      if(path.length) targets.push({id:e.id,x:path[0].x,y:path[0].y}); else this.myPaths.delete(e.id);
     }
     return targets;
   }
 
   _drawPaths(){
-    this.pathGraphics.clear();
-    if(!this.matchStarted) return;
+    this.pathGfx.clear(); if(!this.matchStarted) return;
     const myTeam=this.role==='A'?this.teamA:this.teamB;
-    this.pathGraphics.lineStyle(2,0xffe066,0.85);
-    myTeam.forEach(entry=>{
-      const path=this.myPaths.get(entry.id);
-      if(!path||!path.length) return;
-      const pos=entry.body?entry.body.position:entry.gfx;
-      this.pathGraphics.beginPath();
-      this.pathGraphics.moveTo(pos.x,pos.y);
-      path.forEach(pt=>this.pathGraphics.lineTo(pt.x,pt.y));
-      this.pathGraphics.strokePath();
-      const last=path[path.length-1];
-      this.pathGraphics.fillStyle(0xffe066,1);
-      this.pathGraphics.fillCircle(last.x,last.y,4);
+    this.pathGfx.lineStyle(2,0xffe066,.85);
+    myTeam.forEach(e=>{
+      const path=this.myPaths.get(e.id); if(!path||!path.length) return;
+      const pos=e.body?e.body.position:e.gfx;
+      this.pathGfx.beginPath(); this.pathGfx.moveTo(pos.x,pos.y);
+      path.forEach(pt=>this.pathGfx.lineTo(pt.x,pt.y)); this.pathGfx.strokePath();
+      const last=path[path.length-1]; this.pathGfx.fillStyle(0xffe066,1); this.pathGfx.fillCircle(last.x,last.y,5);
     });
   }
 
   // ════════════════════════════════════════════════════════════════════
   // Physics helpers
   // ════════════════════════════════════════════════════════════════════
+  _isStunned(id,now){ return (this.stunMap.get(id)||0)>now; }
+
   _steer(body,target,speed=1,force=STEER_FORCE){
     const dx=target.x-body.position.x, dy=target.y-body.position.y;
-    const dist=Math.hypot(dx,dy); if(dist<4) return;
+    const dist=Math.hypot(dx,dy); if(dist<6) return;
     const f=force*speed;
     this.matter.body.applyForce(body,body.position,{x:(dx/dist)*f,y:(dy/dist)*f});
     const v=body.velocity, s=Math.hypot(v.x,v.y), mx=BASE_MAX_SPEED*speed;
     if(s>mx) this.matter.body.setVelocity(body,{x:(v.x/s)*mx,y:(v.y/s)*mx});
   }
+
   _glueBall(){
-    if(!this.possessorRole) return;
-    const e=this._activeEntry(this.possessorRole); if(!e||!e.body) return;
-    const b=e.body, vel=b.velocity, sp=Math.hypot(vel.x,vel.y);
-    let dx=0,dy=0;
-    if(sp>0.05){dx=vel.x/sp;dy=vel.y/sp;}
-    else{ const ax=this._primaryAxis(),sign=this.possessorRole==='A'?1:-1; if(ax==='x')dx=sign; else dy=sign; }
-    this.matter.body.setPosition(this.ball,{x:b.position.x+dx*POSSESSION_OFFSET,y:b.position.y+dy*POSSESSION_OFFSET});
+    if(!this.possRole) return;
+    const e=this._activeEntry(this.possRole); if(!e?.body) return;
+    const b=e.body,vel=b.velocity,sp=Math.hypot(vel.x,vel.y);
+    const dy=(sp>0.05?vel.y/sp:(this.possRole==='A'?1:-1)), dx=(sp>0.05?vel.x/sp:0);
+    this.matter.body.setPosition(this.ball,{x:b.position.x+dx*POSSESS_OFFSET,y:b.position.y+dy*POSSESS_OFFSET});
     this.matter.body.setVelocity(this.ball,{x:0,y:0});
   }
   _doPass(role,target){
-    const e=this._activeEntry(role); if(!e||!e.body) return;
-    const dx=target.x-e.body.position.x, dy=target.y-e.body.position.y;
-    const dist=Math.hypot(dx,dy)||1;
-    this.possessorRole=null;
+    const e=this._activeEntry(role); if(!e?.body) return;
+    const dx=target.x-e.body.position.x, dy=target.y-e.body.position.y, dist=Math.hypot(dx,dy)||1;
+    this.possRole=null;
     this.matter.body.setVelocity(this.ball,{x:(dx/dist)*PASS_SPEED,y:(dy/dist)*PASS_SPEED});
   }
-  _knockback(loserE,winnerE){
-    if(!loserE.body||!winnerE.body) return;
-    const dx=loserE.body.position.x-winnerE.body.position.x;
-    const dy=loserE.body.position.y-winnerE.body.position.y;
-    const d=Math.hypot(dx,dy)||1;
-    this.matter.body.setVelocity(loserE.body,{x:(dx/d)*3,y:(dy/d)*3});
+  _knockback(loser,winner){
+    if(!loser?.body||!winner?.body) return;
+    const dx=loser.body.position.x-winner.body.position.x, dy=loser.body.position.y-winner.body.position.y, d=Math.hypot(dx,dy)||1;
+    this.matter.body.setVelocity(loser.body,{x:(dx/d)*4,y:(dy/d)*4});
   }
-  _activeEntry(role){
-    const team=role==='A'?this.teamA:this.teamB;
-    const id=role==='A'?this.activeIdA:this.activeIdB;
-    return team.find(t=>t.id===id)||null;
-  }
+  _activeEntry(role){ const team=role==='A'?this.teamA:this.teamB, id=role==='A'?this.activeIdA:this.activeIdB; return team.find(t=>t.id===id)||null; }
   _updateActive(role){
-    const team=role==='A'?this.teamA:this.teamB;
-    if(!team.length) return;
+    const team=role==='A'?this.teamA:this.teamB; if(!team.length) return;
     const bp=this.ball.position;
     let best=team[0], bestD=Phaser.Math.Distance.Between(team[0].body.position.x,team[0].body.position.y,bp.x,bp.y);
-    for(const e of team){
-      const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,bp.x,bp.y);
-      if(d<bestD){bestD=d;best=e;}
-    }
+    for(const e of team){ const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,bp.x,bp.y); if(d<bestD){bestD=d;best=e;} }
     const cur=role==='A'?this.activeIdA:this.activeIdB;
-    if(best.id!==cur){
-      const ce=team.find(t=>t.id===cur);
-      const cd=ce?Phaser.Math.Distance.Between(ce.body.position.x,ce.body.position.y,bp.x,bp.y):Infinity;
-      if(cd-bestD>18){ if(role==='A')this.activeIdA=best.id; else this.activeIdB=best.id; }
-    }
+    if(best.id!==cur){ const ce=team.find(t=>t.id===cur); const cd=ce?Phaser.Math.Distance.Between(ce.body.position.x,ce.body.position.y,bp.x,bp.y):Infinity; if(cd-bestD>24){if(role==='A')this.activeIdA=best.id;else this.activeIdB=best.id;} }
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // Collisions
+  // Collisions (host only)
   // ════════════════════════════════════════════════════════════════════
-  _handleCollisions(event){
+  _collisions(event){
     if(this.role!=='A'||!this.matchStarted) return;
     const now=this.time.now;
-    const eA=this._activeEntry('A'), eB=this._activeEntry('B');
-    if(!eA||!eB) return;
+    const eA=this._activeEntry('A'), eB=this._activeEntry('B'); if(!eA||!eB) return;
     for(const pair of event.pairs){
-      const lbls=[pair.bodyA.label,pair.bodyB.label];
-      const bods=[pair.bodyA,pair.bodyB];
-      const ball=lbls.includes('ball');
-      const hA=bods.includes(eA.body), hB=bods.includes(eB.body);
-      if(ball&&(hA||hB)&&!this.possessorRole&&!this.confrontation)
-        this.possessorRole=hA?'A':'B';
-      if(hA&&hB&&this.possessorRole&&!this.confrontation&&now>=this.duelLockUntil)
-        this._startConfrontation('duel',this.possessorRole,this.possessorRole==='A'?'B':'A',now);
+      const lbls=[pair.bodyA.label,pair.bodyB.label], bods=[pair.bodyA,pair.bodyB];
+      const ball=lbls.includes('ball'), hA=bods.includes(eA.body), hB=bods.includes(eB.body);
+      if(ball&&(hA||hB)&&!this.possRole&&!this.confrontation) this.possRole=hA?'A':'B';
+      if(hA&&hB&&this.possRole&&!this.confrontation&&now>=this.duelLockUntil&&!this._isStunned(this.activeIdA,now)&&!this._isStunned(this.activeIdB,now))
+        this._startConfront('duel',this.possRole,this.possRole==='A'?'B':'A',now);
       if(ball&&lbls.includes('goalMin')) this._onGoal('b');
       if(ball&&lbls.includes('goalMax')) this._onGoal('a');
     }
@@ -860,63 +767,54 @@ export default class GameScene extends Phaser.Scene {
   // ════════════════════════════════════════════════════════════════════
   // Confrontations
   // ════════════════════════════════════════════════════════════════════
-  _startConfrontation(type,attackerRole,defenderRole,now){
-    const attackerId=attackerRole==='A'?this.activeIdA:this.activeIdB;
-    const defenderId=type==='shot'?(defenderRole==='A'?this.gkIdA:this.gkIdB):(defenderRole==='A'?this.activeIdA:this.activeIdB);
-    this.confrontation={type,attackerRole,defenderRole,attackerId,defenderId,deadline:now+CONFRONTATION_WINDOW_MS,attackerChoice:null,defenderChoice:null};
+  _startConfront(type,aRole,dRole,now){
+    const aId=aRole==='A'?this.activeIdA:this.activeIdB;
+    const dId=type==='shot'?(dRole==='A'?this.gkIdA:this.gkIdB):(dRole==='A'?this.activeIdA:this.activeIdB);
+    this.confrontation={type,attackerRole:aRole,defenderRole:dRole,attackerId:aId,defenderId:dId,deadline:now+CONFRONT_MS,attackerChoice:null,defenderChoice:null};
   }
-  _aiChoice(stats,category){ return canActivate(stats,category)&&Math.random()<0.55?'technique':'normal'; }
-  _tryTech(stats,category){
-    if(!canActivate(stats,category)) return false;
-    stats.sp-=stats.techniques[category].cost; return true;
-  }
+  _aiChoice(stats,cat){ return canActivate(stats,cat)&&Math.random()<0.55?'technique':'normal'; }
+  _tryTech(stats,cat){ if(!canActivate(stats,cat)) return false; stats.sp-=stats.techniques[cat].cost; return true; }
   _statsFor(role,id){ return (role==='A'?this.statsMapA:this.statsMapB).get(id); }
 
-  _resolveConfrontation(now){
+  _resolveConfront(now){
     const c=this.confrontation;
-    const as=this._statsFor(c.attackerRole,c.attackerId);
-    const ds=this._statsFor(c.defenderRole,c.defenderId);
+    const as=this._statsFor(c.attackerRole,c.attackerId), ds=this._statsFor(c.defenderRole,c.defenderId);
     if(!as||!ds){this.confrontation=null;return;}
     const atk=c.type==='duel'?'dribble':'shot', def=c.type==='duel'?'defense':'keeper';
-    const aUsed=c.attackerChoice==='technique'&&this._tryTech(as,atk);
-    const dUsed=c.defenderChoice==='technique'&&this._tryTech(ds,def);
-    const aPow=(aUsed?as.techniques[atk].power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]];
-    const dPow=(dUsed?ds.techniques[def].power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]];
-    const aWins=Math.random()<aPow/(aPow+dPow);
-
-    let title, outcome, aTechName=aUsed?as.techniques[atk].name:'Normal action';
-    let dTechName=dUsed?ds.techniques[def].name:'Normal action';
-
+    const aU=c.attackerChoice==='technique'&&this._tryTech(as,atk);
+    const dU=c.defenderChoice==='technique'&&this._tryTech(ds,def);
+    const aP=(aU?as.techniques[atk].power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]];
+    const dP=(dU?ds.techniques[def].power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]];
+    const aWins=Math.random()<aP/(aP+dP);
+    const aTN=aU?as.techniques[atk].name:'Normal', dTN=dU?ds.techniques[def].name:'Normal';
+    let title,outcome;
     if(c.type==='duel'){
       const eA=this._activeEntry(c.attackerRole), eD=this._activeEntry(c.defenderRole);
-      if(aWins){ this._knockback(eD,eA); title=`${as.name} dribbles past!`; }
-      else { this.possessorRole=c.defenderRole; this._knockback(eA,eD); title=`${ds.name} wins the ball!`; }
-      outcome=`${as.name} used ${aTechName} · ${ds.name} used ${dTechName}`;
-      this.duelLockUntil=now+1000;
+      if(aWins){ this._knockback(eD,eA); this.stunMap.set(c.defenderId,now+STUN_MS); title=`${as.name} dribbles past!`; }
+      else { this.possRole=c.defenderRole; this._knockback(eA,eD); this.stunMap.set(c.attackerId,now+STUN_MS); title=`${ds.name} wins the ball!`; }
+      outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
+      this.duelLockUntil=now+STUN_MS+200;
     } else if(aWins){
       this._onGoal(c.attackerRole==='A'?'a':'b');
-      title=`⚽ GOAL! ${as.name} scores!`;
-      outcome=`${as.name} used ${aTechName} · ${ds.name} used ${dTechName}`;
+      title=`⚽ GOAL! ${as.name} scores!`; outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
     } else {
-      this.possessorRole=c.defenderRole;
-      title=`${ds.name} saves it!`;
-      outcome=`${as.name} used ${aTechName} · ${ds.name} used ${dTechName}`;
+      this.possRole=c.defenderRole;
+      title=`${ds.name} saves it!`; outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
     }
-
     this.confrontation=null;
-    // Show result banner with a short delay for the outcome detail
-    this.confrontationResult={title, outcome, until:now+RESULT_BANNER_MS, outcomeAt:now+RESULT_OUTCOME_DELAY};
+    this.confrontResult={title,outcome,until:now+RESULT_MS,outcomeAt:now+RESULT_DELAY_MS};
   }
 
   _onGoal(scorer){
     this.score[scorer]+=1;
     document.querySelector('#scoreboard .score').textContent=`${this.score.a} - ${this.score.b}`;
-    this.possessorRole=null;
+    this.possRole=null;
     this.matter.body.setPosition(this.ball,{x:this.FIELD_W/2,y:this.FIELD_H/2});
     this.matter.body.setVelocity(this.ball,{x:0,y:0});
-    this._resetFormation();
+    this.stunMap.clear();
+    this._resetFormPos();
   }
-  _resetFormation(){
+  _resetFormPos(){
     const bp={x:this.FIELD_W/2,y:this.FIELD_H/2};
     this.teamA.forEach(e=>{ const p=this._formPos('A',e.slot,bp); this.matter.body.setPosition(e.body,p); this.matter.body.setVelocity(e.body,{x:0,y:0}); });
     this.teamB.forEach(e=>{ const p=this._formPos('B',e.slot,bp); this.matter.body.setPosition(e.body,p); this.matter.body.setVelocity(e.body,{x:0,y:0}); });
@@ -931,13 +829,8 @@ export default class GameScene extends Phaser.Scene {
     if(this.matchClock.ended) return;
     this.matchClock.secondsRemaining-=delta/1000;
     if(this.matchClock.secondsRemaining<=0){
-      if(this.matchClock.half===1){
-        this.matchClock.half=2; this.matchClock.secondsRemaining=HALF_DURATION_S;
-        this.possessorRole=null; this.confrontation=null;
-        this.matter.body.setPosition(this.ball,{x:this.FIELD_W/2,y:this.FIELD_H/2});
-        this.matter.body.setVelocity(this.ball,{x:0,y:0});
-        this._resetFormation();
-      } else { this.matchClock.ended=true; this.matchClock.secondsRemaining=0; }
+      if(this.matchClock.half===1){ this.matchClock.half=2; this.matchClock.secondsRemaining=HALF_S; this.possRole=null; this.confrontation=null; this.matter.body.setPosition(this.ball,{x:this.FIELD_W/2,y:this.FIELD_H/2}); this.matter.body.setVelocity(this.ball,{x:0,y:0}); this._resetFormPos(); }
+      else { this.matchClock.ended=true; this.matchClock.secondsRemaining=0; }
     }
   }
   static _fmtClock(s){ s=Math.max(0,Math.ceil(s)); const m=Math.floor(s/60),r=s%60; return `${m}:${r<10?'0':''}${r}`; }
@@ -949,218 +842,192 @@ export default class GameScene extends Phaser.Scene {
   update(time,delta){
     const amHost=this.role==='A';
     if(!amHost&&this.matchStarted&&!this.clientTeamsBuilt) this._buildClientTeams();
+    if(this.matchStarted) this._tickScroll(delta);
 
-    const targets=this.matchStarted?this._computeMyTargets():[];
-    const myInput={targets,shootRequest:this.pendingShootRequest,passTarget:this.pendingPassTarget,confrontationChoice:this.pendingConfrontationChoice,subRequest:this.pendingSubRequest,formationChange:this.pendingFormationChange};
-    this.pendingShootRequest=false; this.pendingPassTarget=null; this.pendingConfrontationChoice=null; this.pendingSubRequest=null; this.pendingFormationChange=null;
+    const targets=this.matchStarted?this._computeTargets():[];
+    const myInput={targets,shootRequest:this.pendingShoot,passTarget:this.pendingPass,confrontationChoice:this.pendingChoice,subRequest:this.pendingSub,formationChange:this.pendingFormChange};
+    this.pendingShoot=false; this.pendingPass=null; this.pendingChoice=null; this.pendingSub=null; this.pendingFormChange=null;
     this.net.sendInput(myInput);
 
-    if(amHost){
-      if(this.matchStarted) this._updateHost(time,delta,myInput);
-      else if(time-this.lastStateSent>1000/STATE_HZ){ this.lastStateSent=time; this.net.sendState({matchStarted:false}); }
-    } else { this._updateClient(time); }
+    if(amHost){ if(this.matchStarted) this._hostUpdate(time,delta,myInput); else if(time-this.lastStateSent>1000/STATE_HZ){this.lastStateSent=time;this.net.sendState({matchStarted:false});} }
+    else this._clientUpdate(time);
 
-    if(this.matchStarted){ this._updateConfrontationUI(this.confrontation,time); this._drawPaths(); }
+    if(this.matchStarted){ this._updateConfrontUI(this.confrontation,time); this._drawPaths(); }
   }
 
-  _updateHost(now,delta,myInput){
+  _hostUpdate(now,delta,myInput){
     const aiActive=!this.net.hasPeer();
     document.getElementById('ai-badge').style.display=aiActive?'block':'none';
     let inputB=this.remoteInput;
     if(aiActive){
       const eB=this._activeEntry('B');
-      const ai=decideAIMove({selfPos:eB?eB.body.position:{x:this.FIELD_W/2,y:this.FIELD_H},ballPos:this.ball.position,axis:this._primaryAxis(),ownGoalValue:this._primarySize(),rivalGoalValue:0,fieldPrimarySize:this._primarySize()});
+      const ai=decideAIMove({selfPos:eB?eB.body.position:{x:this.FIELD_W/2,y:this.FIELD_H},ballPos:this.ball.position,axis:'y',ownGoalValue:this.FIELD_H,rivalGoalValue:0,fieldPrimarySize:this.FIELD_H});
       inputB={targets:eB?[{id:eB.id,...ai.target}]:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,formationChange:null};
     }
     this._regenSP(this.statsMapA,delta); this._regenSP(this.statsMapB,delta);
-    this.currentPossession=this.possessorRole;
+    this.currentPossession=this.possRole;
     if(myInput.formationChange) this.formation.A=myInput.formationChange;
     if(!aiActive&&inputB.formationChange) this.formation.B=inputB.formationChange;
     if(!this.matchClock.ended) this._tickClock(delta);
 
     if(this.confrontation){
-      this._progressConfrontation(now,myInput,inputB,aiActive);
+      this._progressConfront(now,myInput,inputB,aiActive);
     } else if(!this.matchClock.ended){
       this._updateActive('A'); this._updateActive('B');
-      this._moveTeam('A',myInput.targets); this._moveTeam('B',inputB.targets);
-      if(myInput.passTarget&&this.possessorRole==='A') this._doPass('A',myInput.passTarget);
-      else if(!aiActive&&inputB.passTarget&&this.possessorRole==='B') this._doPass('B',inputB.passTarget);
-      if(myInput.shootRequest&&this.possessorRole==='A') this._startConfrontation('shot','A','B',now);
-      else if(!aiActive&&inputB.shootRequest&&this.possessorRole==='B') this._startConfrontation('shot','B','A',now);
-      else if(aiActive&&this.possessorRole==='B'){
-        const eB=this._activeEntry('B');
-        if(eB&&eB.body.position[this._primaryAxis()]<160&&Math.random()<0.02) this._startConfrontation('shot','B','A',now);
-      }
-      if(this.confrontation&&this.confrontation.defenderRole==='B'&&aiActive){
-        const ds=this._statsFor('B',this.confrontation.defenderId);
-        this.confrontation.defenderChoice=this._aiChoice(ds,'keeper');
-      }
+      this._moveTeam('A',myInput.targets,now); this._moveTeam('B',inputB.targets,now);
+      if(myInput.passTarget&&this.possRole==='A') this._doPass('A',myInput.passTarget);
+      else if(!aiActive&&inputB.passTarget&&this.possRole==='B') this._doPass('B',inputB.passTarget);
+      if(myInput.shootRequest&&this.possRole==='A') this._startConfront('shot','A','B',now);
+      else if(!aiActive&&inputB.shootRequest&&this.possRole==='B') this._startConfront('shot','B','A',now);
+      else if(aiActive&&this.possRole==='B'){ const eB=this._activeEntry('B'); if(eB&&eB.body.position.y<GOAL_CLICK_MARGIN*2.5&&Math.random()<0.02) this._startConfront('shot','B','A',now); }
+      if(this.confrontation?.defenderRole==='B'&&aiActive){ const ds=this._statsFor('B',this.confrontation.defenderId); this.confrontation.defenderChoice=this._aiChoice(ds,'keeper'); }
       if(myInput.subRequest) this._trySub('A',myInput.subRequest);
       if(!aiActive&&inputB.subRequest) this._trySub('B',inputB.subRequest);
     }
 
-    this._glueBall();
-    this._syncGfx();
+    this._glueBall(); this._syncGfx();
     this._renderClock(this.matchClock);
-    this._renderResultBanner(this.confrontationResult,now);
-    const as=this._statsFor('A',this.activeIdA);
-    if(as) this._paintHUD(as.sp,as.maxSP);
-    document.getElementById('sub-button').style.display=(this.benchA&&this.benchA.length)?'block':'none';
+    this._renderResultBanner(this.confrontResult,now);
+    const as=this._statsFor('A',this.activeIdA); if(as) this._paintHUD(as.sp,as.maxSP);
+    document.getElementById('sub-button').style.display=(this.benchA?.length)?'block':'none';
 
     if(now-this.lastStateSent>1000/STATE_HZ){
       this.lastStateSent=now;
       const as2=this._statsFor('A',this.activeIdA), bs=this._statsFor('B',this.activeIdB);
-      this.net.sendState({
-        matchStarted:true,
-        ball:{x:this.ball.position.x,y:this.ball.position.y},
-        teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),
-        teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),
-        activeIdA:this.activeIdA, activeIdB:this.activeIdB,
-        score:this.score,
-        sp:{a:as2?as2.sp:0,b:bs?bs.sp:0}, maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},
-        possession:this.possessorRole,
-        confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline}:null,
-        confrontationResult:(this.confrontationResult&&now<this.confrontationResult.until)?this.confrontationResult:null,
-        benchIds:{a:this.benchA,b:this.benchB},
-        starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},
-        clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended}
-      });
+      const stunAry=[...this.stunMap.entries()].map(([k,v])=>({id:k,until:v}));
+      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
     }
   }
 
-  _moveTeam(role,targets){
+  _moveTeam(role,targets,now){
     const team=role==='A'?this.teamA:this.teamB;
     const byId=new Map(targets.map(t=>[t.id,t]));
     team.forEach(e=>{
+      if(this._isStunned(e.id,now)){
+        // Stunned: drain velocity, don't steer
+        this.matter.body.setVelocity(e.body,{x:e.body.velocity.x*0.85,y:e.body.velocity.y*0.85});
+        return;
+      }
       const st=this._statsFor(role,e.id), sp=st?st.speed:1;
       const t=byId.get(e.id);
       if(t) this._steer(e.body,t,sp,STEER_FORCE);
-      else   this._steer(e.body,this._formPos(role,e.slot,this.ball.position),1,FORMATION_STEER_FORCE);
+      else {
+        // Autonomous position: seek space based on role
+        const autoPos=this._formPos(role,e.slot,this.ball.position);
+        this._steer(e.body,autoPos,1,AUTO_STEER_FORCE);
+        // Soft speed cap for autonomous movement
+        const v=e.body.velocity, s=Math.hypot(v.x,v.y);
+        if(s>AUTO_MAX_SPEED) this.matter.body.setVelocity(e.body,{x:(v.x/s)*AUTO_MAX_SPEED,y:(v.y/s)*AUTO_MAX_SPEED});
+      }
     });
   }
 
-  _progressConfrontation(now,myInput,inputB,aiActive){
+  _progressConfront(now,myInput,inputB,aiActive){
     const c=this.confrontation;
-    if(myInput.confrontationChoice){
-      if(c.attackerRole==='A'&&c.attackerChoice===null) c.attackerChoice=myInput.confrontationChoice;
-      if(c.defenderRole==='A'&&c.defenderChoice===null) c.defenderChoice=myInput.confrontationChoice;
-    }
-    if(!aiActive&&inputB.confrontationChoice){
-      if(c.attackerRole==='B'&&c.attackerChoice===null) c.attackerChoice=inputB.confrontationChoice;
-      if(c.defenderRole==='B'&&c.defenderChoice===null) c.defenderChoice=inputB.confrontationChoice;
-    }
+    if(myInput.confrontationChoice){ if(c.attackerRole==='A'&&!c.attackerChoice)c.attackerChoice=myInput.confrontationChoice; if(c.defenderRole==='A'&&!c.defenderChoice)c.defenderChoice=myInput.confrontationChoice; }
+    if(!aiActive&&inputB.confrontationChoice){ if(c.attackerRole==='B'&&!c.attackerChoice)c.attackerChoice=inputB.confrontationChoice; if(c.defenderRole==='B'&&!c.defenderChoice)c.defenderChoice=inputB.confrontationChoice; }
     if(aiActive){
-      const techFor=(r)=>c.type==='duel'?(r===c.attackerRole?'dribble':'defense'):(r===c.attackerRole?'shot':'keeper');
-      if(c.attackerRole==='B'&&c.attackerChoice===null){const s=this._statsFor('B',c.attackerId);c.attackerChoice=s?this._aiChoice(s,techFor('B')):'normal';}
-      if(c.defenderRole==='B'&&c.defenderChoice===null){const s=this._statsFor('B',c.defenderId);c.defenderChoice=s?this._aiChoice(s,techFor('B')):'normal';}
+      const tf=r=>c.type==='duel'?(r===c.attackerRole?'dribble':'defense'):(r===c.attackerRole?'shot':'keeper');
+      if(c.attackerRole==='B'&&!c.attackerChoice){const s=this._statsFor('B',c.attackerId);c.attackerChoice=s?this._aiChoice(s,tf('B')):'normal';}
+      if(c.defenderRole==='B'&&!c.defenderChoice){const s=this._statsFor('B',c.defenderId);c.defenderChoice=s?this._aiChoice(s,tf('B')):'normal';}
     }
-    if((c.attackerChoice!==null&&c.defenderChoice!==null)||now>=c.deadline){
-      if(!c.attackerChoice)c.attackerChoice='normal';
-      if(!c.defenderChoice)c.defenderChoice='normal';
-      this._resolveConfrontation(now);
-    }
+    if((c.attackerChoice&&c.defenderChoice)||now>=c.deadline){ if(!c.attackerChoice)c.attackerChoice='normal'; if(!c.defenderChoice)c.defenderChoice='normal'; this._resolveConfront(now); }
   }
 
-  _handleIncomingState(data){
+  _incomingState(data){
     this.remoteState=data;
-    if(data.matchStarted&&!this.matchStarted){
-      this.matchStarted=true;
-      document.getElementById('squad-editor-panel').style.display='none';
-    }
+    if(data.matchStarted&&!this.matchStarted){ this.matchStarted=true; document.getElementById('squad-editor-panel').style.display='none'; }
   }
 
-  _updateClient(time){
-    if(!this.remoteState||!this.remoteState.matchStarted||!this.clientTeamsBuilt) return;
+  _clientUpdate(time){
+    if(!this.remoteState?.matchStarted||!this.clientTeamsBuilt) return;
     const lerp=0.3;
-    this._syncClientIdentities(this.remoteState);
+    this._syncClientIds(this.remoteState);
+    if(this.remoteState.stuns) this.remoteState.stuns.forEach(({id,until})=>this.stunMap.set(id,until));
     this.ballGfx.x=Phaser.Math.Linear(this.ballGfx.x,this.remoteState.ball.x,lerp);
     this.ballGfx.y=Phaser.Math.Linear(this.ballGfx.y,this.remoteState.ball.y,lerp);
-    this.teamA.forEach((e,i)=>{ const p=this.remoteState.teamA[i]; if(p){e.gfx.x=Phaser.Math.Linear(e.gfx.x,p.x,lerp);e.gfx.y=Phaser.Math.Linear(e.gfx.y,p.y,lerp);e.label.setPosition(e.gfx.x,e.gfx.y+13);} });
-    this.teamB.forEach((e,i)=>{ const p=this.remoteState.teamB[i]; if(p){e.gfx.x=Phaser.Math.Linear(e.gfx.x,p.x,lerp);e.gfx.y=Phaser.Math.Linear(e.gfx.y,p.y,lerp);e.label.setPosition(e.gfx.x,e.gfx.y+13);} });
+    this.teamA.forEach((e,i)=>{ const p=this.remoteState.teamA[i]; if(!p)return; e.gfx.x=Phaser.Math.Linear(e.gfx.x,p.x,lerp); e.gfx.y=Phaser.Math.Linear(e.gfx.y,p.y,lerp); e.label.setPosition(e.gfx.x,e.gfx.y+15); });
+    this.teamB.forEach((e,i)=>{ const p=this.remoteState.teamB[i]; if(!p)return; e.gfx.x=Phaser.Math.Linear(e.gfx.x,p.x,lerp); e.gfx.y=Phaser.Math.Linear(e.gfx.y,p.y,lerp); e.label.setPosition(e.gfx.x,e.gfx.y+15); });
     this.activeIdA=this.remoteState.activeIdA; this.activeIdB=this.remoteState.activeIdB;
     this._highlightActive();
     document.querySelector('#scoreboard .score').textContent=`${this.remoteState.score.a} - ${this.remoteState.score.b}`;
     this._renderClock(this.remoteState.clock);
     this.currentPossession=this.remoteState.possession;
     this.confrontation=this.remoteState.confrontation;
-    this._renderResultBanner(this.remoteState.confrontationResult,time);
-    this._paintHUD(this.remoteState.sp.b,(this.remoteState.maxSp&&this.remoteState.maxSp.b)||100);
-    this._updatePossessionRing();
-    const benchB=(this.remoteState.benchIds&&this.remoteState.benchIds.b)||[];
-    document.getElementById('sub-button').style.display=benchB.length?'block':'none';
+    this._renderResultBanner(this.remoteState.confrontResult,time);
+    this._paintHUD(this.remoteState.sp.b,(this.remoteState.maxSp?.b)||100);
+    this._updatePossRing();
+    document.getElementById('sub-button').style.display=((this.remoteState.benchIds?.b)||[]).length?'block':'none';
   }
 
-  _syncClientIdentities(rs){
+  _syncClientIds(rs){
     if(!rs.starterIds) return;
-    ['A','B'].forEach(role=>{
-      const team=role==='A'?this.teamA:this.teamB;
-      const ids=role==='A'?rs.starterIds.a:rs.starterIds.b;
-      const map=role==='A'?this.statsMapA:this.statsMapB;
-      team.forEach((e,i)=>{ const nid=ids[i]; if(nid&&nid!==e.id){e.id=nid;if(!map.has(nid)){const rp=getPlayerById(nid);if(rp){const s=createPlayerStats();applyRosterPlayerToStats(s,rp);map.set(nid,s);}}}});
-    });
+    ['A','B'].forEach(role=>{ const team=role==='A'?this.teamA:this.teamB,ids=role==='A'?rs.starterIds.a:rs.starterIds.b,map=role==='A'?this.statsMapA:this.statsMapB; team.forEach((e,i)=>{ const nid=ids[i]; if(nid&&nid!==e.id){e.id=nid;if(!map.has(nid)){const rp=getPlayerById(nid);if(rp){const s=createPlayerStats();applyRosterPlayerToStats(s,rp);map.set(nid,s);}}}}); });
     if(rs.benchIds){this.benchA=rs.benchIds.a||this.benchA;this.benchB=rs.benchIds.b||this.benchB;}
   }
 
   // ════════════════════════════════════════════════════════════════════
   // HUD
   // ════════════════════════════════════════════════════════════════════
-  _paintHUD(sp,maxSp){ document.getElementById('sp-value').textContent=`${Math.round(sp)}/${Math.round(maxSp||100)}`; }
+  _paintHUD(sp,max){ document.getElementById('sp-value').textContent=`${Math.round(sp)}/${Math.round(max||100)}`; }
 
   _renderResultBanner(result,now){
     const el=document.getElementById('confrontation-result');
     if(result&&now<result.until){
       document.getElementById('result-title').textContent=result.title||'';
-      const outEl=document.getElementById('result-outcome');
-      if(result.outcomeAt&&now>=result.outcomeAt){ outEl.textContent=result.outcome||''; }
-      else { outEl.textContent=''; }
+      const out=document.getElementById('result-outcome');
+      out.textContent=(result.outcomeAt&&now>=result.outcomeAt)?result.outcome||'':'';
       el.style.display='block';
-    } else { el.style.display='none'; }
+    } else el.style.display='none';
   }
 
-  _updateConfrontationUI(confrontation,now){
+  _updateConfrontUI(confrontation,now){
     const panel=document.getElementById('confrontation-ui');
     if(!confrontation){panel.style.display='none';return;}
     const amA=confrontation.attackerRole===this.role, amD=confrontation.defenderRole===this.role;
     if(!amA&&!amD){panel.style.display='none';return;}
     panel.style.display='flex';
     const techId=confrontation.type==='duel'?(amA?'dribble':'defense'):(amA?'shot':'keeper');
-    document.getElementById('confrontation-title').textContent=confrontation.type==='duel'
-      ?(amA?'Duel! You\'re being tackled':'Duel! Go for the tackle')
-      :(amA?'Shoot for goal!':'Save the shot!');
-    document.getElementById('conf-normal').textContent=confrontation.type==='duel'
-      ?(amA?'Normal dribble':'Normal tackle'):(amA?'Normal shot':'Normal save');
+    document.getElementById('confrontation-title').textContent=confrontation.type==='duel'?(amA?"Duel! You're being tackled":'Duel! Go for the tackle'):(amA?'Shoot for goal!':'Save the shot!');
+    document.getElementById('conf-normal').textContent=confrontation.type==='duel'?(amA?'Normal dribble':'Normal tackle'):(amA?'Normal shot':'Normal save');
     const myChoice=amA?confrontation.attackerChoice:confrontation.defenderChoice;
     document.getElementById('conf-normal').classList.toggle('active',myChoice==='normal');
     document.getElementById('conf-technique').classList.toggle('active',myChoice==='technique');
-
     const relId=amA?confrontation.attackerId:confrontation.defenderId;
     const relRole=amA?confrontation.attackerRole:confrontation.defenderRole;
-    const stats=this._statsFor(relRole,relId);
-    const rp=relId?getPlayerById(relId):null;
-    document.getElementById('confrontation-player-info').innerHTML=stats
-      ?`<b>${rp?rp.name:stats.name}</b> — PT ${Math.round(stats.sp)}/${Math.round(stats.maxSP)}`:'';
-
-    const techBtn=document.getElementById('conf-technique');
-    const tech=stats?stats.techniques[techId]:null;
-    if(tech){ techBtn.style.display='block'; techBtn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`; techBtn.disabled=!stats||!canActivate(stats,techId); }
-    else { techBtn.style.display='none'; }
+    const stats=this._statsFor(relRole,relId); const rp=relId?getPlayerById(relId):null;
+    document.getElementById('confrontation-player-info').innerHTML=stats?`<b>${rp?.name||stats.name}</b> — PT ${Math.round(stats.sp)}/${Math.round(stats.maxSP)}`:'';
+    const techBtn=document.getElementById('conf-technique'); const tech=stats?stats.techniques[techId]:null;
+    if(tech){techBtn.style.display='block';techBtn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`;techBtn.disabled=!stats||!canActivate(stats,techId);}
+    else techBtn.style.display='none';
     const rem=Math.max(0,confrontation.deadline-now);
-    document.getElementById('confrontation-timer-fill').style.width=`${(rem/CONFRONTATION_WINDOW_MS)*100}%`;
+    document.getElementById('confrontation-timer-fill').style.width=`${(rem/CONFRONT_MS)*100}%`;
   }
 
   _syncGfx(){
     this.ballGfx.setPosition(this.ball.position.x,this.ball.position.y);
-    this.teamA.forEach(e=>{e.gfx.setPosition(e.body.position.x,e.body.position.y);e.label.setPosition(e.body.position.x,e.body.position.y+13);});
-    this.teamB.forEach(e=>{e.gfx.setPosition(e.body.position.x,e.body.position.y);e.label.setPosition(e.body.position.x,e.body.position.y+13);});
-    this._highlightActive();
-    this._updatePossessionRing();
+    const now=this.time.now;
+    this.teamA.forEach(e=>{
+      e.gfx.setPosition(e.body.position.x,e.body.position.y);
+      e.label.setPosition(e.body.position.x,e.body.position.y+15);
+      // Flash stun visual: tint grey while stunned
+      e.gfx.setFillStyle(this._isStunned(e.id,now)?0x888888:this.teamColorA);
+    });
+    this.teamB.forEach(e=>{
+      e.gfx.setPosition(e.body.position.x,e.body.position.y);
+      e.label.setPosition(e.body.position.x,e.body.position.y+15);
+      e.gfx.setFillStyle(this._isStunned(e.id,now)?0x888888:this.teamColorB);
+    });
+    this._highlightActive(); this._updatePossRing();
   }
+
   _highlightActive(){
-    this.teamA.forEach(e=>e.gfx.setStrokeStyle(e.id===this.activeIdA?2:0,0xffffff));
-    this.teamB.forEach(e=>e.gfx.setStrokeStyle(e.id===this.activeIdB?2:0,0xffffff));
+    this.teamA.forEach(e=>e.gfx.setStrokeStyle(e.id===this.activeIdA?3:0,0xffffff));
+    this.teamB.forEach(e=>e.gfx.setStrokeStyle(e.id===this.activeIdB?3:0,0xffffff));
   }
-  _updatePossessionRing(){
-    if(this.currentPossession){const e=this._activeEntry(this.currentPossession);if(e){this.possessionRing.setPosition(e.gfx.x,e.gfx.y).setVisible(true);return;}}
-    this.possessionRing.setVisible(false);
+
+  _updatePossRing(){
+    if(this.currentPossession){ const e=this._activeEntry(this.currentPossession); if(e){this.possRing.setPosition(e.gfx.x,e.gfx.y).setVisible(true);return;} }
+    this.possRing.setVisible(false);
   }
 }
