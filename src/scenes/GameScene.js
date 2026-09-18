@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { connectToRoom, getOrCreateRoomCode } from '../network/network.js';
 import { NORMAL_ACTION_POWER, STAT_FIELD_FOR_TECH } from '../data/techniques.js';
-import { createPlayerStats, applyRosterPlayerToStats, canActivate, activateTechnique } from '../data/players.js';
+import { createPlayerStats, applyRosterPlayerToStats, canActivate } from '../data/players.js';
 import { loadRoster, getPlayerById, getGames, getTeams } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
 
@@ -41,7 +41,6 @@ const AUTO_MAX_SPEED        = 0.50;
 const SUPPORT_BLEND  = 0.45;
 const PRESS_BLEND    = 0.5;
 const PRESS_RANGE    = 260;
-const TECH_COOLDOWN_MS = 6000; // per-player cooldown after using a supertechnique
 
 // ─── Formation presets ───────────────────────────────────────────────────
 // Slot 0 = keeper. x=0..1 secondary axis, y=0..1 primary from own goal→halfway
@@ -871,8 +870,8 @@ export default class GameScene extends Phaser.Scene {
     const dId=type==='shot'?(dRole==='A'?this.gkIdA:this.gkIdB):(dRole==='A'?this.activeIdA:this.activeIdB);
     this.confrontation={type,attackerRole:aRole,defenderRole:dRole,attackerId:aId,defenderId:dId,deadline:now+CONFRONT_MS,attackerChoice:null,defenderChoice:null};
   }
-  _aiChoice(stats,cat,now){ return canActivate(stats,cat,now)&&Math.random()<0.55?'technique':'normal'; }
-  _tryTech(stats,cat,now){ if(!canActivate(stats,cat,now)) return false; activateTechnique(stats,cat,now); return true; }
+  _aiChoice(stats,cat){ return canActivate(stats,cat)&&Math.random()<0.55?'technique':'normal'; }
+  _tryTech(stats,cat){ if(!canActivate(stats,cat)) return false; stats.sp-=stats.techniques[cat].cost; return true; }
   _statsFor(role,id){ return (role==='A'?this.statsMapA:this.statsMapB).get(id); }
 
   _resolveConfront(now){
@@ -880,8 +879,8 @@ export default class GameScene extends Phaser.Scene {
     const as=this._statsFor(c.attackerRole,c.attackerId), ds=this._statsFor(c.defenderRole,c.defenderId);
     if(!as||!ds){this.confrontation=null;return;}
     const atk=c.type==='duel'?'dribble':'shot', def=c.type==='duel'?'defense':'keeper';
-    const aU=c.attackerChoice==='technique'&&this._tryTech(as,atk,now);
-    const dU=c.defenderChoice==='technique'&&this._tryTech(ds,def,now);
+    const aU=c.attackerChoice==='technique'&&this._tryTech(as,atk);
+    const dU=c.defenderChoice==='technique'&&this._tryTech(ds,def);
     const aP=(aU?as.techniques[atk].power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]];
     const dP=(dU?ds.techniques[def].power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]];
     const aWins=Math.random()<aP/(aP+dP);
@@ -983,7 +982,7 @@ export default class GameScene extends Phaser.Scene {
       if(myInput.shootRequest&&this.possRole==='A') this._startConfront('shot','A','B',now);
       else if(!aiActive&&inputB.shootRequest&&this.possRole==='B') this._startConfront('shot','B','A',now);
       else if(aiActive&&this.possRole==='B'){ const eB=this._activeEntry('B'); if(eB&&eB.body.position.y<GOAL_CLICK_MARGIN*2.5&&Math.random()<0.02) this._startConfront('shot','B','A',now); }
-      if(this.confrontation?.defenderRole==='B'&&aiActive){ const ds=this._statsFor('B',this.confrontation.defenderId); this.confrontation.defenderChoice=this._aiChoice(ds,'keeper',now); }
+      if(this.confrontation?.defenderRole==='B'&&aiActive){ const ds=this._statsFor('B',this.confrontation.defenderId); this.confrontation.defenderChoice=this._aiChoice(ds,'keeper'); }
       if(myInput.subRequest) this._trySub('A',myInput.subRequest);
       if(!aiActive&&inputB.subRequest) this._trySub('B',inputB.subRequest);
     }
@@ -999,8 +998,8 @@ export default class GameScene extends Phaser.Scene {
       const as2=this._statsFor('A',this.activeIdA), bs=this._statsFor('B',this.activeIdB);
       const stunAry=[...this.stunMap.entries()].map(([k,v])=>({id:k,until:v}));
       const statsAll={
-        a:this.teamA.map(e=>{const s=this._statsFor('A',e.id); return s?{sp:s.sp,cd:s.cooldownUntil}:null;}),
-        b:this.teamB.map(e=>{const s=this._statsFor('B',e.id); return s?{sp:s.sp,cd:s.cooldownUntil}:null;})
+        a:this.teamA.map(e=>{const s=this._statsFor('A',e.id); return s?s.sp:null;}),
+        b:this.teamB.map(e=>{const s=this._statsFor('B',e.id); return s?s.sp:null;})
       };
       this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},statsAll,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
     }
@@ -1041,8 +1040,8 @@ export default class GameScene extends Phaser.Scene {
     if(!aiActive&&inputB.confrontationChoice){ if(c.attackerRole==='B'&&!c.attackerChoice)c.attackerChoice=inputB.confrontationChoice; if(c.defenderRole==='B'&&!c.defenderChoice)c.defenderChoice=inputB.confrontationChoice; }
     if(aiActive){
       const tf=r=>c.type==='duel'?(r===c.attackerRole?'dribble':'defense'):(r===c.attackerRole?'shot':'keeper');
-      if(c.attackerRole==='B'&&!c.attackerChoice){const s=this._statsFor('B',c.attackerId);c.attackerChoice=s?this._aiChoice(s,tf('B'),now):'normal';}
-      if(c.defenderRole==='B'&&!c.defenderChoice){const s=this._statsFor('B',c.defenderId);c.defenderChoice=s?this._aiChoice(s,tf('B'),now):'normal';}
+      if(c.attackerRole==='B'&&!c.attackerChoice){const s=this._statsFor('B',c.attackerId);c.attackerChoice=s?this._aiChoice(s,tf('B')):'normal';}
+      if(c.defenderRole==='B'&&!c.defenderChoice){const s=this._statsFor('B',c.defenderId);c.defenderChoice=s?this._aiChoice(s,tf('B')):'normal';}
     }
     if((c.attackerChoice&&c.defenderChoice)||now>=c.deadline){ if(!c.attackerChoice)c.attackerChoice='normal'; if(!c.defenderChoice)c.defenderChoice='normal'; this._resolveConfront(now); }
   }
@@ -1077,14 +1076,14 @@ export default class GameScene extends Phaser.Scene {
     if(!rs.starterIds) return;
     ['A','B'].forEach(role=>{ const team=role==='A'?this.teamA:this.teamB,ids=role==='A'?rs.starterIds.a:rs.starterIds.b,map=role==='A'?this.statsMapA:this.statsMapB; team.forEach((e,i)=>{ const nid=ids[i]; if(nid&&nid!==e.id){e.id=nid;if(!map.has(nid)){const rp=getPlayerById(nid);if(rp){const s=createPlayerStats();applyRosterPlayerToStats(s,rp);map.set(nid,s);}}}}); });
     if(rs.benchIds){this.benchA=rs.benchIds.a||this.benchA;this.benchB=rs.benchIds.b||this.benchB;}
-    // Each player's PT/cooldown only truly regenerates on the host — mirror
-    // its authoritative values into our local copy so a client's own PT
-    // bar and technique-cooldown gating stay correct instead of frozen.
+    // PT only truly regenerates on the host — mirror its authoritative
+    // values into our local copy so a client's own PT bar and technique
+    // gating stay correct instead of frozen at their initial value.
     if(rs.statsAll){
       ['A','B'].forEach(role=>{
         const team=role==='A'?this.teamA:this.teamB, map=role==='A'?this.statsMapA:this.statsMapB;
         const arr=role==='A'?rs.statsAll.a:rs.statsAll.b; if(!arr) return;
-        team.forEach((e,i)=>{ const d=arr[i]; const st=map.get(e.id); if(d&&st){ st.sp=d.sp; st.cooldownUntil=d.cd; } });
+        team.forEach((e,i)=>{ const sp=arr[i]; const st=map.get(e.id); if(sp!=null&&st) st.sp=sp; });
       });
     }
   }
@@ -1121,7 +1120,7 @@ export default class GameScene extends Phaser.Scene {
     const stats=this._statsFor(relRole,relId); const rp=relId?getPlayerById(relId):null;
     document.getElementById('confrontation-player-info').innerHTML=stats?`<b>${rp?.name||stats.name}</b> — PT ${Math.round(stats.sp)}/${Math.round(stats.maxSP)}`:'';
     const techBtn=document.getElementById('conf-technique'); const tech=stats?stats.techniques[techId]:null;
-    if(tech){techBtn.style.display='block';techBtn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`;techBtn.disabled=!stats||!canActivate(stats,techId,now);}
+    if(tech){techBtn.style.display='block';techBtn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`;techBtn.disabled=!stats||!canActivate(stats,techId);}
     else techBtn.style.display='none';
     const rem=Math.max(0,confrontation.deadline-now);
     document.getElementById('confrontation-timer-fill').style.width=`${(rem/CONFRONT_MS)*100}%`;
