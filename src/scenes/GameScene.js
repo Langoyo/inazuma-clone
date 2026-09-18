@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { connectToRoom, getOrCreateRoomCode } from '../network/network.js';
 import { NORMAL_ACTION_POWER, STAT_FIELD_FOR_TECH } from '../data/techniques.js';
 import { createPlayerStats, applyRosterPlayerToStats, canActivate, activateTechnique } from '../data/players.js';
-import { loadRoster, getPlayerById, getGames } from '../data/roster.js';
+import { loadRoster, getPlayerById, getGames, getTeams } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────
@@ -189,6 +189,8 @@ export default class GameScene extends Phaser.Scene {
       this.rosterAll=data;
       const gs=document.getElementById('squad-game-filter');
       getGames().forEach(g=>{ const o=document.createElement('option'); o.value=g; o.textContent=g; gs.appendChild(o); });
+      const ts=document.getElementById('squad-team-filter');
+      getTeams().forEach(t=>{ const o=document.createElement('option'); o.value=t; o.textContent=t; ts.appendChild(o); });
       this._initSquadEditor();
     }).catch(err=>{ document.getElementById('squad-pick-list').innerHTML=`<p style="color:#f88">Couldn't load roster.<br>${err.message}</p>`; });
 
@@ -317,6 +319,7 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-whole-team-btn').addEventListener('click',()=>this._useWholeTeam());
     document.getElementById('squad-search').addEventListener('input',()=>this._renderPickList());
     document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickList());
+    document.getElementById('squad-team-filter').addEventListener('change',()=>this._renderPickList());
     this._renderPitch(); this._renderPickList();
   }
 
@@ -433,8 +436,9 @@ export default class GameScene extends Phaser.Scene {
     const list=document.getElementById('squad-pick-list');
     const q=(document.getElementById('squad-search').value||'').toLowerCase();
     const gf=document.getElementById('squad-game-filter').value;
+    const tf=document.getElementById('squad-team-filter').value;
     const inSquad=this._allInSquad(); const MAX=120;
-    const matches=this.rosterAll.filter(p=>(!gf||p.game===gf)&&(!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q)));
+    const matches=this.rosterAll.filter(p=>(!gf||p.game===gf)&&(!tf||p.team===tf)&&(!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q)));
     document.getElementById('pick-count').textContent=matches.length>MAX?`Showing ${MAX} of ${matches.length}`:`${matches.length} players`;
     list.innerHTML='';
     matches.slice(0,MAX).forEach(p=>{
@@ -445,12 +449,14 @@ export default class GameScene extends Phaser.Scene {
       card.addEventListener('click',()=>{ if(inSquad.has(p.id)){this._showPlayerStats(p);return;} const e=this.squadSlots.findIndex(s=>s===null); if(e!==-1){this.squadSlots[e]=p.id;}else if(this.benchIds.size<BENCH_MAX){this.benchIds.add(p.id);} this._renderPitch();this._renderPickList(); });
       list.appendChild(card);
     });
-    document.getElementById('squad-whole-team-btn').disabled=!gf;
+    document.getElementById('squad-whole-team-btn').disabled=!gf&&!tf;
   }
 
   _useWholeTeam(){
-    const gf=document.getElementById('squad-game-filter').value; if(!gf) return;
-    const pool=this.rosterAll.filter(p=>p.game===gf);
+    const gf=document.getElementById('squad-game-filter').value;
+    const tf=document.getElementById('squad-team-filter').value;
+    if(!gf&&!tf) return;
+    const pool=this.rosterAll.filter(p=>(!tf||p.team===tf)&&(!gf||p.game===gf));
     const gk=pool.find(p=>p.position==='GK'), rest=pool.filter(p=>!gk||p.id!==gk.id);
     const ordered=gk?[gk,...rest]:rest;
     this.squadSlots=ordered.slice(0,TEAM_SIZE).map(p=>p.id);
@@ -829,6 +835,7 @@ export default class GameScene extends Phaser.Scene {
     this.matter.body.setVelocity(loser.body,{x:(dx/d)*4,y:(dy/d)*4});
   }
   _activeEntry(role){ const team=role==='A'?this.teamA:this.teamB, id=role==='A'?this.activeIdA:this.activeIdB; return team.find(t=>t.id===id)||null; }
+  _setActive(role,id){ if(role==='A') this.activeIdA=id; else this.activeIdB=id; }
   _updateActive(role){
     const team=role==='A'?this.teamA:this.teamB; if(!team.length) return;
     const bp=this.ball.position;
@@ -883,14 +890,18 @@ export default class GameScene extends Phaser.Scene {
     if(c.type==='duel'){
       const eA=this._activeEntry(c.attackerRole), eD=this._activeEntry(c.defenderRole);
       if(aWins){ this._knockback(eD,eA); this.stunMap.set(c.defenderId,now+STUN_MS); title=`${as.name} dribbles past!`; }
-      else { this.possRole=c.defenderRole; this._knockback(eA,eD); this.stunMap.set(c.attackerId,now+STUN_MS); title=`${ds.name} wins the ball!`; }
+      else { this.possRole=c.defenderRole; this._setActive(c.defenderRole,c.defenderId); this._knockback(eA,eD); this.stunMap.set(c.attackerId,now+STUN_MS); title=`${ds.name} wins the ball!`; }
       outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
       this.duelLockUntil=now+STUN_MS+200;
     } else if(aWins){
       this._onGoal(c.attackerRole==='A'?'a':'b');
       title=`⚽ GOAL! ${as.name} scores!`; outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
     } else {
+      // The keeper (defenderId here, not necessarily whoever was "active"
+      // before the shot) made the save — the ball, and possession, are
+      // theirs now.
       this.possRole=c.defenderRole;
+      this._setActive(c.defenderRole,c.defenderId);
       title=`${ds.name} saves it!`; outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
     }
     this.confrontation=null;

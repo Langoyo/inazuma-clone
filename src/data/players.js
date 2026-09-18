@@ -47,8 +47,11 @@ export function canActivate(stats, category, now = 0) {
 }
 
 /** Spend the PT and start the cooldown. Caller must have already checked
- * canActivate(). */
+ * canActivate(). Each technique in the roster data carries its own cooldown
+ * (roughly 3.5–5s depending on the move); fall back to a flat default for
+ * any older data that doesn't specify one. */
 export function activateTechnique(stats, category, now) {
-  stats.sp -= stats.techniques[category].cost;
-  stats.cooldownUntil = now + TECH_COOLDOWN_MS;
+  const tech = stats.techniques[category];
+  stats.sp -= tech.cost;
+  stats.cooldownUntil = now + (tech.cooldown || TECH_COOLDOWN_MS);
 }
