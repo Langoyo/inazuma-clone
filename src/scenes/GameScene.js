@@ -22,7 +22,15 @@ const CONFRONT_MS       = 20000;
 const RESULT_MS         = 3500;
 const RESULT_DELAY_MS   = 800;
 const POSSESS_OFFSET    = 24;
-const PASS_SPEED        = 4.5;
+// The ball's air friction decays its speed geometrically, so a kick covers
+// roughly speed/BALL_FRICTION_AIR before dying. Passes therefore scale their
+// speed to the distance instead of using one fixed value — at a flat 4.5 a
+// pass always died after ~250px, well short of anything but a short ball.
+// Kept in one place so the ball body and the pass maths can't drift apart.
+const BALL_FRICTION_AIR = 0.018;
+const PASS_REACH_BOOST  = 1.12;  // arrive with a bit of pace rather than stopping dead
+const PASS_MIN_SPEED    = 3.0;
+const PASS_MAX_SPEED    = 16;    // below the ball+player radius sum, so it can't tunnel through anyone
 const KNOCKBACK_SPEED   = 1.8;   // was 4 — nearly as fast as a pass, which could fling the
                                   // ball if it clipped the ball on the way (see _moveTeam's
                                   // stun handling, which also keeps the ball from hitting them)
@@ -179,7 +187,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.matter.world.setBounds(0,0,this.FIELD_W,this.FIELD_H);
     this.ball=this.matter.add.circle(this.FIELD_W/2,this.FIELD_H/2,10,
-      {restitution:.7,frictionAir:.018,label:'ball',
+      {restitution:.7,frictionAir:BALL_FRICTION_AIR,label:'ball',
        collisionFilter:{category:CAT_BALL,mask:CAT_PLAYER|CAT_GOAL}});
     this.ballGfx=this.add.circle(this.ball.position.x,this.ball.position.y,10,0xffffff).setDepth(3);
     this._drawGoals();
@@ -962,7 +970,11 @@ export default class GameScene extends Phaser.Scene {
     const e=this._activeEntry(role); if(!e?.body) return;
     const dx=target.x-e.body.position.x, dy=target.y-e.body.position.y, dist=Math.hypot(dx,dy)||1;
     this.possRole=null;
-    this.matter.body.setVelocity(this.ball,{x:(dx/dist)*PASS_SPEED,y:(dy/dist)*PASS_SPEED});
+    // Weight the pass to the distance: friction eats speed/BALL_FRICTION_AIR
+    // worth of travel, so aim for a touch beyond the target rather than
+    // kicking every ball the same and leaving long ones short.
+    const speed=Phaser.Math.Clamp(dist*BALL_FRICTION_AIR*PASS_REACH_BOOST,PASS_MIN_SPEED,PASS_MAX_SPEED);
+    this.matter.body.setVelocity(this.ball,{x:(dx/dist)*speed,y:(dy/dist)*speed});
   }
   /** Picks a reasonable pass target for the AI: the most advanced teammate
    *  (closer to the rival goal than the passer) within a sane passing
@@ -975,7 +987,7 @@ export default class GameScene extends Phaser.Scene {
       if(c.id===entry.id||c.slot===0) continue; // not myself, not the keeper
       const dx=c.body.position.x-entry.body.position.x, dy=c.body.position.y-entry.body.position.y;
       const dist=Math.hypot(dx,dy);
-      if(dist<50||dist>380) continue; // too close to bother, too far to pass reliably
+      if(dist<50||dist>560) continue; // too close to bother, too far to pick out
       const advance=dy*attackDir; // positive = further forward than the passer
       const score=advance-dist*0.15;
       if(score>bestScore){ bestScore=score; best=c; }
