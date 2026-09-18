@@ -14,12 +14,19 @@ export function loadRoster() {
   if (loadingPromise) return loadingPromise;
   loadingPromise = fetch('/roster.json')
     .then((res) => {
-      if (!res.ok) throw new Error(`Failed to load roster.json (${res.status})`);
+      if (!res.ok) throw new Error(`Failed to load roster.json (HTTP ${res.status})`);
       return res.json();
     })
     .then((data) => {
+      if (!Array.isArray(data) || data.length === 0) {
+        throw new Error('roster.json loaded but is empty or not an array');
+      }
       cache = data;
       return data;
+    })
+    .catch((err) => {
+      loadingPromise = null; // allow retrying (e.g. after fixing the file) instead of caching the failure forever
+      throw err;
     });
   return loadingPromise;
 }

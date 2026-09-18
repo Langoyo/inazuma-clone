@@ -108,8 +108,9 @@ export default class GameScene extends Phaser.Scene {
 
     // --- Team select overlay ---
     this.rosterAll = [];
-    document.getElementById('roster-list').innerHTML = '<p style="opacity:0.7;">Loading roster...</p>';
+    document.getElementById('roster-list').innerHTML = '<p style="opacity:0.85;">Loading roster (this can take a moment, it\'s a ~2 MB file)...</p>';
     loadRoster().then((data) => {
+      console.log('[roster] loaded', data.length, 'players');
       this.rosterAll = data;
       const gameSelect = document.getElementById('roster-game-filter');
       getGames().forEach((g) => {
@@ -120,7 +121,11 @@ export default class GameScene extends Phaser.Scene {
       });
       this.renderRosterUI();
     }).catch((err) => {
-      document.getElementById('roster-list').innerHTML = `<p style="color:#ff8080;">Couldn't load the roster (${err.message}). Is roster.json in /public?</p>`;
+      console.error('[roster] failed to load:', err);
+      document.getElementById('roster-list').innerHTML =
+        `<p style="color:#ff8080; font-size:14px; font-weight:bold;">Couldn't load the roster.</p>
+         <p style="color:#ffcccc; font-size:12px;">${err.message}</p>
+         <p style="color:#ffcccc; font-size:12px;">Check: is <code>public/roster.json</code> present in your project, and are you loading this page through a server (http://localhost:... or your deployed URL) rather than opening the HTML file directly?</p>`;
     });
     document.getElementById('confirm-squad-btn').addEventListener('click', () => this.confirmSquad());
 
