@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { connectToRoom, getOrCreateRoomCode } from '../network/network.js';
 import { NORMAL_ACTION_POWER, STAT_FIELD_FOR_TECH } from '../data/techniques.js';
-import { createPlayerStats, applyRosterPlayerToStats, canActivate } from '../data/players.js';
+import { createPlayerStats, applyRosterPlayerToStats, canActivate, activateTechnique } from '../data/players.js';
 import { loadRoster, getPlayerById, getGames } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
 
@@ -31,10 +31,17 @@ const STATE_HZ          = 20;
 const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 
 // Physics forces — slow and deliberate
-const STEER_FORCE           = 0.00040;
-const AUTO_STEER_FORCE      = 0.00012; // teammates drifting autonomously
-const BASE_MAX_SPEED        = 0.85;
-const AUTO_MAX_SPEED        = 0.40;
+const STEER_FORCE           = 0.00034;
+const AUTO_STEER_FORCE      = 0.00022; // off-ball players moving on their own
+const BASE_MAX_SPEED        = 0.72;
+const AUTO_MAX_SPEED        = 0.50;
+
+// Off-ball behaviour: how strongly teammates push forward to support the
+// ball carrier, and how close a defender presses the opponent on the ball.
+const SUPPORT_BLEND  = 0.45;
+const PRESS_BLEND    = 0.5;
+const PRESS_RANGE    = 260;
+const TECH_COOLDOWN_MS = 6000; // per-player cooldown after using a supertechnique
 
 // ─── Formation presets ───────────────────────────────────────────────────
 // Slot 0 = keeper. x=0..1 secondary axis, y=0..1 primary from own goal→halfway
@@ -96,11 +103,14 @@ export default class GameScene extends Phaser.Scene {
 
   // ════════════════════════════════════════════════════════════════════
   create(){
-    // Always use the fixed logical field; viewport is the canvas (set in main.js)
+    // Logical field is fixed; the viewport is whatever the actual canvas
+    // size is (the whole screen — see main.js RESIZE mode), so a landscape
+    // device sees a wide window into the pitch instead of a portrait strip.
     this.FIELD_W = FIELD_LOGICAL_W;
     this.FIELD_H = FIELD_LOGICAL_H;
-    this.VP_W    = VIEWPORT_W;
-    this.VP_H    = VIEWPORT_H;
+    this.VP_W    = this.scale.width  || VIEWPORT_W;
+    this.VP_H    = this.scale.height || VIEWPORT_H;
+    this.scale.on('resize', gameSize=>this._onResize(gameSize));
 
     const roomCode=getOrCreateRoomCode();
     document.getElementById('room-code').textContent=roomCode;
@@ -120,9 +130,11 @@ export default class GameScene extends Phaser.Scene {
 
     // Camera setup: camera scrolls over the logical world
     this.cameras.main.setBounds(0,0,this.FIELD_W,this.FIELD_H);
-    this.cameras.main.scrollX=this.FIELD_W/2-this.VP_W/2;
-    this.cameras.main.scrollY=this.FIELD_H/2-this.VP_H/2;
+    this.cameras.main.setSize(this.VP_W,this.VP_H);
+    this.cameras.main.scrollX=Phaser.Math.Clamp(this.FIELD_W/2-this.VP_W/2,0,Math.max(0,this.FIELD_W-this.VP_W));
+    this.cameras.main.scrollY=Phaser.Math.Clamp(this.FIELD_H/2-this.VP_H/2,0,Math.max(0,this.FIELD_H-this.VP_H));
     this.scrollKeys={up:false,down:false,left:false,right:false};
+    this.joyVec={x:0,y:0};
     this._setupScrollInput();
 
     // Teams
@@ -154,7 +166,7 @@ export default class GameScene extends Phaser.Scene {
     this.selectedPlayerId=null;
     this.gestureStart=null; this.gestureMoved=false;
     this.pendingShoot=false; this.pendingPass=null;
-    this.pendingChoice=null; this.pendingSub=null; this.subOutSel=null;
+    this.pendingChoice=null; this.pendingSub=null; this.subSel=null; this._squadSel=null;
     this.lastStateSent=0;
 
     // Pointer handlers
@@ -166,7 +178,7 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('conf-normal').addEventListener('pointerdown',(e)=>{e.stopPropagation();this.pendingChoice='normal';});
     document.getElementById('conf-technique').addEventListener('pointerdown',(e)=>{e.stopPropagation();this.pendingChoice='technique';});
     document.getElementById('sub-button').addEventListener('click',()=>this._openSubPanel());
-    document.getElementById('sub-cancel-btn').addEventListener('click',()=>{document.getElementById('sub-panel').style.display='none';});
+    document.getElementById('sub-cancel-btn').addEventListener('click',()=>{this.subSel=null;document.getElementById('sub-panel').style.display='none';});
     document.getElementById('formation-button').addEventListener('click',()=>this._openFormPickPanel());
     document.getElementById('formation-pick-close').addEventListener('click',()=>{document.getElementById('formation-pick-panel').style.display='none';});
 
@@ -229,24 +241,49 @@ export default class GameScene extends Phaser.Scene {
     kb.on('keyup-LEFT',    ()=>{this.scrollKeys.left=false;});
     kb.on('keydown-RIGHT', ()=>{this.scrollKeys.right=true;});
     kb.on('keyup-RIGHT',   ()=>{this.scrollKeys.right=false;});
-    // Mobile scroll buttons are in HTML — they poke scrollKeys directly
-    ['scroll-up','scroll-down','scroll-left','scroll-right'].forEach(id=>{
-      const el=document.getElementById(id);
-      if(!el) return;
-      const dir=id.split('-')[1];
-      el.addEventListener('pointerdown',()=>{this.scrollKeys[dir]=true;});
-      el.addEventListener('pointerup',  ()=>{this.scrollKeys[dir]=false;});
-      el.addEventListener('pointerleave',()=>{this.scrollKeys[dir]=false;});
-    });
+    this._setupJoystick();
+  }
+
+  /** Virtual joystick (mobile) driving continuous camera-scroll velocity,
+   *  replacing the old 4-button d-pad (which was fine on PC but fiddly to
+   *  hit precisely on a phone). */
+  _setupJoystick(){
+    const base=document.getElementById('joy-base'), stick=document.getElementById('joy-stick');
+    if(!base||!stick) return;
+    const maxR=25;
+    let activeId=null;
+    const setVec=(dx,dy)=>{
+      const d=Math.hypot(dx,dy), cl=Math.min(d,maxR);
+      const nx=d?dx/d:0, ny=d?dy/d:0;
+      this.joyVec.x=nx*(cl/maxR); this.joyVec.y=ny*(cl/maxR);
+      stick.style.transform=`translate(${nx*cl}px, ${ny*cl}px)`;
+    };
+    const reset=()=>{ this.joyVec.x=0; this.joyVec.y=0; stick.style.transform='translate(0,0)'; };
+    const fromEvent=e=>{ const r=base.getBoundingClientRect(); setVec(e.clientX-(r.left+r.width/2),e.clientY-(r.top+r.height/2)); };
+    base.addEventListener('pointerdown',e=>{ e.stopPropagation(); activeId=e.pointerId; base.setPointerCapture(e.pointerId); fromEvent(e); });
+    base.addEventListener('pointermove',e=>{ if(e.pointerId!==activeId) return; fromEvent(e); });
+    const end=e=>{ if(e.pointerId!==activeId) return; activeId=null; reset(); };
+    base.addEventListener('pointerup',end);
+    base.addEventListener('pointerleave',end);
+    base.addEventListener('pointercancel',end);
+  }
+
+  _onResize(gameSize){
+    this.VP_W=gameSize.width; this.VP_H=gameSize.height;
+    this.cameras.main.setSize(this.VP_W,this.VP_H);
+    this.cameras.main.scrollX=Phaser.Math.Clamp(this.cameras.main.scrollX,0,Math.max(0,this.FIELD_W-this.VP_W));
+    this.cameras.main.scrollY=Phaser.Math.Clamp(this.cameras.main.scrollY,0,Math.max(0,this.FIELD_H-this.VP_H));
   }
 
   _tickScroll(delta){
     const cam=this.cameras.main;
     const spd=SCROLL_SPEED*(delta/1000);
-    if(this.scrollKeys.up)    cam.scrollY=Math.max(0,cam.scrollY-spd);
-    if(this.scrollKeys.down)  cam.scrollY=Math.min(this.FIELD_H-this.VP_H,cam.scrollY+spd);
-    if(this.scrollKeys.left)  cam.scrollX=Math.max(0,cam.scrollX-spd);
-    if(this.scrollKeys.right) cam.scrollX=Math.min(this.FIELD_W-this.VP_W,cam.scrollX+spd);
+    const kx=(this.scrollKeys.left?-1:0)+(this.scrollKeys.right?1:0);
+    const ky=(this.scrollKeys.up?-1:0)+(this.scrollKeys.down?1:0);
+    const vx=Phaser.Math.Clamp(kx+this.joyVec.x,-1,1);
+    const vy=Phaser.Math.Clamp(ky+this.joyVec.y,-1,1);
+    cam.scrollX=Phaser.Math.Clamp(cam.scrollX+vx*spd,0,Math.max(0,this.FIELD_W-this.VP_W));
+    cam.scrollY=Phaser.Math.Clamp(cam.scrollY+vy*spd,0,Math.max(0,this.FIELD_H-this.VP_H));
   }
 
   /** Convert screen (pointer) coords to world coords accounting for camera. */
@@ -293,6 +330,7 @@ export default class GameScene extends Phaser.Scene {
     pitch.innerHTML='<div class="pitch-line-h"></div>';
     const preset=FORMATIONS[this.chosenFormation]||FORMATIONS[DEFAULT_FORMATION];
     const roles=SLOT_ROLES[this.chosenFormation]||SLOT_ROLES[DEFAULT_FORMATION];
+    const sel=this._squadSel;
     preset.forEach((f,slot)=>{
       const pin=document.createElement('div');
       pin.className='slot-pin'; pin.dataset.slot=slot;
@@ -306,8 +344,8 @@ export default class GameScene extends Phaser.Scene {
         pin.classList.add('empty');
         pin.innerHTML=`<div style="font-size:9px;opacity:.55">${roles[slot]}</div>`;
       }
-      pin.addEventListener('click',()=>{ if(!p) return; this._showPlayerStats(p); });
-      this._makeDraggable(pin,'slot',slot);
+      if(sel&&sel.type==='slot'&&sel.slot===slot) pin.classList.add('selected');
+      pin.addEventListener('click',()=>this._onSquadPinClick({type:'slot',slot}));
       pitch.appendChild(pin);
     });
     const strip=document.getElementById('bench-strip'); strip.innerHTML='';
@@ -316,8 +354,8 @@ export default class GameScene extends Phaser.Scene {
       const pin=document.createElement('div'); pin.className='bench-pin'; pin.dataset.benchId=pid;
       const col=this._css3(this._rosterColor(p));
       pin.innerHTML=`<div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div><div class="pin-name">${p.nickname||p.name}</div>`;
-      pin.addEventListener('click',()=>this._showPlayerStats(p));
-      this._makeDraggable(pin,'bench',pid);
+      if(sel&&sel.type==='bench'&&sel.id===pid) pin.classList.add('selected');
+      pin.addEventListener('click',()=>this._onSquadPinClick({type:'bench',id:pid}));
       strip.appendChild(pin);
     });
     document.getElementById('bench-count').textContent=this.benchIds.size;
@@ -357,41 +395,38 @@ export default class GameScene extends Phaser.Scene {
     el.style.display='block';
   }
 
-  _dragState=null;
-  _makeDraggable(el,type,idOrSlot){
-    el.addEventListener('pointerdown',e=>{
-      e.stopPropagation(); el.setPointerCapture(e.pointerId);
-      const g=el.cloneNode(true); g.style.cssText+=';position:fixed;pointer-events:none;opacity:.85;z-index:200;'; g.classList.add('dragging'); document.body.appendChild(g);
-      this._dragState={type,id:idOrSlot,el,ghost:g,moved:false};
-      this._moveGhost(e.clientX,e.clientY);
-    });
-    el.addEventListener('pointermove',e=>{ if(!this._dragState||this._dragState.el!==el) return; this._dragState.moved=true; this._moveGhost(e.clientX,e.clientY); });
-    el.addEventListener('pointerup',e=>{
-      if(!this._dragState||this._dragState.el!==el) return;
-      this._dragState.ghost.remove();
-      if(this._dragState.moved) this._drop(e.clientX,e.clientY,this._dragState);
-      this._dragState=null;
-    });
-  }
-  _moveGhost(cx,cy){ const g=this._dragState.ghost; g.style.left=(cx-22)+'px'; g.style.top=(cy-22)+'px'; }
-  _drop(cx,cy,drag){
-    const els=document.elementsFromPoint(cx,cy);
-    const tSlot=els.find(e=>e.classList.contains('slot-pin')&&!e.classList.contains('dragging'));
-    if(tSlot){ this._swapToSlot(drag,parseInt(tSlot.dataset.slot)); this._renderPitch(); this._renderPickList(); return; }
-    const bench=document.getElementById('bench-strip');
-    if(els.includes(bench)||els.find(e=>e.classList.contains('bench-pin')&&!e.classList.contains('dragging'))){
-      this._moveToBench(drag); this._renderPitch(); this._renderPickList(); return;
+  // Tap-to-swap: tap a pin to select it, tap a different one to swap them,
+  // tap the same one again to view its stats. Replaces drag-and-drop, which
+  // was unreliable on touch (lost pointer capture, accidental scrolling).
+  _squadSel=null;
+  _onSquadPinClick(sel){
+    if(!this._squadSel){ this._squadSel=sel; this._renderPitch(); return; }
+    if(this._squadSel.type===sel.type&&(sel.type==='slot'?this._squadSel.slot===sel.slot:this._squadSel.id===sel.id)){
+      const p=this._squadSelPlayer(sel);
+      this._squadSel=null; this._renderPitch();
+      if(p) this._showPlayerStats(p);
+      return;
     }
+    this._swapSquadSelections(this._squadSel,sel);
+    this._squadSel=null;
+    this._renderPitch(); this._renderPickList();
   }
-  _swapToSlot(drag,tSlot){
-    const cur=this.squadSlots[tSlot];
-    if(drag.type==='slot'){ const s=drag.id; this.squadSlots[tSlot]=this.squadSlots[s]; this.squadSlots[s]=cur; }
-    else if(drag.type==='bench'){ if(cur) this.benchIds.add(cur); this.squadSlots[tSlot]=drag.id; this.benchIds.delete(drag.id); }
-    else if(drag.type==='list'){ if(cur){ const oIdx=this.squadSlots.indexOf(cur); if(oIdx!==-1) this.squadSlots[oIdx]=null; } this.squadSlots[tSlot]=drag.id; }
+  _squadSelPlayer(sel){
+    const id=sel.type==='slot'?this.squadSlots[sel.slot]:sel.id;
+    return id?getPlayerById(id):null;
   }
-  _moveToBench(drag){
-    if(drag.type==='slot'){ const pid=this.squadSlots[drag.id]; if(!pid||this.benchIds.size>=BENCH_MAX) return; this.benchIds.add(pid); this.squadSlots[drag.id]=null; }
-    else if(drag.type==='list'){ if(this.benchIds.size<BENCH_MAX) this.benchIds.add(drag.id); }
+  _swapSquadSelections(a,b){
+    if(a.type==='slot'&&b.type==='slot'){
+      const tmp=this.squadSlots[a.slot]; this.squadSlots[a.slot]=this.squadSlots[b.slot]; this.squadSlots[b.slot]=tmp;
+    } else if(a.type==='bench'&&b.type==='bench'){
+      // Nothing changes — both stay on the bench.
+    } else {
+      const slotSel=a.type==='slot'?a:b, benchSel=a.type==='bench'?a:b;
+      const cur=this.squadSlots[slotSel.slot];
+      this.squadSlots[slotSel.slot]=benchSel.id;
+      this.benchIds.delete(benchSel.id);
+      if(cur) this.benchIds.add(cur);
+    }
   }
 
   _renderPickList(){
@@ -408,7 +443,6 @@ export default class GameScene extends Phaser.Scene {
       const col=this._css3(this._rosterColor(p));
       card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span><span class="pick-name">${p.nickname||p.name}</span></div><div style="font-size:10px;opacity:.7">${p.position} · ${p.team||p.game}</div><div style="font-size:10px;opacity:.6">SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>`;
       card.addEventListener('click',()=>{ if(inSquad.has(p.id)){this._showPlayerStats(p);return;} const e=this.squadSlots.findIndex(s=>s===null); if(e!==-1){this.squadSlots[e]=p.id;}else if(this.benchIds.size<BENCH_MAX){this.benchIds.add(p.id);} this._renderPitch();this._renderPickList(); });
-      this._makeDraggable(card,'list',p.id);
       list.appendChild(card);
     });
     document.getElementById('squad-whole-team-btn').disabled=!gf;
@@ -422,6 +456,7 @@ export default class GameScene extends Phaser.Scene {
     this.squadSlots=ordered.slice(0,TEAM_SIZE).map(p=>p.id);
     while(this.squadSlots.length<TEAM_SIZE) this.squadSlots.push(null);
     this.benchIds=new Set(ordered.slice(TEAM_SIZE,TEAM_SIZE+BENCH_MAX).map(p=>p.id));
+    this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
 
@@ -434,6 +469,7 @@ export default class GameScene extends Phaser.Scene {
     this.benchIds=new Set(ordered.slice(TEAM_SIZE,TEAM_SIZE+BENCH_MAX).map(p=>p.id));
     const fk=Object.keys(FORMATIONS); this.chosenFormation=Phaser.Utils.Array.GetRandom(fk);
     document.getElementById('formation-select').value=this.chosenFormation;
+    this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
 
@@ -552,6 +588,47 @@ export default class GameScene extends Phaser.Scene {
     return {x:secondary, y:primary};
   }
 
+  /** Where an off-ball player (not the one being explicitly steered) should
+   *  drift to. Keeps the formation shape as a base, but blends in a forward
+   *  supporting run (to offer a passing option) when this team has the
+   *  ball, or a press toward the ball carrier when the opponent does —
+   *  applies to both the human team's teammates and the AI team's players. */
+  _offBallTarget(role,e,activeId,iHaveBall,ballCarrier){
+    const base=this._formPos(role,e.slot,this.ball.position);
+    if(e.slot===0||e.id===activeId) return base; // keeper & the on-ball player keep plain formation logic
+
+    if(iHaveBall){
+      const carrier=this._activeEntry(role);
+      if(!carrier) return base;
+      const attackDir=role==='A'?1:-1;
+      const side=(e.body.position.x>=carrier.body.position.x)?1:-1;
+      const supportSpot={
+        x:carrier.body.position.x+side*90,
+        y:carrier.body.position.y+attackDir*70
+      };
+      return {
+        x:Phaser.Math.Linear(base.x,supportSpot.x,SUPPORT_BLEND),
+        y:Phaser.Math.Linear(base.y,supportSpot.y,SUPPORT_BLEND)
+      };
+    }
+
+    if(ballCarrier){
+      const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,ballCarrier.body.position.x,ballCarrier.body.position.y);
+      if(d<PRESS_RANGE){
+        const ownGoalY=role==='A'?0:this.FIELD_H;
+        const pressSpot={
+          x:Phaser.Math.Linear(ballCarrier.body.position.x,e.body.position.x,0.25),
+          y:Phaser.Math.Linear(ballCarrier.body.position.y,ownGoalY,0.15)
+        };
+        return {
+          x:Phaser.Math.Linear(base.x,pressSpot.x,PRESS_BLEND),
+          y:Phaser.Math.Linear(base.y,pressSpot.y,PRESS_BLEND)
+        };
+      }
+    }
+    return base;
+  }
+
   // ════════════════════════════════════════════════════════════════════
   // Formation pick (mid-match) + substitution panel (pitch view)
   // ════════════════════════════════════════════════════════════════════
@@ -565,42 +642,56 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('formation-pick-panel').style.display='flex';
   }
 
+  /** Single-tab substitution panel: the pitch (current XI) and the bench
+   *  shown together, exactly like the pre-match squad editor. Tap a player
+   *  on the pitch, then one on the bench (or vice versa), to sub them. */
   _openSubPanel(){
-    this.subOutSel=null; this._renderSubStep();
+    this.subSel=null; this._renderSubPanel();
     document.getElementById('sub-panel').style.display='flex';
   }
-  _renderSubStep(){
-    const title=document.getElementById('sub-panel-title');
+  _renderSubPanel(){
+    document.getElementById('sub-panel-title').textContent='Tap a player on the pitch, then one on the bench, to substitute';
     const listEl=document.getElementById('sub-list-inner'); listEl.innerHTML='';
     const myTeam=this.role==='A'?this.teamA:this.teamB;
     const myBench=this.role==='A'?(this.benchA||[]):(this.benchB||[]);
-    if(!this.subOutSel){
-      title.textContent='Who comes off?';
-      // Render a mini pitch showing current formation
-      const pitchHtml=this._renderMiniPitch(myTeam,this.role);
-      listEl.innerHTML=pitchHtml;
-      // Bind click events on the slot-pins inside
-      listEl.querySelectorAll('.slot-pin[data-roster-id]').forEach(pin=>{
-        pin.addEventListener('click',()=>{ this.subOutSel=pin.dataset.rosterId; this._renderSubStep(); });
-      });
-    } else {
-      title.textContent='Who comes on?';
-      const bench=myBench.map(id=>getPlayerById(id)).filter(Boolean);
-      if(!bench.length){ listEl.innerHTML='<p>No bench players.</p>'; return; }
-      // Render bench as a mini grid
-      bench.forEach(p=>{
-        const c=document.createElement('div'); c.className='sub-card';
+    const pitchHtml=this._renderMiniPitch(myTeam,this.role,this.subSel);
+    const benchHtml=`<div class="bench-strip" style="margin-top:12px;">${
+      myBench.map(id=>{
+        const p=getPlayerById(id); if(!p) return '';
         const col=this._css3(this._rosterColor(p));
-        c.innerHTML=`<div style="display:flex;align-items:center;gap:6px;"><span class="av" style="width:24px;height:24px;font-size:9px;background:${col};flex-shrink:0">${this._initials(p)}</span><b>${p.nickname||p.name}</b></div><div style="font-size:10px;opacity:.7">${p.position}</div><button>Bring on</button>`;
-        c.querySelector('button').addEventListener('click',()=>{ this.pendingSub={outId:this.subOutSel,inId:p.id}; document.getElementById('sub-panel').style.display='none'; });
-        listEl.appendChild(c);
-      });
+        const selCls=(this.subSel&&this.subSel.type==='bench'&&this.subSel.id===id)?' selected':'';
+        return `<div class="bench-pin${selCls}" data-bench-id="${id}">
+          <div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>
+          <div class="pin-name">${p.nickname||p.name}</div>
+        </div>`;
+      }).join('')||'<p style="font-size:11px;opacity:.7;">No bench players.</p>'
+    }</div>`;
+    listEl.innerHTML=pitchHtml+benchHtml;
+    listEl.querySelectorAll('.slot-pin[data-roster-id]').forEach(pin=>{
+      pin.addEventListener('click',()=>this._onSubPinClick({type:'slot',id:pin.dataset.rosterId}));
+    });
+    listEl.querySelectorAll('.bench-pin[data-bench-id]').forEach(pin=>{
+      pin.addEventListener('click',()=>this._onSubPinClick({type:'bench',id:pin.dataset.benchId}));
+    });
+  }
+  _onSubPinClick(sel){
+    if(!this.subSel){ this.subSel=sel; this._renderSubPanel(); return; }
+    if(this.subSel.id===sel.id){
+      const p=getPlayerById(sel.id); this.subSel=null; this._renderSubPanel();
+      if(p) this._showPlayerStats(p);
+      return;
     }
+    if(this.subSel.type===sel.type){ this.subSel=null; this._renderSubPanel(); return; } // both pitch or both bench: not a valid sub
+    const outId=this.subSel.type==='slot'?this.subSel.id:sel.id;
+    const inId =this.subSel.type==='bench'?this.subSel.id:sel.id;
+    this.pendingSub={outId,inId};
+    this.subSel=null;
+    document.getElementById('sub-panel').style.display='none';
   }
 
   /** Render a simplified pitch HTML with current player positions for use in
    *  the sub panel and mid-match formation view (same look as squad editor). */
-  _renderMiniPitch(team, role){
+  _renderMiniPitch(team, role, sel){
     const preset=FORMATIONS[this.formation[role]]||FORMATIONS[DEFAULT_FORMATION];
     const teamColor=role==='A'?this._css3(this.teamColorA):this._css3(this.teamColorB);
     const pins=preset.map((f,slot)=>{
@@ -608,15 +699,16 @@ export default class GameScene extends Phaser.Scene {
       const col=p?this._css3(this._rosterColor(p)):teamColor;
       const left=(f.x*100).toFixed(1)+'%';
       const top =((1-f.y)*100).toFixed(1)+'%';
+      const selCls=(p&&sel&&sel.type==='slot'&&sel.id===entry.id)?' selected':'';
       if(p){
-        return `<div class="slot-pin" style="left:${left};top:${top}" data-roster-id="${entry.id}">
+        return `<div class="slot-pin${selCls}" style="left:${left};top:${top}" data-roster-id="${entry.id}">
           <div class="pin-avatar" style="background:${col}">${this._initials(p)}</div>
           <div class="pin-name">${p.nickname||p.name}</div>
         </div>`;
       }
       return `<div class="slot-pin empty" style="left:${left};top:${top}"><div style="font-size:9px;opacity:.5">–</div></div>`;
     }).join('');
-    return `<div id="formation-pitch" style="pointer-events:auto;touch-action:none;cursor:pointer"><div class="pitch-line-h"></div>${pins}</div>`;
+    return `<div class="mini-pitch-wrap" style="width:100%;aspect-ratio:2/3;background:#1e7a3c;border:2px solid white;border-radius:8px;position:relative;overflow:hidden;pointer-events:auto;touch-action:manipulation;"><div class="pitch-line-h"></div>${pins}</div>`;
   }
 
   _trySub(role,req){
@@ -772,8 +864,8 @@ export default class GameScene extends Phaser.Scene {
     const dId=type==='shot'?(dRole==='A'?this.gkIdA:this.gkIdB):(dRole==='A'?this.activeIdA:this.activeIdB);
     this.confrontation={type,attackerRole:aRole,defenderRole:dRole,attackerId:aId,defenderId:dId,deadline:now+CONFRONT_MS,attackerChoice:null,defenderChoice:null};
   }
-  _aiChoice(stats,cat){ return canActivate(stats,cat)&&Math.random()<0.55?'technique':'normal'; }
-  _tryTech(stats,cat){ if(!canActivate(stats,cat)) return false; stats.sp-=stats.techniques[cat].cost; return true; }
+  _aiChoice(stats,cat,now){ return canActivate(stats,cat,now)&&Math.random()<0.55?'technique':'normal'; }
+  _tryTech(stats,cat,now){ if(!canActivate(stats,cat,now)) return false; activateTechnique(stats,cat,now); return true; }
   _statsFor(role,id){ return (role==='A'?this.statsMapA:this.statsMapB).get(id); }
 
   _resolveConfront(now){
@@ -781,8 +873,8 @@ export default class GameScene extends Phaser.Scene {
     const as=this._statsFor(c.attackerRole,c.attackerId), ds=this._statsFor(c.defenderRole,c.defenderId);
     if(!as||!ds){this.confrontation=null;return;}
     const atk=c.type==='duel'?'dribble':'shot', def=c.type==='duel'?'defense':'keeper';
-    const aU=c.attackerChoice==='technique'&&this._tryTech(as,atk);
-    const dU=c.defenderChoice==='technique'&&this._tryTech(ds,def);
+    const aU=c.attackerChoice==='technique'&&this._tryTech(as,atk,now);
+    const dU=c.defenderChoice==='technique'&&this._tryTech(ds,def,now);
     const aP=(aU?as.techniques[atk].power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]];
     const dP=(dU?ds.techniques[def].power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]];
     const aWins=Math.random()<aP/(aP+dP);
@@ -880,7 +972,7 @@ export default class GameScene extends Phaser.Scene {
       if(myInput.shootRequest&&this.possRole==='A') this._startConfront('shot','A','B',now);
       else if(!aiActive&&inputB.shootRequest&&this.possRole==='B') this._startConfront('shot','B','A',now);
       else if(aiActive&&this.possRole==='B'){ const eB=this._activeEntry('B'); if(eB&&eB.body.position.y<GOAL_CLICK_MARGIN*2.5&&Math.random()<0.02) this._startConfront('shot','B','A',now); }
-      if(this.confrontation?.defenderRole==='B'&&aiActive){ const ds=this._statsFor('B',this.confrontation.defenderId); this.confrontation.defenderChoice=this._aiChoice(ds,'keeper'); }
+      if(this.confrontation?.defenderRole==='B'&&aiActive){ const ds=this._statsFor('B',this.confrontation.defenderId); this.confrontation.defenderChoice=this._aiChoice(ds,'keeper',now); }
       if(myInput.subRequest) this._trySub('A',myInput.subRequest);
       if(!aiActive&&inputB.subRequest) this._trySub('B',inputB.subRequest);
     }
@@ -895,13 +987,21 @@ export default class GameScene extends Phaser.Scene {
       this.lastStateSent=now;
       const as2=this._statsFor('A',this.activeIdA), bs=this._statsFor('B',this.activeIdB);
       const stunAry=[...this.stunMap.entries()].map(([k,v])=>({id:k,until:v}));
-      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
+      const statsAll={
+        a:this.teamA.map(e=>{const s=this._statsFor('A',e.id); return s?{sp:s.sp,cd:s.cooldownUntil}:null;}),
+        b:this.teamB.map(e=>{const s=this._statsFor('B',e.id); return s?{sp:s.sp,cd:s.cooldownUntil}:null;})
+      };
+      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},statsAll,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
     }
   }
 
   _moveTeam(role,targets,now){
     const team=role==='A'?this.teamA:this.teamB;
     const byId=new Map(targets.map(t=>[t.id,t]));
+    const activeId=role==='A'?this.activeIdA:this.activeIdB;
+    const iHaveBall=this.possRole===role;
+    const oppHasBall=!!this.possRole&&this.possRole!==role;
+    const ballCarrier=oppHasBall?this._activeEntry(this.possRole):null;
     team.forEach(e=>{
       if(this._isStunned(e.id,now)){
         // Stunned: drain velocity, don't steer
@@ -912,8 +1012,10 @@ export default class GameScene extends Phaser.Scene {
       const t=byId.get(e.id);
       if(t) this._steer(e.body,t,sp,STEER_FORCE);
       else {
-        // Autonomous position: seek space based on role
-        const autoPos=this._formPos(role,e.slot,this.ball.position);
+        // Autonomous position: hold roughly to formation, but lean into a
+        // supporting run when we have the ball, or press the ball carrier
+        // when the opponent does.
+        const autoPos=this._offBallTarget(role,e,activeId,iHaveBall,ballCarrier);
         this._steer(e.body,autoPos,1,AUTO_STEER_FORCE);
         // Soft speed cap for autonomous movement
         const v=e.body.velocity, s=Math.hypot(v.x,v.y);
@@ -928,8 +1030,8 @@ export default class GameScene extends Phaser.Scene {
     if(!aiActive&&inputB.confrontationChoice){ if(c.attackerRole==='B'&&!c.attackerChoice)c.attackerChoice=inputB.confrontationChoice; if(c.defenderRole==='B'&&!c.defenderChoice)c.defenderChoice=inputB.confrontationChoice; }
     if(aiActive){
       const tf=r=>c.type==='duel'?(r===c.attackerRole?'dribble':'defense'):(r===c.attackerRole?'shot':'keeper');
-      if(c.attackerRole==='B'&&!c.attackerChoice){const s=this._statsFor('B',c.attackerId);c.attackerChoice=s?this._aiChoice(s,tf('B')):'normal';}
-      if(c.defenderRole==='B'&&!c.defenderChoice){const s=this._statsFor('B',c.defenderId);c.defenderChoice=s?this._aiChoice(s,tf('B')):'normal';}
+      if(c.attackerRole==='B'&&!c.attackerChoice){const s=this._statsFor('B',c.attackerId);c.attackerChoice=s?this._aiChoice(s,tf('B'),now):'normal';}
+      if(c.defenderRole==='B'&&!c.defenderChoice){const s=this._statsFor('B',c.defenderId);c.defenderChoice=s?this._aiChoice(s,tf('B'),now):'normal';}
     }
     if((c.attackerChoice&&c.defenderChoice)||now>=c.deadline){ if(!c.attackerChoice)c.attackerChoice='normal'; if(!c.defenderChoice)c.defenderChoice='normal'; this._resolveConfront(now); }
   }
@@ -964,6 +1066,16 @@ export default class GameScene extends Phaser.Scene {
     if(!rs.starterIds) return;
     ['A','B'].forEach(role=>{ const team=role==='A'?this.teamA:this.teamB,ids=role==='A'?rs.starterIds.a:rs.starterIds.b,map=role==='A'?this.statsMapA:this.statsMapB; team.forEach((e,i)=>{ const nid=ids[i]; if(nid&&nid!==e.id){e.id=nid;if(!map.has(nid)){const rp=getPlayerById(nid);if(rp){const s=createPlayerStats();applyRosterPlayerToStats(s,rp);map.set(nid,s);}}}}); });
     if(rs.benchIds){this.benchA=rs.benchIds.a||this.benchA;this.benchB=rs.benchIds.b||this.benchB;}
+    // Each player's PT/cooldown only truly regenerates on the host — mirror
+    // its authoritative values into our local copy so a client's own PT
+    // bar and technique-cooldown gating stay correct instead of frozen.
+    if(rs.statsAll){
+      ['A','B'].forEach(role=>{
+        const team=role==='A'?this.teamA:this.teamB, map=role==='A'?this.statsMapA:this.statsMapB;
+        const arr=role==='A'?rs.statsAll.a:rs.statsAll.b; if(!arr) return;
+        team.forEach((e,i)=>{ const d=arr[i]; const st=map.get(e.id); if(d&&st){ st.sp=d.sp; st.cooldownUntil=d.cd; } });
+      });
+    }
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -998,7 +1110,7 @@ export default class GameScene extends Phaser.Scene {
     const stats=this._statsFor(relRole,relId); const rp=relId?getPlayerById(relId):null;
     document.getElementById('confrontation-player-info').innerHTML=stats?`<b>${rp?.name||stats.name}</b> — PT ${Math.round(stats.sp)}/${Math.round(stats.maxSP)}`:'';
     const techBtn=document.getElementById('conf-technique'); const tech=stats?stats.techniques[techId]:null;
-    if(tech){techBtn.style.display='block';techBtn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`;techBtn.disabled=!stats||!canActivate(stats,techId);}
+    if(tech){techBtn.style.display='block';techBtn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`;techBtn.disabled=!stats||!canActivate(stats,techId,now);}
     else techBtn.style.display='none';
     const rem=Math.max(0,confrontation.deadline-now);
     document.getElementById('confrontation-timer-fill').style.width=`${(rem/CONFRONT_MS)*100}%`;
