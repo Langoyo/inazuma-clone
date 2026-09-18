@@ -229,6 +229,14 @@
   <div id="team-select-ui">
     <h1>Choose your squad</h1>
     <p class="hint">Pick one starting player. You can also add extra players to your bench — if you have any bench players, you'll be able to substitute during the match.</p>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-bottom:10px; width:100%; max-width:600px;">
+      <input id="roster-search" type="text" placeholder="Search by name..." style="flex:1; min-width:160px; padding:8px; border-radius:8px; border:1px solid #555; background:rgba(255,255,255,0.08); color:white;" />
+      <select id="roster-game-filter" style="padding:8px; border-radius:8px; border:1px solid #555; background:rgba(255,255,255,0.08); color:white;">
+        <option value="">All games</option>
+      </select>
+      <button id="select-whole-team-btn" disabled style="padding:8px 12px; border-radius:8px; border:1px solid white; background:rgba(51,153,255,0.3); color:white;">Use this whole team</button>
+    </div>
+    <div id="roster-count" style="font-size:11px; opacity:0.7; margin-bottom:6px;"></div>
     <div id="roster-list"></div>
     <button id="confirm-squad-btn" disabled>Confirm squad</button>
     <div id="squad-status"></div>

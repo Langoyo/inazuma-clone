@@ -94,44 +94,52 @@ a Inazuma Eleven real:
   (`net.hasPeer() === false`), y se desactiva sola en cuanto se une un
   segundo jugador.
 
-## Sobre el Excel — y sobre las imágenes del repo que encontraste
+## Roster real: 4986 jugadores, con técnicas de verdad (Hissatsu)
 
-Encontré `realt0w/inazuma-index` y lo miré antes de tocar nada. Dos cosas
-importantes:
+Me pasaste un segundo Excel (`Inazuma_Eleven_VR_Document_v3_06...`), mucho
+más completo, y con esto **sustituyo del todo** el roster anterior (el de
+9498 jugadores del primer Excel) — este es mejor en lo que más importaba:
+las técnicas.
 
-- **Las imágenes no las he metido en el proyecto.** Mi entorno de código no
-  tiene acceso a internet para descargarlas, y aunque lo tuviera, ese
-  propio repo dice que las imágenes vienen de "Spriters Resource" y de
-  wikis — son sprites/artwork oficial de los juegos reales (copyright de
-  Level-5). Meterlas en un proyecto que vas a desplegar públicamente sí
-  sería redistribuir material con derechos de autor. Si tú te las
-  descargas para tu copia local, eso ya es cosa tuya — dime y te preparo
-  el código para que las cargue desde una carpeta `public/players/`.
-- **Los datos (nombres, stats, técnicas) son otra historia** — mucho menos
-  problemáticos. En cuanto tengas el Excel, o si quieres que extraiga los
-  datos de ese mismo repo, puedo ayudarte a escribir un script de
-  conversión (para que lo ejecutes tú, con tu propia conexión) que rellene
-  `src/data/roster.js` y `src/data/techniques.js` con los valores reales.
+### Por qué es mejor
+- Tiene una **hoja `Hissatsu` con 687 técnicas reales**: nombre, tipo
+  (Shoot/Offense/Defense/Keep — mapeados a nuestras categorías
+  shot/dribble/defense/keeper) y, sobre todo, **una potencia numérica ya
+  calculada** (0-100) en vez de tener que inventármela a partir del coste.
+  Ya no hace falta adivinar nada.
+- La hoja `Characters` trae, por cada jugador, sus primeras 3 técnicas
+  aprendidas — las cruzo por nombre contra la tabla de Hissatsu, y de
+  **4986 jugadores, 4946 (99%) terminan con al menos una supertécnica**
+  asignada (antes, con el otro Excel, la mayoría de GO se quedaban sin
+  ninguna).
+- Cubre 8 juegos, no solo 6: además de IE1/IE2/IE3/GO1/GO2/GO3, incluye
+  **Ares no Tenbin** (`Ares`, 192 jugadores) y el propio juego móvil del
+  que sale este Excel, **Victory Road** (`VR`, 854 jugadores).
 
-Por ahora, `src/data/roster.js` tiene 12 jugadores de ejemplo **inventados**
-(no son personajes reales de Inazuma Eleven) solo para que el sistema de
-selección de equipo y sustituciones tenga algo con lo que funcionar.
+### Cómo mapeé las estadísticas
+Este juego usa 7 estadísticas por jugador (Kick, Control, Technique,
+Pressure, Physical, Agility, Intelligence) en vez de las 7 clásicas de los
+juegos de DS, así que las combiné así:
+- `speed` ← Agility
+- `shotPower` ← Kick
+- `dribblePower` ← media de Control y Technique
+- `defensePower` ← media de Pressure y Physical
+- `keeperPower` ← media de Physical e Intelligence
 
-## Selección de equipo y sustituciones
+Todas estas estadísticas en el Excel rondan 80-121 (una escala distinta a
+los juegos originales), así que las normalizo dividiendo entre 95 en vez
+de entre 60/100 como antes.
 
-- Antes de que empiece el partido, cada jugador ve una pantalla con todo
-  el `roster` (`src/data/roster.js`): elige **un titular** (obligatorio) y,
-  opcionalmente, tantos suplentes como quiera marcando su casilla "Bench".
-- El anfitrión (host) espera a que el rival confirme su equipo (o, si
-  juegas contra la IA, se lo asigna automáticamente) y entonces arranca el
-  partido para los dos a la vez.
-- Si tienes al menos un suplente en el banquillo, te aparece un botón
-  **"Substitute"** abajo a la derecha durante el partido: lo pulsas, eliges
-  quién entra, y tu jugador en el campo cambia de estadísticas y técnicas
-  al instante (con la barra de SP a tope, como si entrara fresco). El que
-  sale vuelve al banquillo, así que los cambios son reversibles.
-- Igual que con las técnicas, quién puede hacer un cambio válido lo decide
-  siempre el host — el cliente solo pide, nunca aplica el cambio él mismo.
+### Desglose por juego
+IE1: 1016 · IE2: 638 · IE3: 622 · GO1: 894 · GO2: 397 · GO3: 373 ·
+Ares: 192 · VR: 854.
+
+### Limitación que queda
+Cada jugador solo trae sus **primeras 3 técnicas aprendidas** en este
+Excel (no las 4 completas), así que casi nunca tendrá las 4 categorías
+rellenas a la vez — normalmente le faltará una. Sigue sin haber equipos
+reales (mismo motivo que antes: la columna no existe en ninguno de los
+dos Excel), así que el agrupador sigue siendo por juego.
 
 ## El juego ya está en inglés
 
@@ -163,11 +171,21 @@ comparte o lo sube a un repo público en inglés.
 - **Sin efectos visuales de las técnicas todavía**: la lógica del duelo/tiro
   ya funciona (SP, cooldown, probabilidad, resultado), pero no hay
   animación o destello específico por técnica.
+- **Un ~1% de jugadores sin ninguna supertécnica**: cuando ninguna de sus
+  3 técnicas conocidas aparece en la tabla Hissatsu con un tipo válido, se
+  queda sin ninguna — le aparecerá siempre la opción normal en cualquier
+  enfrentamiento.
+- **Sin equipos reales todavía**: el selector agrupa por juego, no por
+  equipo real (Raimon, Occult, etc.) porque el Excel no traía esa columna.
+- **roster.json no se valida en el build**: si algún día lo reemplazas a
+  mano y el JSON queda mal formado, la pantalla de selección de equipo
+  fallará con un error visible en pantalla (lo capturo y lo muestro), pero
+  no hay una comprobación automática antes de eso.
 
 ## Siguientes pasos sugeridos
 
-1. Importar el Excel real de jugadores y técnicas a `src/data/` (te
-   preparo un script de conversión en cuanto me lo pases).
+1. Conseguir los equipos reales para agrupar el selector por equipo en
+   vez de por juego (lo comentaste, en cuanto los tengas los metemos).
 2. Efectos visuales por técnica (destello de color, partícula al chutar,
    animación de parada).
 3. Client-side prediction para el cliente (ver limitación arriba).

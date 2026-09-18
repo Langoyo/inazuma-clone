@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { connectToRoom, getOrCreateRoomCode } from '../network/network.js';
-import { TECHNIQUES, NORMAL_ACTION_POWER, STAT_FIELD_FOR_TECH } from '../data/techniques.js';
+import { NORMAL_ACTION_POWER, STAT_FIELD_FOR_TECH } from '../data/techniques.js';
 import { createPlayerStats, applyRosterPlayerToStats, canActivate } from '../data/players.js';
-import { ROSTER, getPlayerById } from '../data/roster.js';
+import { loadRoster, getPlayerById, getGames } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
 
 const FIELD_W = 800;
@@ -107,7 +107,21 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // --- Team select overlay ---
-    this.renderRosterUI();
+    this.rosterAll = [];
+    document.getElementById('roster-list').innerHTML = '<p style="opacity:0.7;">Loading roster...</p>';
+    loadRoster().then((data) => {
+      this.rosterAll = data;
+      const gameSelect = document.getElementById('roster-game-filter');
+      getGames().forEach((g) => {
+        const opt = document.createElement('option');
+        opt.value = g;
+        opt.textContent = g;
+        gameSelect.appendChild(opt);
+      });
+      this.renderRosterUI();
+    }).catch((err) => {
+      document.getElementById('roster-list').innerHTML = `<p style="color:#ff8080;">Couldn't load the roster (${err.message}). Is roster.json in /public?</p>`;
+    });
     document.getElementById('confirm-squad-btn').addEventListener('click', () => this.confirmSquad());
 
     // --- Networking callbacks ---
@@ -135,31 +149,73 @@ export default class GameScene extends Phaser.Scene {
 
   renderRosterUI() {
     const list = document.getElementById('roster-list');
-    list.innerHTML = '';
-    ROSTER.forEach((p) => {
-      const card = document.createElement('div');
-      card.className = 'roster-card';
-      card.dataset.id = p.id;
-      card.innerHTML = `
-        <div class="name">${p.name}</div>
-        <div class="pos">${p.position} · SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>
-        <div class="row"><button class="starter-btn">Set as starter</button></div>
-        <label><input type="checkbox" class="bench-check" /> Bench</label>
-      `;
-      list.appendChild(card);
+    const searchInput = document.getElementById('roster-search');
+    const gameSelect = document.getElementById('roster-game-filter');
+    const wholeTeamBtn = document.getElementById('select-whole-team-btn');
+    const countEl = document.getElementById('roster-count');
+    const MAX_RENDERED = 150;
 
-      card.querySelector('.starter-btn').addEventListener('click', () => {
-        this.mySquad.starterId = p.id;
-        this.mySquad.benchIds.delete(p.id);
-        card.querySelector('.bench-check').checked = false;
-        this.refreshRosterUI();
+    const currentMatches = () => {
+      const q = (searchInput.value || '').toLowerCase();
+      const game = gameSelect.value;
+      return this.rosterAll.filter((p) =>
+        (!game || p.game === game) &&
+        (!q || p.name.toLowerCase().includes(q) || (p.nickname || '').toLowerCase().includes(q))
+      );
+    };
+
+    const draw = () => {
+      const matches = currentMatches();
+      countEl.textContent = matches.length > MAX_RENDERED
+        ? `Showing ${MAX_RENDERED} of ${matches.length} matches — search or pick a game to narrow it down`
+        : `${matches.length} player${matches.length === 1 ? '' : 's'}`;
+
+      wholeTeamBtn.disabled = !gameSelect.value; // needs a specific game selected
+
+      list.innerHTML = '';
+      matches.slice(0, MAX_RENDERED).forEach((p) => {
+        const card = document.createElement('div');
+        card.className = 'roster-card';
+        card.dataset.id = p.id;
+        card.innerHTML = `
+          <div class="name">${p.nickname || p.name}</div>
+          <div class="pos">${p.position} · ${p.game}</div>
+          <div class="pos">SPD ${p.stats.speed} SHT ${p.stats.shotPower} DRB ${p.stats.dribblePower}</div>
+          <div class="row"><button class="starter-btn">Set as starter</button></div>
+          <label><input type="checkbox" class="bench-check" /> Bench</label>
+        `;
+        list.appendChild(card);
+
+        card.querySelector('.starter-btn').addEventListener('click', () => {
+          this.mySquad.starterId = p.id;
+          this.mySquad.benchIds.delete(p.id);
+          card.querySelector('.bench-check').checked = false;
+          this.refreshRosterUI();
+        });
+        card.querySelector('.bench-check').addEventListener('change', (e) => {
+          if (p.id === this.mySquad.starterId) { e.target.checked = false; return; }
+          if (e.target.checked) this.mySquad.benchIds.add(p.id);
+          else this.mySquad.benchIds.delete(p.id);
+        });
       });
-      card.querySelector('.bench-check').addEventListener('change', (e) => {
-        if (p.id === this.mySquad.starterId) { e.target.checked = false; return; }
-        if (e.target.checked) this.mySquad.benchIds.add(p.id);
-        else this.mySquad.benchIds.delete(p.id);
-      });
+      this.refreshRosterUI();
+    };
+
+    searchInput.addEventListener('input', draw);
+    gameSelect.addEventListener('change', draw);
+    wholeTeamBtn.addEventListener('click', () => {
+      const matches = currentMatches();
+      if (!matches.length) return;
+      // Prefer a goalkeeper as the starter when one is in the filtered list.
+      const starter = matches.find((p) => p.position === 'GK') || matches[0];
+      this.mySquad.starterId = starter.id;
+      this.mySquad.benchIds = new Set(
+        matches.filter((p) => p.id !== starter.id).slice(0, 10).map((p) => p.id)
+      );
+      draw();
     });
+
+    draw();
   }
 
   refreshRosterUI() {
@@ -190,12 +246,16 @@ export default class GameScene extends Phaser.Scene {
   }
 
   defaultAISquad() {
-    return { starterId: ROSTER[0].id, benchIds: [ROSTER[1].id, ROSTER[2].id] };
+    const pool = this.rosterAll.length ? this.rosterAll : [];
+    return {
+      starterId: pool[0] ? pool[0].id : null,
+      benchIds: pool.slice(1, 3).map((p) => p.id)
+    };
   }
 
   startMatch(payloadA, payloadB) {
-    const starterA = getPlayerById(payloadA.starterId) || ROSTER[0];
-    const starterB = getPlayerById(payloadB.starterId) || ROSTER[0];
+    const starterA = getPlayerById(payloadA.starterId) || this.rosterAll[0];
+    const starterB = getPlayerById(payloadB.starterId) || this.rosterAll[0];
     applyRosterPlayerToStats(this.statsA, starterA);
     applyRosterPlayerToStats(this.statsB, starterB);
     this.activeIdA = starterA.id;
@@ -224,7 +284,7 @@ export default class GameScene extends Phaser.Scene {
     bench.forEach((p) => {
       const card = document.createElement('div');
       card.className = 'roster-card';
-      card.innerHTML = `<div class="name">${p.name}</div><div class="pos">${p.position}</div><button class="bring-on-btn">Bring on</button>`;
+      card.innerHTML = `<div class="name">${p.nickname || p.name}</div><div class="pos">${p.position} · ${p.team}</div><button class="bring-on-btn">Bring on</button>`;
       card.querySelector('.bring-on-btn').addEventListener('click', () => {
         this.pendingSubRequest = p.id;
         document.getElementById('sub-panel').style.display = 'none';
@@ -372,18 +432,19 @@ export default class GameScene extends Phaser.Scene {
     };
   }
 
-  aiConfrontationChoice(stats, techId, now) {
-    const tech = TECHNIQUES[techId];
-    if (canActivate(stats, tech, now) && Math.random() < 0.55) return 'technique';
+  aiConfrontationChoice(stats, category, now) {
+    if (canActivate(stats, category, now) && Math.random() < 0.55) return 'technique';
     return 'normal';
   }
 
-  /** Tries to spend SP and set the cooldown for a technique. Returns whether it succeeded. */
-  tryActivateTechnique(stats, techId, now) {
-    const tech = TECHNIQUES[techId];
-    if (!canActivate(stats, tech, now)) return false;
+  /** Tries to spend SP and set the cooldown for a player's technique in
+   * `category`. Returns whether it succeeded (fails if they have no
+   * technique equipped there, or can't afford/it's on cooldown). */
+  tryActivateTechnique(stats, category, now) {
+    if (!canActivate(stats, category, now)) return false;
+    const tech = stats.techniques[category];
     stats.sp -= tech.cost;
-    stats.cooldowns[tech.id] = now + tech.cooldown;
+    stats.cooldowns[category] = now + tech.cooldown;
     return true;
   }
 
@@ -397,8 +458,8 @@ export default class GameScene extends Phaser.Scene {
     const attackerUsedTech = c.attackerChoice === 'technique' && this.tryActivateTechnique(attackerStats, attackTechId, now);
     const defenderUsedTech = c.defenderChoice === 'technique' && this.tryActivateTechnique(defenderStats, defendTechId, now);
 
-    const attackPower = (attackerUsedTech ? TECHNIQUES[attackTechId].power : NORMAL_ACTION_POWER) * attackerStats[STAT_FIELD_FOR_TECH[attackTechId]];
-    const defendPower = (defenderUsedTech ? TECHNIQUES[defendTechId].power : NORMAL_ACTION_POWER) * defenderStats[STAT_FIELD_FOR_TECH[defendTechId]];
+    const attackPower = (attackerUsedTech ? attackerStats.techniques[attackTechId].power : NORMAL_ACTION_POWER) * attackerStats[STAT_FIELD_FOR_TECH[attackTechId]];
+    const defendPower = (defenderUsedTech ? defenderStats.techniques[defendTechId].power : NORMAL_ACTION_POWER) * defenderStats[STAT_FIELD_FOR_TECH[defendTechId]];
     const pAttackerWins = attackPower / (attackPower + defendPower);
     const attackerWins = Math.random() < pAttackerWins;
 
@@ -614,7 +675,6 @@ export default class GameScene extends Phaser.Scene {
     const techId = confrontation.type === 'duel'
       ? (amAttacker ? 'dribble' : 'defense')
       : (amAttacker ? 'shot' : 'keeper');
-    const tech = TECHNIQUES[techId];
 
     document.getElementById('confrontation-title').textContent = confrontation.type === 'duel'
       ? (amAttacker ? 'Duel! You\u2019re being tackled' : 'Duel! Go for the tackle')
@@ -624,11 +684,16 @@ export default class GameScene extends Phaser.Scene {
       ? (amAttacker ? 'Normal dribble' : 'Normal tackle')
       : (amAttacker ? 'Normal shot' : 'Normal save');
 
-    const techBtn = document.getElementById('conf-technique');
-    techBtn.innerHTML = `${tech.icon} ${tech.name}<span class="cost">${tech.cost} SP</span>`;
-
     const stats = this.role === 'A' ? this.statsA : this.statsB;
-    techBtn.disabled = !canActivate(stats, tech, now);
+    const tech = stats.techniques[techId];
+    const techBtn = document.getElementById('conf-technique');
+    if (tech) {
+      techBtn.style.display = 'block';
+      techBtn.innerHTML = `${tech.name}<span class="cost">${tech.cost} SP</span>`;
+      techBtn.disabled = !canActivate(stats, techId, now);
+    } else {
+      techBtn.style.display = 'none'; // this player has no technique in this slot
+    }
 
     const remaining = Math.max(0, confrontation.deadline - now);
     document.getElementById('confrontation-timer-fill').style.width = `${(remaining / CONFRONTATION_WINDOW_MS) * 100}%`;
