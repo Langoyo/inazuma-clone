@@ -171,6 +171,7 @@ export default class GameScene extends Phaser.Scene {
     this.possRole=null; this.currentPossession=null;
     this.duelLockUntil=0; this.confrontation=null;
     this.confrontResult=null;
+    this._lastFxUntil=0;
 
     this.matchStarted=false;
     this.squadSlots=Array(TEAM_SIZE).fill(null);
@@ -948,6 +949,8 @@ export default class GameScene extends Phaser.Scene {
   _tryTech(stats,cat){ if(!canActivate(stats,cat)) return false; stats.sp-=stats.techniques[cat].cost; return true; }
   _statsFor(role,id){ return (role==='A'?this.statsMapA:this.statsMapB).get(id); }
 
+  _entryById(role,id){ const team=role==='A'?this.teamA:this.teamB; return team.find(t=>t.id===id)||null; }
+
   _resolveConfront(now){
     const c=this.confrontation;
     const as=this._statsFor(c.attackerRole,c.attackerId), ds=this._statsFor(c.defenderRole,c.defenderId);
@@ -959,6 +962,13 @@ export default class GameScene extends Phaser.Scene {
     const dP=(dU?ds.techniques[def].power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]];
     const aWins=Math.random()<aP/(aP+dP);
     const aTN=aU?as.techniques[atk].name:'Normal', dTN=dU?ds.techniques[def].name:'Normal';
+    // Visual flourish data for whoever actually used a supertechnique —
+    // rendered identically on host and client from the synced result.
+    const eAtk=this._entryById(c.attackerRole,c.attackerId), eDef=this._entryById(c.defenderRole,c.defenderId);
+    const fx={
+      a: aU&&eAtk ? {x:eAtk.body.position.x,y:eAtk.body.position.y,color:c.attackerRole==='A'?this.teamColorA:this.teamColorB,name:aTN} : null,
+      d: dU&&eDef ? {x:eDef.body.position.x,y:eDef.body.position.y,color:c.defenderRole==='A'?this.teamColorA:this.teamColorB,name:dTN} : null
+    };
     let title,outcome;
     if(c.type==='duel'){
       const eA=this._activeEntry(c.attackerRole), eD=this._activeEntry(c.defenderRole);
@@ -978,7 +988,7 @@ export default class GameScene extends Phaser.Scene {
       title=`${ds.name} saves it!`; outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
     }
     this.confrontation=null;
-    this.confrontResult={title,outcome,until:now+RESULT_MS,outcomeAt:now+RESULT_DELAY_MS};
+    this.confrontResult={title,outcome,until:now+RESULT_MS,outcomeAt:now+RESULT_DELAY_MS,fx};
   }
 
   _onGoal(scorer){
@@ -1304,11 +1314,26 @@ export default class GameScene extends Phaser.Scene {
   _renderResultBanner(result,now){
     const el=document.getElementById('confrontation-result');
     if(result&&now<result.until){
+      if(result.until!==this._lastFxUntil){
+        this._lastFxUntil=result.until;
+        if(result.fx){ this._playTechniqueFx(result.fx.a); this._playTechniqueFx(result.fx.d); }
+      }
       document.getElementById('result-title').textContent=result.title||'';
       const out=document.getElementById('result-outcome');
       out.textContent=(result.outcomeAt&&now>=result.outcomeAt)?result.outcome||'':'';
       el.style.display='block';
     } else el.style.display='none';
+  }
+
+  /** Expanding colored ring + the technique's name floating up — a quick,
+   *  sprite-free flourish for when a player actually spends PT on a
+   *  supertechnique, shown at their position on both host and client. */
+  _playTechniqueFx(data){
+    if(!data) return;
+    const ring=this.add.circle(data.x,data.y,16,data.color,0).setStrokeStyle(5,data.color,1).setDepth(8).setScale(0.4).setAlpha(1);
+    this.tweens.add({targets:ring,scale:3.2,alpha:0,duration:650,ease:'Cubic.Out',onComplete:()=>ring.destroy()});
+    const txt=this.add.text(data.x,data.y-26,data.name,{fontSize:'11px',fontStyle:'bold',color:'#fff176',stroke:'#000',strokeThickness:4,resolution:3}).setOrigin(0.5,1).setDepth(9);
+    this.tweens.add({targets:txt,y:txt.y-24,alpha:0,duration:900,ease:'Cubic.Out',onComplete:()=>txt.destroy()});
   }
 
   _updateConfrontUI(confrontation,now){
