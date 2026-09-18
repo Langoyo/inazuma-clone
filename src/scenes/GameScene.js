@@ -49,6 +49,21 @@ const SUPPORT_BLEND  = 0.65;
 const PRESS_BLEND    = 0.5;
 const PRESS_RANGE    = 260;
 
+// The formation spans the whole pitch, not just the defending half: the
+// deepest slot sits on its own goal line and the most advanced one pushes
+// up near the rival box, so defenders/midfielders/forwards end up in their
+// own thirds and there's room between the lines to actually pass into.
+// SLOT_Y_* is the range the FORMATIONS presets below are authored in.
+const SLOT_Y_MIN  = 0.06;
+const SLOT_Y_MAX  = 0.66;
+const FORM_DEEPEST = 0.05;  // fraction of pitch length, measured from own goal
+const FORM_HIGHEST = 0.84;
+
+// A loose ball is worth breaking shape for — whoever is closest chases it
+// down at full speed, as does anyone it has been played right next to.
+const BALL_CHASE_RANGE   = 210;
+const KEEPER_CHASE_RANGE = 130;
+
 // Off-ball players drift around their formation anchor instead of parking
 // exactly on it. Two slow, out-of-phase sine waves per player (periods are
 // deliberately not multiples of each other) keep the motion smooth and
@@ -615,12 +630,13 @@ export default class GameScene extends Phaser.Scene {
     const slotRole=roles[slot]||'MF';
 
     const pSize=this.FIELD_H, sSize=this.FIELD_W, margin=40;
-    const halfP=pSize/2-margin;
 
-    // Base Y from own goal→halfway. The team you control (role A) defends
+    // Base Y spread from own goal line up to near the rival box, so the
+    // shape covers the full pitch. The team you control (role A) defends
     // the bottom of the map (pSize) and attacks toward 0, so its own
     // formation gets mirrored instead of B's.
-    let primary=f.y*halfP+margin;
+    const depth=Phaser.Math.Clamp((f.y-SLOT_Y_MIN)/(SLOT_Y_MAX-SLOT_Y_MIN),0,1);
+    let primary=(FORM_DEEPEST+depth*(FORM_HIGHEST-FORM_DEEPEST))*pSize;
     if(role==='A') primary=pSize-primary;
 
     // Secondary spread (X) tracks ball loosely
@@ -641,11 +657,13 @@ export default class GameScene extends Phaser.Scene {
     // Whole-team push: when this team has the ball, everyone advances as a
     // unit by default (not just whoever's dribbling); when the opponent
     // does, drop back a little instead of holding the exact formation line.
+    // (Smaller than it used to be: the full-pitch base spread above now does
+    // most of the work, this only shifts the block a line or so.)
     if(slot!==0){
       if(this.possRole===role){
-        yBias += slotRole==='FW'?170:slotRole==='MF'?130:60;
+        yBias += slotRole==='FW'?90:slotRole==='MF'?80:45;
       } else if(this.possRole&&this.possRole!==role){
-        yBias += slotRole==='FW'?-40:slotRole==='MF'?-20:-8;
+        yBias += slotRole==='FW'?-90:slotRole==='MF'?-50:-15;
       }
     }
     // GK never moves from goal line
@@ -706,6 +724,20 @@ export default class GameScene extends Phaser.Scene {
       x:Phaser.Math.Clamp(target.x+Math.sin(t/WANDER_PERIOD_X+ph)*amp,30,this.FIELD_W-30),
       y:Phaser.Math.Clamp(target.y+Math.cos(t/WANDER_PERIOD_Y+ph*1.7)*amp,40,this.FIELD_H-40)
     };
+  }
+
+  /** Where to sprint for a ball nobody owns — a pass in flight, a rebound, a
+   *  loose touch. The side's closest player always goes, as does anyone it
+   *  has been played right next to, so passes get collected instead of the
+   *  receiver drifting along at formation pace. Returns null when there's
+   *  nothing to chase. */
+  _looseBallChase(e,activeId){
+    if(this.possRole||this.confrontation) return null;
+    const bp=this.ball.position;
+    const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,bp.x,bp.y);
+    if(e.slot===0) return d<KEEPER_CHASE_RANGE?{x:bp.x,y:bp.y}:null; // keeper only for balls at their feet
+    if(e.id===activeId||d<BALL_CHASE_RANGE) return {x:bp.x,y:bp.y};
+    return null;
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -1283,7 +1315,9 @@ export default class GameScene extends Phaser.Scene {
       if(e.body&&e.body.collisionFilter.mask!==(CAT_BALL|CAT_DEFAULT)) e.body.collisionFilter.mask=CAT_BALL|CAT_DEFAULT;
       const st=this._statsFor(role,e.id), sp=st?st.speed:1;
       const t=byId.get(e.id);
+      const chase=t?null:this._looseBallChase(e,activeId);
       if(t) this._steer(e.body,t,sp,STEER_FORCE);
+      else if(chase) this._steer(e.body,chase,sp,STEER_FORCE); // full pace, not the off-ball amble
       else {
         // Autonomous position: hold roughly to formation, but lean into a
         // supporting run when we have the ball, or press the ball carrier
