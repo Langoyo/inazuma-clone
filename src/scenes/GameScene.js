@@ -64,6 +64,13 @@ const FORM_HIGHEST = 0.84;
 const BALL_CHASE_RANGE   = 210;
 const KEEPER_CHASE_RANGE = 130;
 
+// Fouls are meant to be a rare punctuation, not a regular interruption:
+// roughly one duel in a hundred, a little more often for weaker defenders.
+// Set FOUL_CHANCE_BASE to 0 to turn fouls (and so cards/penalties) off.
+const FOUL_CHANCE_BASE = 0.01;
+const FOUL_CHANCE_MIN  = 0.004;
+const FOUL_CHANCE_MAX  = 0.015;
+
 // Off-ball players drift around their formation anchor instead of parking
 // exactly on it. Two slow, out-of-phase sine waves per player (periods are
 // deliberately not multiples of each other) keep the motion smooth and
@@ -1103,7 +1110,7 @@ export default class GameScene extends Phaser.Scene {
     const d=Phaser.Math.Distance.Between(eA.body.position.x,eA.body.position.y,eD.body.position.x,eD.body.position.y);
     if(d>=DUEL_HITBOX_RADIUS) return;
     const ds=this._statsFor(defenderRole,eD.id);
-    const foulChance=Phaser.Math.Clamp(0.16-(ds?ds.defensePower:1)*0.05,0.05,0.2);
+    const foulChance=Phaser.Math.Clamp(FOUL_CHANCE_BASE/(ds?ds.defensePower:1),FOUL_CHANCE_MIN,FOUL_CHANCE_MAX);
     if(Math.random()<foulChance) this._commitFoul(defenderRole,eD.id,attackerRole,now);
     else this._startConfront('duel',attackerRole,defenderRole,now);
   }
