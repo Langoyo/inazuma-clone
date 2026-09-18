@@ -42,6 +42,22 @@ const SUPPORT_BLEND  = 0.45;
 const PRESS_BLEND    = 0.5;
 const PRESS_RANGE    = 260;
 
+// Duels trigger on proximity, not physical contact — see collision
+// categories below — with a slightly generous radius (bigger than the old
+// ~24px body-touch distance) so they feel less pixel-perfect.
+const DUEL_HITBOX_RADIUS = 42;
+
+// Collision categories. Players share one category and don't include each
+// other in their mask, so they pass through one another freely; only the
+// ball (and the world-bounds walls, default category) still push them
+// around. The ball itself excludes the boundary walls so it can be caught
+// travelling past the touch/goal lines for throw-ins/corners/goal-kicks
+// instead of bouncing off an invisible wall.
+const CAT_DEFAULT = 0x0001;
+const CAT_PLAYER  = 0x0002;
+const CAT_BALL    = 0x0004;
+const CAT_GOAL    = 0x0008;
+
 // ─── Formation presets ───────────────────────────────────────────────────
 // Slot 0 = keeper. x=0..1 secondary axis, y=0..1 primary from own goal→halfway
 const FORMATIONS = {
@@ -121,7 +137,8 @@ export default class GameScene extends Phaser.Scene {
 
     this.matter.world.setBounds(0,0,this.FIELD_W,this.FIELD_H);
     this.ball=this.matter.add.circle(this.FIELD_W/2,this.FIELD_H/2,10,
-      {restitution:.7,frictionAir:.018,label:'ball'});
+      {restitution:.7,frictionAir:.018,label:'ball',
+       collisionFilter:{category:CAT_BALL,mask:CAT_PLAYER|CAT_GOAL}});
     this.ballGfx=this.add.circle(this.ball.position.x,this.ball.position.y,10,0xffffff).setDepth(3);
     this._drawGoals();
 
@@ -142,6 +159,9 @@ export default class GameScene extends Phaser.Scene {
     this.activeIdA=null; this.activeIdB=null;
     this.teamColorA=0x3399ff; this.teamColorB=0xff4444;
     this.stunMap=new Map(); // rosterId -> unstun timestamp
+    this.bodyOwner=new Map(); // Matter body -> {role,id}, for attributing ball touches
+    this.cards=new Map();  // "role:id" -> {yellow, red}
+    this.lastTouch=null;   // {role,id} of whoever last touched the ball (host only)
     this.score={a:0,b:0};
     this.clientTeamsBuilt=false;
     this.formation={A:DEFAULT_FORMATION,B:DEFAULT_FORMATION};
@@ -215,6 +235,7 @@ export default class GameScene extends Phaser.Scene {
     this.add.circle(w/2,h/2,60).setStrokeStyle(2,0xffffff,0.5).setFillStyle(0,0).setDepth(1);
     // Penalty areas
     const paW=w*0.5, paH=h*0.12;
+    this.PA_W=paW; this.PA_H=paH; // kept for foul → penalty-vs-free-kick checks
     this.add.rectangle(w/2,paH/2,paW,paH).setStrokeStyle(2,0xffffff,0.5).setFillStyle(0,0).setDepth(1);
     this.add.rectangle(w/2,h-paH/2,paW,paH).setStrokeStyle(2,0xffffff,0.5).setFillStyle(0,0).setDepth(1);
   }
@@ -225,8 +246,16 @@ export default class GameScene extends Phaser.Scene {
     this.add.rectangle(w/2,8,GOAL_HALF_WIDTH*2,12,0xffffff).setDepth(2);
     this.add.rectangle(w/2,h-8,GOAL_HALF_WIDTH*2,12,0xffffff).setDepth(2);
     // Physics sensors
-    this.goalMin=this.matter.add.rectangle(w/2,0,GOAL_HALF_WIDTH*2,16,{isSensor:true,isStatic:true,label:'goalMin'});
-    this.goalMax=this.matter.add.rectangle(w/2,h,GOAL_HALF_WIDTH*2,16,{isSensor:true,isStatic:true,label:'goalMax'});
+    this.goalMin=this.matter.add.rectangle(w/2,0,GOAL_HALF_WIDTH*2,16,{isSensor:true,isStatic:true,label:'goalMin',collisionFilter:{category:CAT_GOAL,mask:CAT_BALL}});
+    this.goalMax=this.matter.add.rectangle(w/2,h,GOAL_HALF_WIDTH*2,16,{isSensor:true,isStatic:true,label:'goalMax',collisionFilter:{category:CAT_GOAL,mask:CAT_BALL}});
+  }
+
+  /** True if `pos` is inside the goal-area penalty box that `defendingRole`
+   *  defends (used to tell a penalty from a plain free kick after a foul). */
+  _inPenaltyBox(defendingRole,pos){
+    const withinX=pos.x>=this.FIELD_W/2-this.PA_W/2&&pos.x<=this.FIELD_W/2+this.PA_W/2;
+    if(!withinX) return false;
+    return defendingRole==='A' ? pos.y<=this.PA_H : pos.y>=this.FIELD_H-this.PA_H;
   }
 
   _setupScrollInput(){
@@ -504,7 +533,9 @@ export default class GameScene extends Phaser.Scene {
     starterIds.forEach((id,slot)=>{
       const rp=getPlayerById(id); if(!rp) return;
       const pos=this._formPos(role,slot,{x:this.FIELD_W/2,y:this.FIELD_H/2});
-      const body=withPhysics?this.matter.add.circle(pos.x,pos.y,12,{frictionAir:.16,label:`${role}${slot}`}):null;
+      const body=withPhysics?this.matter.add.circle(pos.x,pos.y,12,{frictionAir:.16,label:`${role}${slot}`,
+        collisionFilter:{category:CAT_PLAYER,mask:CAT_BALL|CAT_DEFAULT}}):null;
+      if(body) this.bodyOwner.set(body,{role,id});
       const gfx=this.add.circle(pos.x,pos.y,12,tColor).setDepth(5);
       const label=this.add.text(pos.x,pos.y+15,rp.nickname||rp.name,
         {fontSize:'7px',color:'#fff',stroke:'#000',strokeThickness:3,resolution:3}).setOrigin(.5,0).setDepth(6);
@@ -720,9 +751,10 @@ export default class GameScene extends Phaser.Scene {
       const top =((1-f.y)*100).toFixed(1)+'%';
       const selCls=(p&&sel&&sel.type==='slot'&&sel.id===entry.id)?' selected':'';
       if(p){
-        return `<div class="slot-pin${selCls}" style="left:${left};top:${top}" data-roster-id="${entry.id}">
+        const isOut=this._isOut(role,entry.id);
+        return `<div class="slot-pin${selCls}" style="left:${left};top:${top};${isOut?'opacity:.4;pointer-events:none;':''}" data-roster-id="${entry.id}">
           <div class="pin-avatar" style="background:${col}">${this._initials(p)}</div>
-          <div class="pin-name">${p.nickname||p.name}</div>
+          <div class="pin-name">${p.nickname||p.name}${isOut?' (OFF)':''}</div>
         </div>`;
       }
       return `<div class="slot-pin empty" style="left:${left};top:${top}"><div style="font-size:9px;opacity:.5">–</div></div>`;
@@ -732,6 +764,7 @@ export default class GameScene extends Phaser.Scene {
 
   _trySub(role,req){
     if(!req?.outId||!req?.inId) return;
+    if(this._isOut(role,req.outId)) return; // a sent-off player can't be replaced
     const team=role==='A'?this.teamA:this.teamB;
     const bench=role==='A'?this.benchA:this.benchB;
     const map=role==='A'?this.statsMapA:this.statsMapB;
@@ -739,6 +772,7 @@ export default class GameScene extends Phaser.Scene {
     if(bIdx===-1||!entry) return;
     const rp=getPlayerById(req.inId); if(!rp) return;
     entry.id=req.inId;
+    if(entry.body) this.bodyOwner.set(entry.body,{role,id:req.inId});
     const st=createPlayerStats(); applyRosterPlayerToStats(st,rp); map.set(req.inId,st);
     bench.splice(bIdx,1,req.outId);
     if(role==='A'&&this.activeIdA===req.outId) this.activeIdA=req.inId;
@@ -868,7 +902,8 @@ export default class GameScene extends Phaser.Scene {
   _activeEntry(role){ const team=role==='A'?this.teamA:this.teamB, id=role==='A'?this.activeIdA:this.activeIdB; return team.find(t=>t.id===id)||null; }
   _setActive(role,id){ if(role==='A') this.activeIdA=id; else this.activeIdB=id; }
   _updateActive(role){
-    const team=role==='A'?this.teamA:this.teamB; if(!team.length) return;
+    const team=(role==='A'?this.teamA:this.teamB).filter(e=>!this._isOut(role,e.id));
+    if(!team.length) return;
     const bp=this.ball.position;
     let best=team[0], bestD=Phaser.Math.Distance.Between(team[0].body.position.x,team[0].body.position.y,bp.x,bp.y);
     for(const e of team){ const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,bp.x,bp.y); if(d<bestD){bestD=d;best=e;} }
@@ -879,18 +914,25 @@ export default class GameScene extends Phaser.Scene {
   // ════════════════════════════════════════════════════════════════════
   // Collisions (host only)
   // ════════════════════════════════════════════════════════════════════
+  /** Players no longer physically collide with each other (see the
+   *  collision categories above) — only the ball can touch them, and
+   *  duels trigger on proximity (_checkForDuel) rather than a Matter
+   *  contact event. This just tracks ball touches (for lastTouch/
+   *  possession) and goal-sensor overlaps. */
   _collisions(event){
     if(this.role!=='A'||!this.matchStarted) return;
-    const now=this.time.now;
-    const eA=this._activeEntry('A'), eB=this._activeEntry('B'); if(!eA||!eB) return;
     for(const pair of event.pairs){
-      const lbls=[pair.bodyA.label,pair.bodyB.label], bods=[pair.bodyA,pair.bodyB];
-      const ball=lbls.includes('ball'), hA=bods.includes(eA.body), hB=bods.includes(eB.body);
-      if(ball&&(hA||hB)&&!this.possRole&&!this.confrontation) this.possRole=hA?'A':'B';
-      if(hA&&hB&&this.possRole&&!this.confrontation&&now>=this.duelLockUntil&&!this._isStunned(this.activeIdA,now)&&!this._isStunned(this.activeIdB,now))
-        this._startConfront('duel',this.possRole,this.possRole==='A'?'B':'A',now);
-      if(ball&&lbls.includes('goalMin')) this._onGoal('b');
-      if(ball&&lbls.includes('goalMax')) this._onGoal('a');
+      const bodies=[pair.bodyA,pair.bodyB];
+      const lbls=[pair.bodyA.label,pair.bodyB.label];
+      if(!lbls.includes('ball')) continue;
+      const other=bodies.find(b=>b.label!=='ball');
+      const owner=other&&this.bodyOwner.get(other);
+      if(owner){
+        this.lastTouch=owner;
+        if(!this.possRole&&!this.confrontation) this.possRole=owner.role;
+      }
+      if(lbls.includes('goalMin')) this._onGoal('b');
+      if(lbls.includes('goalMax')) this._onGoal('a');
     }
   }
 
@@ -954,6 +996,124 @@ export default class GameScene extends Phaser.Scene {
     this.teamB.forEach(e=>{ const p=this._formPos('B',e.slot,bp); this.matter.body.setPosition(e.body,p); this.matter.body.setVelocity(e.body,{x:0,y:0}); });
     this.myPaths.clear();
   }
+
+  // ════════════════════════════════════════════════════════════════════
+  // Duels-by-proximity, fouls, cards & dead-ball restarts (host only)
+  // ════════════════════════════════════════════════════════════════════
+  /** Duels no longer fire off a physical collision (players pass through
+   *  each other now) — instead, when the two teams' active players get
+   *  within DUEL_HITBOX_RADIUS of each other, roll for a foul first; if
+   *  it isn't one, start the normal duel confrontation as before. */
+  _checkForDuel(now){
+    if(!this.possRole||this.confrontation||now<this.duelLockUntil) return;
+    const attackerRole=this.possRole, defenderRole=attackerRole==='A'?'B':'A';
+    const eA=this._activeEntry(attackerRole), eD=this._activeEntry(defenderRole);
+    if(!eA||!eD) return;
+    if(this._isStunned(eA.id,now)||this._isStunned(eD.id,now)) return;
+    const d=Phaser.Math.Distance.Between(eA.body.position.x,eA.body.position.y,eD.body.position.x,eD.body.position.y);
+    if(d>=DUEL_HITBOX_RADIUS) return;
+    const ds=this._statsFor(defenderRole,eD.id);
+    const foulChance=Phaser.Math.Clamp(0.16-(ds?ds.defensePower:1)*0.05,0.05,0.2);
+    if(Math.random()<foulChance) this._commitFoul(defenderRole,eD.id,attackerRole,now);
+    else this._startConfront('duel',attackerRole,defenderRole,now);
+  }
+
+  _cardKey(role,id){ return `${role}:${id}`; }
+  _isOut(role,id){ return !!this.cards.get(this._cardKey(role,id))?.red; }
+  /** Books `id` and sends them off on a second yellow. Returns 'yellow' or 'red'. */
+  _addCard(role,id,now){
+    const key=this._cardKey(role,id);
+    const rec=this.cards.get(key)||{yellow:0,red:false};
+    rec.yellow+=1;
+    let type='yellow';
+    if(rec.yellow>=2&&!rec.red){ rec.red=true; type='red'; this._sendOff(role,id,now); }
+    this.cards.set(key,rec);
+    return type;
+  }
+  _sendOff(role,id,now){
+    const team=role==='A'?this.teamA:this.teamB;
+    const e=team.find(t=>t.id===id); if(!e) return;
+    e.gfx.setVisible(false); e.label.setVisible(false);
+    if(e.body){ e.body.collisionFilter.mask=0x0000; this.matter.body.setVelocity(e.body,{x:0,y:0}); }
+    this.stunMap.delete(id);
+  }
+
+  /** Foul committed by `offenderRole`'s player on `fouledRole`. Books a
+   *  card and awards either a penalty (foul inside the offender's own box
+   *  — resolved as a normal shot-vs-keeper confrontation) or a free kick
+   *  (simple dead-ball restart, no separate aiming step). */
+  _commitFoul(offenderRole,offenderId,fouledRole,now){
+    const eOff=this._activeEntry(offenderRole);
+    const spot={x:eOff?eOff.body.position.x:this.ball.position.x, y:eOff?eOff.body.position.y:this.ball.position.y};
+    const cardType=this._addCard(offenderRole,offenderId,now);
+    const offenderName=this._statsFor(offenderRole,offenderId)?.name||'Player';
+    const cardTxt=cardType==='red'?' — RED CARD, sent off!':' (yellow card)';
+    if(this._inPenaltyBox(offenderRole,spot)){
+      this._placeBallAndAward(fouledRole,spot,now);
+      this._startConfront('shot',fouledRole,offenderRole,now);
+      this.confrontResult={title:`Penalty! Foul by ${offenderName}${cardTxt}`,outcome:'',until:now+RESULT_MS,outcomeAt:now+RESULT_DELAY_MS};
+    } else {
+      this._placeBallAndAward(fouledRole,spot,now);
+      this.confrontResult={title:`Foul by ${offenderName}${cardTxt}`,outcome:'Free kick awarded',until:now+RESULT_MS,outcomeAt:now+RESULT_DELAY_MS};
+    }
+  }
+
+  /** Generic dead-ball restart: place the ball at `spot`, hand possession
+   *  to `awardedRole`, and teleport one of their eligible players there
+   *  (their keeper if `preferGk`, otherwise whoever's nearest) to take it. */
+  _placeBallAndAward(awardedRole,spot,now,{preferGk=false}={}){
+    this.matter.body.setPosition(this.ball,spot);
+    this.matter.body.setVelocity(this.ball,{x:0,y:0});
+    const team=awardedRole==='A'?this.teamA:this.teamB;
+    const gkId=awardedRole==='A'?this.gkIdA:this.gkIdB;
+    let mover=preferGk?team.find(e=>e.id===gkId&&!this._isOut(awardedRole,e.id)):null;
+    if(!mover){
+      let bestD=Infinity;
+      for(const e of team){
+        if(this._isOut(awardedRole,e.id)) continue;
+        const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,spot.x,spot.y);
+        if(d<bestD){ bestD=d; mover=e; }
+      }
+    }
+    if(mover){
+      this.matter.body.setPosition(mover.body,spot);
+      this.matter.body.setVelocity(mover.body,{x:0,y:0});
+      this._setActive(awardedRole,mover.id);
+    }
+    this.possRole=awardedRole;
+    this.duelLockUntil=now+600;
+  }
+
+  /** Checks whether the ball has left the pitch and, if so, restarts play
+   *  with a throw-in, corner or goal kick. Returns true if it did (so the
+   *  caller can skip the rest of this tick's open-play logic). */
+  _checkOutOfBounds(now){
+    const b=this.ball.position, m=10;
+    if(b.y<-m||b.y>this.FIELD_H+m){
+      const overTop=b.y<-m;
+      const defendingRole=overTop?'A':'B';
+      const sideX=b.x<this.FIELD_W/2?18:this.FIELD_W-18;
+      const lineY=overTop?18:this.FIELD_H-18;
+      if(this.lastTouch&&this.lastTouch.role===defendingRole){
+        const attackingRole=defendingRole==='A'?'B':'A';
+        this._placeBallAndAward(attackingRole,{x:sideX,y:lineY},now);
+        this.confrontResult={title:'Corner kick',outcome:'',until:now+1800,outcomeAt:now+1800};
+      } else {
+        const gkY=overTop?this.PA_H*0.6:this.FIELD_H-this.PA_H*0.6;
+        this._placeBallAndAward(defendingRole,{x:this.FIELD_W/2,y:gkY},now,{preferGk:true});
+        this.confrontResult={title:'Goal kick',outcome:'',until:now+1800,outcomeAt:now+1800};
+      }
+      return true;
+    }
+    if(b.x<-m||b.x>this.FIELD_W+m){
+      const awarded=this.lastTouch&&this.lastTouch.role==='A'?'B':'A';
+      const spot={x:Phaser.Math.Clamp(b.x,15,this.FIELD_W-15),y:Phaser.Math.Clamp(b.y,20,this.FIELD_H-20)};
+      this._placeBallAndAward(awarded,spot,now);
+      this.confrontResult={title:'Throw-in',outcome:'',until:now+1800,outcomeAt:now+1800};
+      return true;
+    }
+    return false;
+  }
   _regenSP(map,dt){ for(const s of map.values()) s.sp=Math.min(s.maxSP,s.sp+s.spRegenPerSec*(dt/1000)); }
 
   // ════════════════════════════════════════════════════════════════════
@@ -1006,7 +1166,7 @@ export default class GameScene extends Phaser.Scene {
 
     if(this.confrontation){
       this._progressConfront(now,myInput,inputB,aiActive);
-    } else if(!this.matchClock.ended){
+    } else if(!this.matchClock.ended && !this._checkOutOfBounds(now)){
       this._updateActive('A'); this._updateActive('B');
       this._moveTeam('A',myInput.targets,now); this._moveTeam('B',inputB.targets,now);
       if(myInput.passTarget&&this.possRole==='A') this._doPass('A',myInput.passTarget);
@@ -1022,6 +1182,7 @@ export default class GameScene extends Phaser.Scene {
         }
       }
       if(this.confrontation?.defenderRole==='B'&&aiActive){ const ds=this._statsFor('B',this.confrontation.defenderId); this.confrontation.defenderChoice=this._aiChoice(ds,'keeper'); }
+      if(!this.confrontation) this._checkForDuel(now);
       if(myInput.subRequest) this._trySub('A',myInput.subRequest);
       if(!aiActive&&inputB.subRequest) this._trySub('B',inputB.subRequest);
     }
@@ -1039,7 +1200,11 @@ export default class GameScene extends Phaser.Scene {
         a:this.teamA.map(e=>{const s=this._statsFor('A',e.id); return s?s.sp:null;}),
         b:this.teamB.map(e=>{const s=this._statsFor('B',e.id); return s?s.sp:null;})
       };
-      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},statsAll,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
+      const sentOff={
+        a:this.teamA.filter(e=>this._isOut('A',e.id)).map(e=>e.id),
+        b:this.teamB.filter(e=>this._isOut('B',e.id)).map(e=>e.id)
+      };
+      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},statsAll,sentOff,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
     }
   }
 
@@ -1051,6 +1216,7 @@ export default class GameScene extends Phaser.Scene {
     const oppHasBall=!!this.possRole&&this.possRole!==role;
     const ballCarrier=oppHasBall?this._activeEntry(this.possRole):null;
     team.forEach(e=>{
+      if(this._isOut(role,e.id)) return; // sent off: frozen, invisible, ignored entirely
       if(this._isStunned(e.id,now)){
         // Stunned: drain velocity, don't steer
         this.matter.body.setVelocity(e.body,{x:e.body.velocity.x*0.85,y:e.body.velocity.y*0.85});
@@ -1098,6 +1264,11 @@ export default class GameScene extends Phaser.Scene {
     this.ballGfx.y=Phaser.Math.Linear(this.ballGfx.y,this.remoteState.ball.y,lerp);
     this.teamA.forEach((e,i)=>{ const p=this.remoteState.teamA[i]; if(!p)return; e.gfx.x=Phaser.Math.Linear(e.gfx.x,p.x,lerp); e.gfx.y=Phaser.Math.Linear(e.gfx.y,p.y,lerp); e.label.setPosition(e.gfx.x,e.gfx.y+15); });
     this.teamB.forEach((e,i)=>{ const p=this.remoteState.teamB[i]; if(!p)return; e.gfx.x=Phaser.Math.Linear(e.gfx.x,p.x,lerp); e.gfx.y=Phaser.Math.Linear(e.gfx.y,p.y,lerp); e.label.setPosition(e.gfx.x,e.gfx.y+15); });
+    if(this.remoteState.sentOff){
+      const outA=new Set(this.remoteState.sentOff.a||[]), outB=new Set(this.remoteState.sentOff.b||[]);
+      this.teamA.forEach(e=>{ const out=outA.has(e.id); e.gfx.setVisible(!out); e.label.setVisible(!out); if(out) this.cards.set(this._cardKey('A',e.id),{yellow:2,red:true}); });
+      this.teamB.forEach(e=>{ const out=outB.has(e.id); e.gfx.setVisible(!out); e.label.setVisible(!out); if(out) this.cards.set(this._cardKey('B',e.id),{yellow:2,red:true}); });
+    }
     this.activeIdA=this.remoteState.activeIdA; this.activeIdB=this.remoteState.activeIdB;
     this._highlightActive();
     document.querySelector('#scoreboard .score').textContent=`${this.remoteState.score.a} - ${this.remoteState.score.b}`;
