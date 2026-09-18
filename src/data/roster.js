@@ -45,3 +45,14 @@ export function getGames() {
   for (const p of cache) if (!seen.includes(p.game)) seen.push(p.game);
   return seen;
 }
+
+/** Distinct in-universe team names present in the roster (Raimon, Royal
+ * Academy, ...), alphabetically. Most GO-series players don't have one
+ * recorded, so this list is shorter than the full roster. Only works after
+ * loadRoster() resolves. */
+export function getTeams() {
+  if (!cache) return [];
+  const seen = new Set();
+  for (const p of cache) if (p.team) seen.add(p.team);
+  return [...seen].sort((a, b) => a.localeCompare(b));
+}

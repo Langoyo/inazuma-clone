@@ -1,6 +1,7 @@
 // A player's in-match state: base stats + technique points (PT) — no
 // cooldowns. A supertechnique can be used as many times as you can
 // afford; once you're out of PT for it, only the normal action is left.
+// PT regenerates on its own over time, tracked per player.
 export function createPlayerStats(name = 'Player') {
   return {
     name,
@@ -12,7 +13,7 @@ export function createPlayerStats(name = 'Player') {
 
     maxSP: 100,
     sp: 100,
-    spRegenPerSec: 4, // slow trickle between plays — not a per-use cooldown
+    spRegenPerSec: 4,
 
     techniques: { shot: null, dribble: null, defense: null, keeper: null }
   };

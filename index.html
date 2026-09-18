@@ -68,16 +68,19 @@
     #sub-button       { right: 16px; }
     #formation-button { right: 130px; }
 
-    /* Scroll buttons (mobile) */
+    /* Camera joystick (mobile) */
     #scroll-controls {
-      position: fixed; left: 8px; bottom: 16px; z-index: 15;
-      display: none; flex-direction: column; align-items: center; gap: 2px;
+      position: fixed; left: 16px; bottom: 16px; z-index: 15;
+      display: none; align-items: center; justify-content: center;
     }
-    .scroll-row { display: flex; gap: 2px; }
-    .scroll-btn {
-      width: 40px; height: 40px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.5);
-      background: rgba(20,20,20,0.72); color: white; font-size: 16px;
-      display: flex; align-items: center; justify-content: center; touch-action: none; user-select: none;
+    #joy-base {
+      width: 90px; height: 90px; border-radius: 50%;
+      background: rgba(20,20,20,0.55); border: 2px solid rgba(255,255,255,0.4);
+      position: relative; touch-action: none; user-select: none;
+    }
+    #joy-stick {
+      width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.75);
+      position: absolute; left: 25px; top: 25px; pointer-events: none;
     }
     /* Player stat popup */
     #player-stat-panel {
@@ -117,7 +120,7 @@
       border-radius: 8px; position: relative; margin-bottom: 12px; overflow: hidden;
       touch-action: none; /* we handle all pointer events here */
     }
-    #formation-pitch .pitch-line-h {
+    .pitch-line-h {
       position: absolute; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.4);
       top: 50%;
     }
@@ -125,11 +128,11 @@
       position: absolute; transform: translate(-50%,-50%);
       width: 44px; height: 44px; border-radius: 50%;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      cursor: grab; touch-action: none; user-select: none;
+      cursor: pointer; touch-action: manipulation; user-select: none;
       border: 2px solid rgba(255,255,255,0.7); transition: box-shadow 0.1s;
     }
     .slot-pin.empty   { background: rgba(255,255,255,0.12); border-style: dashed; }
-    .slot-pin.dragging { box-shadow: 0 0 0 3px #ffd966; cursor: grabbing; z-index: 5; }
+    .slot-pin.selected, .bench-pin.selected { box-shadow: 0 0 0 3px #ffd966; border-color: #ffd966; z-index: 5; }
     .slot-pin .pin-avatar {
       width: 28px; height: 28px; border-radius: 50%; display: flex;
       align-items: center; justify-content: center; font-size: 9px; font-weight: bold;
@@ -140,8 +143,8 @@
     .bench-strip { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; }
     .bench-pin {
       width: 54px; text-align: center; background: rgba(255,255,255,0.08);
-      border: 2px solid #888; border-radius: 8px; padding: 4px; cursor: grab;
-      touch-action: none; user-select: none;
+      border: 2px solid #888; border-radius: 8px; padding: 4px; cursor: pointer;
+      touch-action: manipulation; user-select: none;
     }
     .bench-pin .pin-avatar { width: 32px; height: 32px; border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: rgba(0,0,0,0.8); }
     .bench-pin .pin-name   { font-size: 8px; color: rgba(255,255,255,0.9); margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -166,10 +169,8 @@
     .pick-card .pick-name { font-weight: bold; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #pick-count { font-size: 11px; opacity: 0.7; margin-bottom: 6px; }
 
-    /* ---- sub panel */
-    #sub-list-inner { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap: 8px; width: 100%; max-width: 500px; }
-    .sub-card { background: rgba(255,255,255,0.08); border-radius: 8px; padding: 8px; text-align: center; }
-    .sub-card button { margin-top: 6px; padding: 4px 10px; border-radius: 6px; border: 1px solid white; background: rgba(0,0,0,0.4); color: white; font-size: 11px; }
+    /* ---- sub panel: pitch + bench together, same look as the squad editor */
+    #sub-list-inner { width: 100%; max-width: 500px; }
 
     /* ---- confirm bar */
     #confirm-bar {
@@ -220,9 +221,9 @@
     <button class="panel-close" id="formation-pick-close">Cancel</button>
   </div>
 
-  <!-- Substitute panel -->
+  <!-- Substitute panel: pitch + bench together, tap one of each to swap -->
   <div id="sub-panel" class="panel-overlay">
-    <h2 id="sub-panel-title">Who comes off?</h2>
+    <h2 id="sub-panel-title">Tap a player on the pitch, then one on the bench</h2>
     <div id="sub-list-inner"></div>
     <button class="panel-close" id="sub-cancel-btn">Cancel</button>
   </div>
@@ -232,7 +233,7 @@
 
     <h2 style="margin-bottom:4px;">Build your squad</h2>
     <p style="font-size:11px; opacity:0.75; margin:0 0 10px; text-align:center; max-width:500px;">
-      Drag players from the list onto the pitch slots. Drag between slots to swap. Bench (up to 5) shown below the pitch.
+      Tap a player from the list to add them. Tap two players (pitch or bench) to swap them — tap the same one twice to see their stats. Bench (up to 5) shown below the pitch.
     </p>
 
     <!-- Topological pitch editor -->
@@ -265,6 +266,7 @@
     <div id="squad-search-row">
       <input id="squad-search" type="text" placeholder="Search player..." />
       <select id="squad-game-filter"><option value="">All games</option></select>
+      <select id="squad-team-filter"><option value="">All teams</option></select>
       <button id="squad-whole-team-btn" disabled>Use whole team</button>
     </div>
     <div id="pick-count"></div>
@@ -277,14 +279,9 @@
     </div>
   </div>
 
-  <!-- Scroll controls (mobile, also respond to keyboard via JS) -->
+  <!-- Camera joystick (mobile; PC still uses arrow keys) -->
   <div id="scroll-controls">
-    <div class="scroll-row"><div class="scroll-btn" id="scroll-up">▲</div></div>
-    <div class="scroll-row">
-      <div class="scroll-btn" id="scroll-left">◀</div>
-      <div class="scroll-btn" id="scroll-down">▼</div>
-      <div class="scroll-btn" id="scroll-right">▶</div>
-    </div>
+    <div id="joy-base"><div id="joy-stick"></div></div>
   </div>
 
   <!-- Player stat panel (shown on tap in squad editor / sub panel) -->
