@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Inazuma Clone - Prototype</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #0b3d1f;
+      overflow: hidden;
+      touch-action: none; /* avoid touch scroll/zoom while playing */
+      font-family: sans-serif;
+      color: white;
+    }
+    #room-ui {
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      z-index: 10;
+      background: rgba(0,0,0,0.5);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    #game-container {
+      width: 100vw;
+      height: 100vh;
+    }
+    #scoreboard {
+      position: fixed;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      background: rgba(0,0,0,0.5);
+      padding: 6px 16px;
+      border-radius: 6px;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    #sp-bar-wrap {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 220px;
+      height: 14px;
+      background: rgba(0,0,0,0.5);
+      border-radius: 8px;
+      overflow: hidden;
+      z-index: 10;
+      border: 1px solid rgba(255,255,255,0.4);
+    }
+    #sp-bar-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #33d1ff, #3399ff);
+      transition: width 0.15s linear;
+    }
+    #ai-badge {
+      position: fixed;
+      top: 8px;
+      right: 8px;
+      z-index: 10;
+      background: rgba(200,60,60,0.7);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      display: none;
+    }
+
+    /* --- Confrontation panel (dribble/tackle duel, or shot/save) --- */
+    #confrontation-ui {
+      position: fixed;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 20;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    #confrontation-title {
+      background: rgba(0,0,0,0.65);
+      padding: 4px 14px;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    #confrontation-timer-wrap {
+      width: 180px;
+      height: 6px;
+      background: rgba(0,0,0,0.5);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    #confrontation-timer-fill {
+      height: 100%;
+      width: 100%;
+      background: #ffd966;
+    }
+    #confrontation-buttons {
+      display: flex;
+      gap: 12px;
+    }
+    .conf-btn {
+      min-width: 120px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 2px solid white;
+      background: rgba(20,20,20,0.85);
+      color: white;
+      font-size: 14px;
+      text-align: center;
+      touch-action: manipulation;
+    }
+    .conf-btn:disabled { opacity: 0.35; }
+    .conf-btn .cost { display: block; font-size: 11px; color: #ffd966; margin-top: 2px; }
+
+    /* --- Team select overlay --- */
+    #team-select-ui {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      background: rgba(6, 26, 14, 0.96);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      overflow-y: auto;
+    }
+    #team-select-ui h1 { font-size: 18px; margin: 8px 0; }
+    #team-select-ui p.hint { font-size: 12px; opacity: 0.8; margin: 0 0 12px; text-align: center; max-width: 320px; }
+    #roster-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px;
+      width: 100%;
+      max-width: 600px;
+    }
+    .roster-card {
+      background: rgba(255,255,255,0.06);
+      border: 2px solid transparent;
+      border-radius: 10px;
+      padding: 8px;
+      font-size: 12px;
+    }
+    .roster-card.is-starter { border-color: #ffd966; }
+    .roster-card .name { font-weight: bold; font-size: 13px; }
+    .roster-card .pos { opacity: 0.7; margin-bottom: 4px; }
+    .roster-card .row { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+    .roster-card button {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid white;
+      background: rgba(0,0,0,0.4);
+      color: white;
+    }
+    .roster-card label { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+    #confirm-squad-btn {
+      margin-top: 16px;
+      padding: 10px 24px;
+      border-radius: 10px;
+      border: none;
+      background: #3399ff;
+      color: white;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    #confirm-squad-btn:disabled { opacity: 0.4; }
+    #squad-status { margin-top: 10px; font-size: 12px; opacity: 0.85; }
+
+    /* --- Substitution --- */
+    #sub-button {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      z-index: 15;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 2px solid white;
+      background: rgba(20,20,20,0.75);
+      color: white;
+      font-size: 13px;
+      display: none;
+    }
+    #sub-panel {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      background: rgba(6, 26, 14, 0.96);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      overflow-y: auto;
+    }
+    #sub-panel h2 { font-size: 16px; }
+  </style>
+</head>
+<body>
+  <div id="room-ui">Room: <span id="room-code">-</span></div>
+  <div id="scoreboard">0 - 0</div>
+  <div id="ai-badge">Playing vs AI</div>
+  <div id="game-container"></div>
+
+  <div id="sp-bar-wrap"><div id="sp-bar-fill"></div></div>
+
+  <div id="confrontation-ui">
+    <div id="confrontation-title">Duel!</div>
+    <div id="confrontation-timer-wrap"><div id="confrontation-timer-fill"></div></div>
+    <div id="confrontation-buttons">
+      <button class="conf-btn" id="conf-normal">Normal action</button>
+      <button class="conf-btn" id="conf-technique">Supertechnique<span class="cost">-- SP</span></button>
+    </div>
+  </div>
+
+  <button id="sub-button">Substitute</button>
+  <div id="sub-panel">
+    <h2>Bring on a substitute</h2>
+    <div id="sub-list" class="roster-card-list"></div>
+    <button id="sub-cancel-btn" style="margin-top:16px;">Cancel</button>
+  </div>
+
+  <div id="team-select-ui">
+    <h1>Choose your squad</h1>
+    <p class="hint">Pick one starting player. You can also add extra players to your bench — if you have any bench players, you'll be able to substitute during the match.</p>
+    <div id="roster-list"></div>
+    <button id="confirm-squad-btn" disabled>Confirm squad</button>
+    <div id="squad-status"></div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
