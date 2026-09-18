@@ -33,15 +33,19 @@ const HALF_S            = 3 * 60;
 const STATE_HZ          = 20;
 const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 
-// Physics forces — slow and deliberate
+// Physics forces — the ball carrier is only slightly sharper than everyone
+// else now; off-ball players used to crawl (AUTO_STEER_FORCE/MAX_SPEED were
+// ~65% of the carrier's), which made the team look frozen even though
+// _offBallTarget was constantly recomputing good runs for them — they just
+// couldn't get there with any urgency.
 const STEER_FORCE           = 0.00034;
-const AUTO_STEER_FORCE      = 0.00022; // off-ball players moving on their own
+const AUTO_STEER_FORCE      = 0.00032;
 const BASE_MAX_SPEED        = 0.72;
-const AUTO_MAX_SPEED        = 0.50;
+const AUTO_MAX_SPEED        = 0.66;
 
 // Off-ball behaviour: how strongly teammates push forward to support the
 // ball carrier, and how close a defender presses the opponent on the ball.
-const SUPPORT_BLEND  = 0.45;
+const SUPPORT_BLEND  = 0.65;
 const PRESS_BLEND    = 0.5;
 const PRESS_RANGE    = 260;
 
@@ -626,7 +630,7 @@ export default class GameScene extends Phaser.Scene {
     // does, drop back a little instead of holding the exact formation line.
     if(slot!==0){
       if(this.possRole===role){
-        yBias += slotRole==='FW'?100:slotRole==='MF'?70:35;
+        yBias += slotRole==='FW'?170:slotRole==='MF'?130:60;
       } else if(this.possRole&&this.possRole!==role){
         yBias += slotRole==='FW'?-40:slotRole==='MF'?-20:-8;
       }
@@ -653,8 +657,8 @@ export default class GameScene extends Phaser.Scene {
       const attackDir=role==='A'?-1:1;
       const side=(e.body.position.x>=carrier.body.position.x)?1:-1;
       const supportSpot={
-        x:carrier.body.position.x+side*90,
-        y:carrier.body.position.y+attackDir*70
+        x:carrier.body.position.x+side*130,
+        y:carrier.body.position.y+attackDir*130
       };
       return {
         x:Phaser.Math.Linear(base.x,supportSpot.x,SUPPORT_BLEND),
@@ -1128,8 +1132,6 @@ export default class GameScene extends Phaser.Scene {
     }
     return false;
   }
-  _regenSP(map,dt){ for(const s of map.values()) s.sp=Math.min(s.maxSP,s.sp+s.spRegenPerSec*(dt/1000)); }
-
   // ════════════════════════════════════════════════════════════════════
   // Clock
   // ════════════════════════════════════════════════════════════════════
@@ -1172,7 +1174,6 @@ export default class GameScene extends Phaser.Scene {
       const ai=decideAIMove({selfPos:eB?eB.body.position:{x:this.FIELD_W/2,y:0},ballPos:this.ball.position,axis:'y',ownGoalValue:0,rivalGoalValue:this.FIELD_H,fieldPrimarySize:this.FIELD_H});
       inputB={targets:eB?[{id:eB.id,...ai.target}]:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,formationChange:null};
     }
-    this._regenSP(this.statsMapA,delta); this._regenSP(this.statsMapB,delta);
     this.currentPossession=this.possRole;
     if(myInput.formationChange) this.formation.A=myInput.formationChange;
     if(!aiActive&&inputB.formationChange) this.formation.B=inputB.formationChange;
@@ -1248,10 +1249,12 @@ export default class GameScene extends Phaser.Scene {
         // supporting run when we have the ball, or press the ball carrier
         // when the opponent does.
         const autoPos=this._offBallTarget(role,e,activeId,iHaveBall,ballCarrier);
-        this._steer(e.body,autoPos,1,AUTO_STEER_FORCE);
-        // Soft speed cap for autonomous movement
+        this._steer(e.body,autoPos,sp,AUTO_STEER_FORCE);
+        // Soft speed cap for autonomous movement — scaled by the player's
+        // own speed stat too, so quick players still look quick off the ball.
+        const cap=AUTO_MAX_SPEED*sp;
         const v=e.body.velocity, s=Math.hypot(v.x,v.y);
-        if(s>AUTO_MAX_SPEED) this.matter.body.setVelocity(e.body,{x:(v.x/s)*AUTO_MAX_SPEED,y:(v.y/s)*AUTO_MAX_SPEED});
+        if(s>cap) this.matter.body.setVelocity(e.body,{x:(v.x/s)*cap,y:(v.y/s)*cap});
       }
     });
   }
