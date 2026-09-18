@@ -3,216 +3,258 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>Inazuma Clone - Prototype</title>
+  <title>Inazuma Clone</title>
   <style>
+    *, *::before, *::after { box-sizing: border-box; }
     html, body {
-      margin: 0;
-      padding: 0;
-      background: #0b3d1f;
-      overflow: hidden;
-      touch-action: none;
-      font-family: sans-serif;
-      color: white;
+      margin: 0; padding: 0; background: #0b3d1f; overflow: hidden;
+      touch-action: none; font-family: sans-serif; color: white;
     }
+
+    /* ------------------------------------------------------------------ HUD */
     #room-ui {
       position: fixed; top: 8px; left: 8px; z-index: 10;
-      background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 6px; font-size: 14px;
-    }
-    #game-container { width: 100vw; height: 100vh; }
-    #scoreboard {
-      position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 10;
-      background: rgba(0,0,0,0.5); padding: 6px 16px; border-radius: 6px; text-align: center;
-    }
-    #scoreboard .score { font-size: 18px; font-weight: bold; }
-    #scoreboard .clock { font-size: 11px; opacity: 0.85; margin-top: 2px; }
-    #sp-bar-wrap {
-      position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
-      background: rgba(0,0,0,0.6); padding: 6px 14px; border-radius: 8px;
-      font-size: 13px; font-weight: bold; border: 1px solid rgba(255,255,255,0.3);
+      background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 6px; font-size: 12px;
     }
     #ai-badge {
       position: fixed; top: 8px; right: 8px; z-index: 10;
       background: rgba(200,60,60,0.7); padding: 4px 10px; border-radius: 6px; font-size: 12px; display: none;
     }
+    #scoreboard {
+      position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 10;
+      background: rgba(0,0,0,0.55); padding: 5px 16px; border-radius: 6px; text-align: center;
+    }
+    #scoreboard .score { font-size: 18px; font-weight: bold; }
+    #scoreboard .clock  { font-size: 11px; opacity: 0.85; margin-top: 1px; }
+    #sp-bar-wrap {
+      position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
+      background: rgba(0,0,0,0.6); padding: 6px 14px; border-radius: 8px;
+      font-size: 13px; font-weight: bold; border: 1px solid rgba(255,255,255,0.3);
+    }
+    #game-container { width: 100vw; height: 100vh; }
+
+    /* ------------------------------------------------------------------ Confrontation */
+    #confrontation-result {
+      position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 25;
+      background: rgba(0,0,20,0.9); border: 2px solid #ffd966; border-radius: 10px;
+      padding: 12px 22px; font-size: 15px; font-weight: bold; text-align: center;
+      display: none; max-width: 92vw;
+    }
+    #confrontation-result .outcome { font-size: 13px; color: #ffd966; margin-top: 6px; }
 
     #confrontation-ui {
       position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); z-index: 20;
-      display: none; flex-direction: column; align-items: center; gap: 8px; max-width: 90vw;
+      display: none; flex-direction: column; align-items: center; gap: 8px; max-width: 96vw;
     }
-    #confrontation-title { background: rgba(0,0,0,0.65); padding: 4px 14px; border-radius: 6px; font-weight: bold; font-size: 14px; }
-    #confrontation-player-info { background: rgba(0,0,0,0.5); padding: 3px 12px; border-radius: 6px; font-size: 11px; opacity: 0.9; }
+    #confrontation-title   { background: rgba(0,0,0,0.65); padding: 4px 14px; border-radius: 6px; font-weight: bold; font-size: 14px; }
+    #confrontation-player-info { background: rgba(0,0,0,0.5); padding: 4px 12px; border-radius: 6px; font-size: 12px; }
     #confrontation-timer-wrap { width: 220px; height: 6px; background: rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; }
-    #confrontation-timer-fill { height: 100%; width: 100%; background: #ffd966; }
-    #confrontation-buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    #confrontation-timer-fill { height: 100%; width: 100%; background: #ffd966; transition: none; }
+    #confrontation-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
     .conf-btn {
-      min-width: 120px; padding: 10px 14px; border-radius: 10px; border: 2px solid white;
-      background: rgba(20,20,20,0.85); color: white; font-size: 14px; text-align: center; touch-action: manipulation;
+      min-width: 130px; padding: 10px 12px; border-radius: 10px; border: 2px solid white;
+      background: rgba(20,20,20,0.88); color: white; font-size: 13px; text-align: center; touch-action: manipulation;
     }
-    .conf-btn:disabled { opacity: 0.35; }
-    .conf-btn .cost { display: block; font-size: 11px; color: #ffd966; margin-top: 2px; }
+    .conf-btn.active  { border-color: #ffd966; background: rgba(60,50,0,0.9); }
+    .conf-btn:disabled { opacity: 0.32; }
+    .conf-btn .cost   { display: block; font-size: 10px; color: #ffd966; margin-top: 2px; }
 
-    #confrontation-result {
-      position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 25;
-      background: rgba(0,0,0,0.75); border: 2px solid #ffd966; border-radius: 10px;
-      padding: 10px 20px; font-size: 15px; font-weight: bold; text-align: center; display: none;
+    /* ------------------------------------------------------------------ Field buttons */
+    #sub-button, #formation-button {
+      position: fixed; bottom: 16px; z-index: 15;
+      padding: 10px 14px; border-radius: 10px; border: 2px solid white;
+      background: rgba(20,20,20,0.78); color: white; font-size: 13px; display: none;
+    }
+    #sub-button       { right: 16px; }
+    #formation-button { right: 130px; }
+
+    /* ------------------------------------------------------------------ Panels (overlays) */
+    .panel-overlay {
+      position: fixed; inset: 0; z-index: 30; background: rgba(4,18,10,0.97);
+      display: none; flex-direction: column; align-items: center;
+      overflow-y: auto; padding: 14px 14px 80px;
+    }
+    .panel-overlay h2 { font-size: 16px; margin: 6px 0 12px; }
+    .panel-close {
+      position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+      z-index: 31; padding: 10px 28px; border-radius: 10px; border: none;
+      background: #444; color: white; font-size: 14px;
     }
 
-    /* --- Team select overlay --- */
-    #team-select-ui {
-      position: fixed; inset: 0; z-index: 30; background: rgba(6, 26, 14, 0.97);
-      display: flex; flex-direction: column; align-items: center; padding: 12px; overflow-y: auto;
+    /* ---- formation-pick panel (inline preset buttons) */
+    #formation-pick-panel .preset-btns {
+      display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 16px;
     }
-    #team-select-ui h1 { font-size: 18px; margin: 6px 0; }
-    #team-select-ui p.hint { font-size: 12px; opacity: 0.8; margin: 0 0 10px; text-align: center; max-width: 480px; }
-
-    #squad-preview {
-      width: 100%; max-width: 600px; background: rgba(255,255,255,0.06); border-radius: 10px;
-      padding: 8px 10px; margin-bottom: 10px; font-size: 12px;
+    #formation-pick-panel .preset-btns button {
+      padding: 10px 16px; border-radius: 8px; border: 2px solid white;
+      background: rgba(20,20,20,0.85); color: white; font-size: 14px;
     }
-    #squad-preview .squad-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-    #squad-preview .squad-title { font-weight: bold; }
-    #squad-starters, #squad-bench { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }
-    .squad-chip { background: rgba(51,153,255,0.25); border: 1px solid #3399ff; border-radius: 14px; padding: 3px 10px 3px 4px; font-size: 11px; display: flex; align-items: center; gap: 6px; }
-    .squad-chip.bench-chip { background: rgba(255,255,255,0.1); border-color: #888; }
-    .squad-chip button { background: none; border: none; color: #ff9c9c; font-size: 13px; cursor: pointer; padding: 0; line-height: 1; }
 
-    #roster-controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 6px; width: 100%; max-width: 600px; }
-    #roster-search { flex: 1; min-width: 160px; padding: 8px; border-radius: 8px; border: 1px solid #555; background: rgba(255,255,255,0.08); color: white; }
-    #roster-game-filter, #formation-select { padding: 8px; border-radius: 8px; border: 1px solid #555; background: rgba(255,255,255,0.08); color: white; }
-    #select-whole-team-btn, #randomize-squad-btn { padding: 8px 12px; border-radius: 8px; border: 1px solid white; background: rgba(51,153,255,0.3); color: white; }
-    #select-whole-team-btn:disabled { opacity: 0.4; }
-
-    .avatar {
-      width: 22px; height: 22px; border-radius: 50%; display: inline-flex;
+    /* ---- topological squad editor */
+    #squad-editor {
+      width: 100%; max-width: 500px;
+    }
+    #formation-pitch {
+      width: 100%; aspect-ratio: 2/3; background: #1e7a3c; border: 2px solid white;
+      border-radius: 8px; position: relative; margin-bottom: 12px; overflow: hidden;
+      touch-action: none; /* we handle all pointer events here */
+    }
+    #formation-pitch .pitch-line-h {
+      position: absolute; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.4);
+      top: 50%;
+    }
+    .slot-pin {
+      position: absolute; transform: translate(-50%,-50%);
+      width: 44px; height: 44px; border-radius: 50%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      cursor: grab; touch-action: none; user-select: none;
+      border: 2px solid rgba(255,255,255,0.7); transition: box-shadow 0.1s;
+    }
+    .slot-pin.empty   { background: rgba(255,255,255,0.12); border-style: dashed; }
+    .slot-pin.dragging { box-shadow: 0 0 0 3px #ffd966; cursor: grabbing; z-index: 5; }
+    .slot-pin .pin-avatar {
+      width: 28px; height: 28px; border-radius: 50%; display: flex;
       align-items: center; justify-content: center; font-size: 9px; font-weight: bold;
-      color: rgba(0,0,0,0.75); flex-shrink: 0; border: 1px solid rgba(255,255,255,0.4);
+      color: rgba(0,0,0,0.8);
     }
-    .roster-card .name-row { display: flex; align-items: center; gap: 6px; }
+    .slot-pin .pin-name { font-size: 7px; color: white; line-height: 1; margin-top: 1px; max-width: 42px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
-    #roster-count { font-size: 11px; opacity: 0.7; margin-bottom: 6px; }
-    #roster-list {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 10px; width: 100%; max-width: 600px; padding-bottom: 90px;
+    .bench-strip { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; }
+    .bench-pin {
+      width: 54px; text-align: center; background: rgba(255,255,255,0.08);
+      border: 2px solid #888; border-radius: 8px; padding: 4px; cursor: grab;
+      touch-action: none; user-select: none;
     }
-    .roster-card {
-      background: rgba(255,255,255,0.06); border: 2px solid transparent; border-radius: 10px;
-      padding: 8px; font-size: 12px;
-    }
-    .roster-card.is-starter { border-color: #ffd966; }
-    .roster-card.is-bench { border-color: #888; }
-    .roster-card .name { font-weight: bold; font-size: 13px; }
-    .roster-card .pos { opacity: 0.7; margin-bottom: 4px; }
-    .roster-card .row { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
-    .roster-card button {
-      font-size: 11px; padding: 4px 8px; border-radius: 6px; border: 1px solid white;
-      background: rgba(0,0,0,0.4); color: white;
-    }
-    .roster-card button:disabled { opacity: 0.35; }
-    .roster-card label { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+    .bench-pin .pin-avatar { width: 32px; height: 32px; border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: rgba(0,0,0,0.8); }
+    .bench-pin .pin-name   { font-size: 8px; color: rgba(255,255,255,0.9); margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
-    #confirm-squad-bar {
-      position: fixed; bottom: 0; left: 0; right: 0; z-index: 31;
-      background: rgba(6,26,14,0.97); border-top: 1px solid rgba(255,255,255,0.2);
+    /* ---- search list that feeds the editor */
+    #squad-search-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; width: 100%; max-width: 500px; }
+    #squad-search-row input, #squad-search-row select {
+      padding: 7px 10px; border-radius: 8px; border: 1px solid #555; background: rgba(255,255,255,0.08); color: white; flex: 1;
+    }
+    #squad-search-row button {
+      padding: 7px 12px; border-radius: 8px; border: 1px solid white; background: rgba(51,153,255,0.3); color: white;
+    }
+    #squad-pick-list {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(120px,1fr));
+      gap: 8px; width: 100%; max-width: 500px; padding-bottom: 4px;
+    }
+    .pick-card {
+      background: rgba(255,255,255,0.06); border: 2px solid transparent;
+      border-radius: 8px; padding: 6px; font-size: 11px; cursor: pointer; touch-action: manipulation;
+    }
+    .pick-card.in-squad   { border-color: #ffd966; opacity: 0.5; pointer-events: none; }
+    .pick-card .pick-name { font-weight: bold; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #pick-count { font-size: 11px; opacity: 0.7; margin-bottom: 6px; }
+
+    /* ---- sub panel */
+    #sub-list-inner { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap: 8px; width: 100%; max-width: 500px; }
+    .sub-card { background: rgba(255,255,255,0.08); border-radius: 8px; padding: 8px; text-align: center; }
+    .sub-card button { margin-top: 6px; padding: 4px 10px; border-radius: 6px; border: 1px solid white; background: rgba(0,0,0,0.4); color: white; font-size: 11px; }
+
+    /* ---- confirm bar */
+    #confirm-bar {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 32;
+      background: rgba(4,18,10,0.97); border-top: 1px solid rgba(255,255,255,0.18);
       padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 4px;
     }
-    #confirm-squad-btn {
-      padding: 10px 24px; border-radius: 10px; border: none; background: #3399ff; color: white;
-      font-weight: bold; font-size: 14px;
-    }
-    #confirm-squad-btn:disabled { opacity: 0.4; }
+    #confirm-squad-btn { padding: 10px 24px; border-radius: 10px; border: none; background: #3399ff; color: white; font-weight: bold; font-size: 14px; }
+    #confirm-squad-btn:disabled { opacity: 0.38; }
     #squad-status { font-size: 12px; opacity: 0.85; }
 
-    /* --- Substitution --- */
-    #sub-button {
-      position: fixed; bottom: 16px; right: 16px; z-index: 15;
-      padding: 10px 14px; border-radius: 10px; border: 2px solid white;
-      background: rgba(20,20,20,0.75); color: white; font-size: 13px; display: none;
-    }
-    #formation-button {
-      position: fixed; bottom: 16px; right: 130px; z-index: 15;
-      padding: 10px 14px; border-radius: 10px; border: 2px solid white;
-      background: rgba(20,20,20,0.75); color: white; font-size: 13px; display: none;
-    }
-    #formation-panel {
-      position: fixed; inset: 0; z-index: 30; background: rgba(6, 26, 14, 0.97);
-      display: none; flex-direction: column; align-items: center; padding: 16px; justify-content: center;
-    }
-    #formation-options { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 400px; }
-    #formation-options button {
-      padding: 12px 18px; border-radius: 10px; border: 2px solid white; background: rgba(20,20,20,0.85); color: white; font-size: 14px;
-    }
-    #sub-panel {
-      position: fixed; inset: 0; z-index: 30; background: rgba(6, 26, 14, 0.97);
-      display: none; flex-direction: column; align-items: center; padding: 16px; overflow-y: auto;
-    }
-    #sub-panel h2 { font-size: 16px; }
-    #sub-panel .roster-card-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; width: 100%; max-width: 500px; }
+    /* ---- avatar util */
+    .av { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; font-weight: bold; color: rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.35); }
   </style>
 </head>
 <body>
   <div id="room-ui">Room: <span id="room-code">-</span></div>
-  <div id="scoreboard">
-    <div class="score">0 - 0</div>
-    <div class="clock" id="match-clock">1st half — 3:00</div>
-  </div>
+  <div id="scoreboard"><div class="score">0 - 0</div><div class="clock" id="match-clock">1st half — 3:00</div></div>
   <div id="ai-badge">Playing vs AI</div>
   <div id="game-container"></div>
-
   <div id="sp-bar-wrap">PT: <span id="sp-value">100/100</span></div>
 
-  <div id="confrontation-result"></div>
+  <!-- Result banner (shown after every confrontation resolves) -->
+  <div id="confrontation-result">
+    <div id="result-title"></div>
+    <div class="outcome" id="result-outcome"></div>
+  </div>
 
+  <!-- Confrontation choice panel -->
   <div id="confrontation-ui">
     <div id="confrontation-title">Duel!</div>
     <div id="confrontation-player-info"></div>
     <div id="confrontation-timer-wrap"><div id="confrontation-timer-fill"></div></div>
     <div id="confrontation-buttons">
       <button class="conf-btn" id="conf-normal">Normal action</button>
-      <button class="conf-btn" id="conf-technique">Supertechnique<span class="cost">-- SP</span></button>
+      <button class="conf-btn" id="conf-technique">Supertechnique<span class="cost">-- PT</span></button>
     </div>
   </div>
 
+  <!-- In-match buttons -->
   <button id="sub-button">Substitute</button>
   <button id="formation-button">Formation</button>
-  <div id="formation-panel">
+
+  <!-- Formation-pick panel (just changes the preset mid-match) -->
+  <div id="formation-pick-panel" class="panel-overlay">
     <h2>Change formation</h2>
-    <div id="formation-options"></div>
-    <button id="formation-cancel-btn" style="margin-top:16px;">Cancel</button>
+    <div class="preset-btns" id="formation-preset-btns"></div>
+    <button class="panel-close" id="formation-pick-close">Cancel</button>
   </div>
-  <div id="sub-panel">
+
+  <!-- Substitute panel -->
+  <div id="sub-panel" class="panel-overlay">
     <h2 id="sub-panel-title">Who comes off?</h2>
-    <div id="sub-list" class="roster-card-list"></div>
-    <button id="sub-cancel-btn" style="margin-top:16px;">Cancel</button>
+    <div id="sub-list-inner"></div>
+    <button class="panel-close" id="sub-cancel-btn">Cancel</button>
   </div>
 
-  <div id="team-select-ui">
-    <h1>Choose your squad (11 starters)</h1>
-    <p class="hint">Tap a player to add them to your starting 11 (in order — the first GK you pick becomes your goalkeeper slot). Bench up to 5 extra players to substitute later. Pick a formation too — you can change it mid-match.</p>
+  <!-- ===================== SQUAD EDITOR (team select) ===================== -->
+  <div id="squad-editor-panel" class="panel-overlay" style="display:flex;">
 
-    <div id="squad-preview">
-      <div class="squad-row"><span class="squad-title">Starters (<span id="starter-count">0</span>/11)</span></div>
-      <div id="squad-starters"></div>
-      <div class="squad-row" style="margin-top:8px;"><span class="squad-title">Bench</span></div>
-      <div id="squad-bench"></div>
+    <h2 style="margin-bottom:4px;">Build your squad</h2>
+    <p style="font-size:11px; opacity:0.75; margin:0 0 10px; text-align:center; max-width:500px;">
+      Drag players from the list onto the pitch slots. Drag between slots to swap. Bench (up to 5) shown below the pitch.
+    </p>
+
+    <!-- Topological pitch editor -->
+    <div id="squad-editor" style="width:100%;max-width:500px;">
+      <!-- Formation selector -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+        <label style="font-size:12px;">Formation:</label>
+        <select id="formation-select" style="padding:6px 10px;border-radius:8px;border:1px solid #555;background:rgba(255,255,255,0.08);color:white;">
+          <option value="4-4-2">4-4-2</option>
+          <option value="4-3-3">4-3-3</option>
+          <option value="4-2-3-1">4-2-3-1</option>
+          <option value="3-5-2">3-5-2</option>
+        </select>
+        <button id="randomize-squad-btn" style="padding:6px 12px;border-radius:8px;border:1px solid white;background:rgba(51,153,255,0.3);color:white;">🎲 Random</button>
+        <span id="squad-fill-count" style="font-size:11px;opacity:0.75;">0/11 filled</span>
+      </div>
+
+      <div id="formation-pitch">
+        <div class="pitch-line-h"></div>
+        <!-- .slot-pin elements injected here by JS -->
+      </div>
+
+      <div style="font-size:11px;opacity:0.7;margin-bottom:4px;">Bench (<span id="bench-count">0</span>/5):</div>
+      <div class="bench-strip" id="bench-strip">
+        <!-- bench pins injected here -->
+      </div>
     </div>
 
-    <div id="roster-controls">
-      <input id="roster-search" type="text" placeholder="Search by name..." />
-      <select id="roster-game-filter"><option value="">All games</option></select>
-      <select id="formation-select">
-        <option value="4-4-2">4-4-2</option>
-        <option value="4-3-3">4-3-3</option>
-        <option value="4-2-3-1">4-2-3-1</option>
-        <option value="3-5-2">3-5-2</option>
-      </select>
-      <button id="select-whole-team-btn" disabled title="Pick a specific game above first">Use this whole team</button>
-      <button id="randomize-squad-btn">🎲 Randomize squad</button>
+    <!-- Player search / list to pick from -->
+    <div id="squad-search-row">
+      <input id="squad-search" type="text" placeholder="Search player..." />
+      <select id="squad-game-filter"><option value="">All games</option></select>
+      <button id="squad-whole-team-btn" disabled>Use whole team</button>
     </div>
-    <div id="roster-count"></div>
-    <div id="roster-list"></div>
+    <div id="pick-count"></div>
+    <div id="squad-pick-list"></div>
 
-    <div id="confirm-squad-bar">
-      <button id="confirm-squad-btn" disabled>Confirm squad</button>
+    <!-- Fixed confirm bar -->
+    <div id="confirm-bar">
+      <button id="confirm-squad-btn" disabled>Confirm squad (0/11)</button>
       <div id="squad-status"></div>
     </div>
   </div>
