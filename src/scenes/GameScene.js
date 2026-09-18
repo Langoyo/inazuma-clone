@@ -23,6 +23,9 @@ const RESULT_MS         = 3500;
 const RESULT_DELAY_MS   = 800;
 const POSSESS_OFFSET    = 24;
 const PASS_SPEED        = 4.5;
+const KNOCKBACK_SPEED   = 1.8;   // was 4 — nearly as fast as a pass, which could fling the
+                                  // ball if it clipped the ball on the way (see _moveTeam's
+                                  // stun handling, which also keeps the ball from hitting them)
 const STUN_MS           = 2500;  // how long the loser is frozen after a duel
 const TEAM_SIZE         = 11;
 const BENCH_MAX         = 5;
@@ -30,15 +33,19 @@ const HALF_S            = 3 * 60;
 const STATE_HZ          = 20;
 const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 
-// Physics forces — slow and deliberate
+// Physics forces — the ball carrier is only slightly sharper than everyone
+// else now; off-ball players used to crawl (AUTO_STEER_FORCE/MAX_SPEED were
+// ~65% of the carrier's), which made the team look frozen even though
+// _offBallTarget was constantly recomputing good runs for them — they just
+// couldn't get there with any urgency.
 const STEER_FORCE           = 0.00034;
-const AUTO_STEER_FORCE      = 0.00022; // off-ball players moving on their own
+const AUTO_STEER_FORCE      = 0.00032;
 const BASE_MAX_SPEED        = 0.72;
-const AUTO_MAX_SPEED        = 0.50;
+const AUTO_MAX_SPEED        = 0.66;
 
 // Off-ball behaviour: how strongly teammates push forward to support the
 // ball carrier, and how close a defender presses the opponent on the ball.
-const SUPPORT_BLEND  = 0.45;
+const SUPPORT_BLEND  = 0.65;
 const PRESS_BLEND    = 0.5;
 const PRESS_RANGE    = 260;
 
@@ -256,7 +263,7 @@ export default class GameScene extends Phaser.Scene {
   _inPenaltyBox(defendingRole,pos){
     const withinX=pos.x>=this.FIELD_W/2-this.PA_W/2&&pos.x<=this.FIELD_W/2+this.PA_W/2;
     if(!withinX) return false;
-    return defendingRole==='A' ? pos.y<=this.PA_H : pos.y>=this.FIELD_H-this.PA_H;
+    return defendingRole==='A' ? pos.y>=this.FIELD_H-this.PA_H : pos.y<=this.PA_H;
   }
 
   _setupScrollInput(){
@@ -597,9 +604,11 @@ export default class GameScene extends Phaser.Scene {
     const pSize=this.FIELD_H, sSize=this.FIELD_W, margin=40;
     const halfP=pSize/2-margin;
 
-    // Base Y from own goal→halfway
+    // Base Y from own goal→halfway. The team you control (role A) defends
+    // the bottom of the map (pSize) and attacks toward 0, so its own
+    // formation gets mirrored instead of B's.
     let primary=f.y*halfP+margin;
-    if(role==='B') primary=pSize-primary;
+    if(role==='A') primary=pSize-primary;
 
     // Secondary spread (X) tracks ball loosely
     let secondary=f.x*sSize;
@@ -607,8 +616,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Autonomous "find space": pull forward/backward toward ball based on role
     const ballY=ballPos.y;
-    const ownGoalY=role==='A'?0:pSize;
-    const attackDir=role==='A'?1:-1;
+    const attackDir=role==='A'?-1:1;
     const toBall=(ballY-primary)*attackDir;  // +ve means ball is in front of us
 
     // Role-based position bias
@@ -622,7 +630,7 @@ export default class GameScene extends Phaser.Scene {
     // does, drop back a little instead of holding the exact formation line.
     if(slot!==0){
       if(this.possRole===role){
-        yBias += slotRole==='FW'?100:slotRole==='MF'?70:35;
+        yBias += slotRole==='FW'?170:slotRole==='MF'?130:60;
       } else if(this.possRole&&this.possRole!==role){
         yBias += slotRole==='FW'?-40:slotRole==='MF'?-20:-8;
       }
@@ -646,11 +654,11 @@ export default class GameScene extends Phaser.Scene {
     if(iHaveBall){
       const carrier=this._activeEntry(role);
       if(!carrier) return base;
-      const attackDir=role==='A'?1:-1;
+      const attackDir=role==='A'?-1:1;
       const side=(e.body.position.x>=carrier.body.position.x)?1:-1;
       const supportSpot={
-        x:carrier.body.position.x+side*90,
-        y:carrier.body.position.y+attackDir*70
+        x:carrier.body.position.x+side*130,
+        y:carrier.body.position.y+attackDir*130
       };
       return {
         x:Phaser.Math.Linear(base.x,supportSpot.x,SUPPORT_BLEND),
@@ -661,7 +669,7 @@ export default class GameScene extends Phaser.Scene {
     if(ballCarrier){
       const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,ballCarrier.body.position.x,ballCarrier.body.position.y);
       if(d<PRESS_RANGE){
-        const ownGoalY=role==='A'?0:this.FIELD_H;
+        const ownGoalY=role==='A'?this.FIELD_H:0;
         const pressSpot={
           x:Phaser.Math.Linear(ballCarrier.body.position.x,e.body.position.x,0.25),
           y:Phaser.Math.Linear(ballCarrier.body.position.y,ownGoalY,0.15)
@@ -819,7 +827,7 @@ export default class GameScene extends Phaser.Scene {
   }
   _inGoalRegion(w){
     const half=this.FIELD_W/2;
-    const towardMax=this.role==='A';
+    const towardMax=this.role==='B'; // A attacks toward y=0 now, B toward y=FIELD_H
     const withinX=Math.abs(w.x-half)<GOAL_HALF_WIDTH+40;
     return withinX&&(towardMax?w.y>this.FIELD_H-GOAL_CLICK_MARGIN:w.y<GOAL_CLICK_MARGIN);
   }
@@ -867,7 +875,7 @@ export default class GameScene extends Phaser.Scene {
     if(!this.possRole) return;
     const e=this._activeEntry(this.possRole); if(!e?.body) return;
     const b=e.body,vel=b.velocity,sp=Math.hypot(vel.x,vel.y);
-    const dy=(sp>0.05?vel.y/sp:(this.possRole==='A'?1:-1)), dx=(sp>0.05?vel.x/sp:0);
+    const dy=(sp>0.05?vel.y/sp:(this.possRole==='A'?-1:1)), dx=(sp>0.05?vel.x/sp:0);
     this.matter.body.setPosition(this.ball,{x:b.position.x+dx*POSSESS_OFFSET,y:b.position.y+dy*POSSESS_OFFSET});
     this.matter.body.setVelocity(this.ball,{x:0,y:0});
   }
@@ -882,7 +890,7 @@ export default class GameScene extends Phaser.Scene {
    *  range, preferring the furthest-advanced one among nearby options. */
   _aiPickPassTarget(role,entry){
     const team=role==='A'?this.teamA:this.teamB;
-    const attackDir=role==='A'?1:-1; // A attacks increasing y, B attacks decreasing y
+    const attackDir=role==='A'?-1:1; // A attacks decreasing y (their goal is at the bottom), B increasing y
     let best=null,bestScore=-Infinity;
     for(const c of team){
       if(c.id===entry.id||c.slot===0) continue; // not myself, not the keeper
@@ -898,7 +906,7 @@ export default class GameScene extends Phaser.Scene {
   _knockback(loser,winner){
     if(!loser?.body||!winner?.body) return;
     const dx=loser.body.position.x-winner.body.position.x, dy=loser.body.position.y-winner.body.position.y, d=Math.hypot(dx,dy)||1;
-    this.matter.body.setVelocity(loser.body,{x:(dx/d)*4,y:(dy/d)*4});
+    this.matter.body.setVelocity(loser.body,{x:(dx/d)*KNOCKBACK_SPEED,y:(dy/d)*KNOCKBACK_SPEED});
   }
   _activeEntry(role){ const team=role==='A'?this.teamA:this.teamB, id=role==='A'?this.activeIdA:this.activeIdB; return team.find(t=>t.id===id)||null; }
   _setActive(role,id){ if(role==='A') this.activeIdA=id; else this.activeIdB=id; }
@@ -932,8 +940,8 @@ export default class GameScene extends Phaser.Scene {
         this.lastTouch=owner;
         if(!this.possRole&&!this.confrontation) this.possRole=owner.role;
       }
-      if(lbls.includes('goalMin')) this._onGoal('b');
-      if(lbls.includes('goalMax')) this._onGoal('a');
+      if(lbls.includes('goalMin')) this._onGoal('a');
+      if(lbls.includes('goalMax')) this._onGoal('b');
     }
   }
 
@@ -1101,7 +1109,7 @@ export default class GameScene extends Phaser.Scene {
     const b=this.ball.position, m=10;
     if(b.y<-m||b.y>this.FIELD_H+m){
       const overTop=b.y<-m;
-      const defendingRole=overTop?'A':'B';
+      const defendingRole=overTop?'B':'A'; // A now defends the bottom, B the top
       const sideX=b.x<this.FIELD_W/2?18:this.FIELD_W-18;
       const lineY=overTop?18:this.FIELD_H-18;
       if(this.lastTouch&&this.lastTouch.role===defendingRole){
@@ -1124,8 +1132,6 @@ export default class GameScene extends Phaser.Scene {
     }
     return false;
   }
-  _regenSP(map,dt){ for(const s of map.values()) s.sp=Math.min(s.maxSP,s.sp+s.spRegenPerSec*(dt/1000)); }
-
   // ════════════════════════════════════════════════════════════════════
   // Clock
   // ════════════════════════════════════════════════════════════════════
@@ -1165,10 +1171,9 @@ export default class GameScene extends Phaser.Scene {
     let inputB=this.remoteInput;
     if(aiActive){
       const eB=this._activeEntry('B');
-      const ai=decideAIMove({selfPos:eB?eB.body.position:{x:this.FIELD_W/2,y:this.FIELD_H},ballPos:this.ball.position,axis:'y',ownGoalValue:this.FIELD_H,rivalGoalValue:0,fieldPrimarySize:this.FIELD_H});
+      const ai=decideAIMove({selfPos:eB?eB.body.position:{x:this.FIELD_W/2,y:0},ballPos:this.ball.position,axis:'y',ownGoalValue:0,rivalGoalValue:this.FIELD_H,fieldPrimarySize:this.FIELD_H});
       inputB={targets:eB?[{id:eB.id,...ai.target}]:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,formationChange:null};
     }
-    this._regenSP(this.statsMapA,delta); this._regenSP(this.statsMapB,delta);
     this.currentPossession=this.possRole;
     if(myInput.formationChange) this.formation.A=myInput.formationChange;
     if(!aiActive&&inputB.formationChange) this.formation.B=inputB.formationChange;
@@ -1185,7 +1190,7 @@ export default class GameScene extends Phaser.Scene {
       else if(!aiActive&&inputB.shootRequest&&this.possRole==='B') this._startConfront('shot','B','A',now);
       else if(aiActive&&this.possRole==='B'){
         const eB=this._activeEntry('B');
-        if(eB&&eB.body.position.y<GOAL_CLICK_MARGIN*2.5&&Math.random()<0.02) this._startConfront('shot','B','A',now);
+        if(eB&&eB.body.position.y>this.FIELD_H-GOAL_CLICK_MARGIN*2.5&&Math.random()<0.02) this._startConfront('shot','B','A',now);
         else if(eB&&Math.random()<0.012){
           const mate=this._aiPickPassTarget('B',eB);
           if(mate) this._doPass('B',{x:mate.body.position.x,y:mate.body.position.y});
@@ -1228,10 +1233,14 @@ export default class GameScene extends Phaser.Scene {
     team.forEach(e=>{
       if(this._isOut(role,e.id)) return; // sent off: frozen, invisible, ignored entirely
       if(this._isStunned(e.id,now)){
-        // Stunned: drain velocity, don't steer
+        // Stunned: drain velocity, don't steer, and can't touch the ball —
+        // otherwise a knocked-back player clipping the ball at speed could
+        // fling it (this is what caused the ball to "shoot" after a duel).
+        if(e.body) e.body.collisionFilter.mask=CAT_DEFAULT;
         this.matter.body.setVelocity(e.body,{x:e.body.velocity.x*0.85,y:e.body.velocity.y*0.85});
         return;
       }
+      if(e.body&&e.body.collisionFilter.mask!==(CAT_BALL|CAT_DEFAULT)) e.body.collisionFilter.mask=CAT_BALL|CAT_DEFAULT;
       const st=this._statsFor(role,e.id), sp=st?st.speed:1;
       const t=byId.get(e.id);
       if(t) this._steer(e.body,t,sp,STEER_FORCE);
@@ -1240,10 +1249,12 @@ export default class GameScene extends Phaser.Scene {
         // supporting run when we have the ball, or press the ball carrier
         // when the opponent does.
         const autoPos=this._offBallTarget(role,e,activeId,iHaveBall,ballCarrier);
-        this._steer(e.body,autoPos,1,AUTO_STEER_FORCE);
-        // Soft speed cap for autonomous movement
+        this._steer(e.body,autoPos,sp,AUTO_STEER_FORCE);
+        // Soft speed cap for autonomous movement — scaled by the player's
+        // own speed stat too, so quick players still look quick off the ball.
+        const cap=AUTO_MAX_SPEED*sp;
         const v=e.body.velocity, s=Math.hypot(v.x,v.y);
-        if(s>AUTO_MAX_SPEED) this.matter.body.setVelocity(e.body,{x:(v.x/s)*AUTO_MAX_SPEED,y:(v.y/s)*AUTO_MAX_SPEED});
+        if(s>cap) this.matter.body.setVelocity(e.body,{x:(v.x/s)*cap,y:(v.y/s)*cap});
       }
     });
   }
