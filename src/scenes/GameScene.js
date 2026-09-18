@@ -397,6 +397,17 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-search').addEventListener('input',()=>this._renderPickList());
     document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickList());
     document.getElementById('squad-team-filter').addEventListener('change',()=>this._renderPickList());
+    document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
+    this._renderPitch(); this._renderPickList();
+  }
+
+  /** Drops whichever pitch/bench player is currently selected back into the
+   *  pool, leaving their slot empty. */
+  _removeSelectedFromSquad(){
+    const sel=this._squadSel; if(!sel) return;
+    if(sel.type==='slot') this.squadSlots[sel.slot]=null;
+    else this.benchIds.delete(sel.id);
+    this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
 
@@ -443,6 +454,11 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-fill-count').textContent=`${filled}/11 filled`;
     const btn=document.getElementById('confirm-squad-btn');
     btn.textContent=`Confirm squad (${filled}/11)`; btn.disabled=filled!==TEAM_SIZE;
+    // Offer the remove action only while a selected pin actually holds someone
+    const selP=sel?this._squadSelPlayer(sel):null;
+    const bar=document.getElementById('squad-remove-bar');
+    bar.style.display=selP?'flex':'none';
+    if(selP) document.getElementById('squad-remove-btn').textContent=`✕ Remove ${selP.nickname||selP.name}`;
   }
 
   _showPlayerStats(p){
