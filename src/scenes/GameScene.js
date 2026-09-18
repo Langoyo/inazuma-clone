@@ -178,8 +178,6 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('conf-technique').addEventListener('pointerdown',(e)=>{e.stopPropagation();this.pendingChoice='technique';});
     document.getElementById('sub-button').addEventListener('click',()=>this._openSubPanel());
     document.getElementById('sub-cancel-btn').addEventListener('click',()=>{this.subSel=null;document.getElementById('sub-panel').style.display='none';});
-    document.getElementById('formation-button').addEventListener('click',()=>this._openFormPickPanel());
-    document.getElementById('formation-pick-close').addEventListener('click',()=>{document.getElementById('formation-pick-panel').style.display='none';});
 
     // Roster load → squad editor
     this.rosterAll=[];
@@ -535,7 +533,7 @@ export default class GameScene extends Phaser.Scene {
     this.activeIdA=this.teamA[0]?.id; this.activeIdB=this.teamB[0]?.id;
     this.matchStarted=true;
     document.getElementById('squad-editor-panel').style.display='none';
-    document.getElementById('formation-button').style.display='block';
+    document.getElementById('sub-button').style.display='block';
     document.getElementById('scroll-controls').style.display='flex';
   }
 
@@ -552,7 +550,7 @@ export default class GameScene extends Phaser.Scene {
     this.gkIdA=this._findGkId(this.remoteSquadPayload.starterIds);
     this.gkIdB=this._findGkId(this.mySquadPayload.starterIds);
     this.clientTeamsBuilt=true;
-    document.getElementById('formation-button').style.display='block';
+    document.getElementById('sub-button').style.display='block';
     document.getElementById('scroll-controls').style.display='flex';
   }
 
@@ -586,6 +584,17 @@ export default class GameScene extends Phaser.Scene {
     if(slotRole==='FW')       yBias= Math.min(toBall*0.28, 120);   // forwards chase ball aggressively
     else if(slotRole==='MF')  yBias= Math.min(toBall*0.14,  60);   // mids follow somewhat
     else if(slotRole==='DF')  yBias= Math.max(toBall*0.06, -20);   // defenders hold back
+
+    // Whole-team push: when this team has the ball, everyone advances as a
+    // unit by default (not just whoever's dribbling); when the opponent
+    // does, drop back a little instead of holding the exact formation line.
+    if(slot!==0){
+      if(this.possRole===role){
+        yBias += slotRole==='FW'?100:slotRole==='MF'?70:35;
+      } else if(this.possRole&&this.possRole!==role){
+        yBias += slotRole==='FW'?-40:slotRole==='MF'?-20:-8;
+      }
+    }
     // GK never moves from goal line
     if(slot===0){ yBias=0; secondary=sSize/2; }   // keeper always central
 
@@ -635,26 +644,31 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // Formation pick (mid-match) + substitution panel (pitch view)
+  // Team panel (mid-match): formation preset + substitutions together
   // ════════════════════════════════════════════════════════════════════
-  _openFormPickPanel(){
-    const wrap=document.getElementById('formation-preset-btns'); wrap.innerHTML='';
-    Object.keys(FORMATIONS).forEach(name=>{
-      const btn=document.createElement('button'); btn.textContent=name;
-      btn.addEventListener('click',()=>{ this.pendingFormChange=name; document.getElementById('formation-pick-panel').style.display='none'; });
-      wrap.appendChild(btn);
-    });
-    document.getElementById('formation-pick-panel').style.display='flex';
-  }
-
-  /** Single-tab substitution panel: the pitch (current XI) and the bench
-   *  shown together, exactly like the pre-match squad editor. Tap a player
-   *  on the pitch, then one on the bench (or vice versa), to sub them. */
+  /** Single-tab team panel: formation presets at the top, then the pitch
+   *  (current XI) and bench together below — exactly like the pre-match
+   *  squad editor. Tap a player on the pitch, then one on the bench (or
+   *  vice versa), to sub them. */
   _openSubPanel(){
     this.subSel=null; this._renderSubPanel();
     document.getElementById('sub-panel').style.display='flex';
   }
+  _renderFormationPresets(){
+    const wrap=document.getElementById('formation-preset-btns'); wrap.innerHTML='';
+    const current=this.formation[this.role];
+    Object.keys(FORMATIONS).forEach(name=>{
+      const btn=document.createElement('button'); btn.textContent=name;
+      if(name===current) btn.classList.add('active');
+      btn.addEventListener('click',()=>{
+        this.formation[this.role]=name; this.pendingFormChange=name;
+        this._renderSubPanel();
+      });
+      wrap.appendChild(btn);
+    });
+  }
   _renderSubPanel(){
+    this._renderFormationPresets();
     document.getElementById('sub-panel-title').textContent='Tap a player on the pitch, then one on the bench, to substitute';
     const listEl=document.getElementById('sub-list-inner'); listEl.innerHTML='';
     const myTeam=this.role==='A'?this.teamA:this.teamB;
@@ -828,6 +842,24 @@ export default class GameScene extends Phaser.Scene {
     this.possRole=null;
     this.matter.body.setVelocity(this.ball,{x:(dx/dist)*PASS_SPEED,y:(dy/dist)*PASS_SPEED});
   }
+  /** Picks a reasonable pass target for the AI: the most advanced teammate
+   *  (closer to the rival goal than the passer) within a sane passing
+   *  range, preferring the furthest-advanced one among nearby options. */
+  _aiPickPassTarget(role,entry){
+    const team=role==='A'?this.teamA:this.teamB;
+    const attackDir=role==='A'?1:-1; // A attacks increasing y, B attacks decreasing y
+    let best=null,bestScore=-Infinity;
+    for(const c of team){
+      if(c.id===entry.id||c.slot===0) continue; // not myself, not the keeper
+      const dx=c.body.position.x-entry.body.position.x, dy=c.body.position.y-entry.body.position.y;
+      const dist=Math.hypot(dx,dy);
+      if(dist<50||dist>380) continue; // too close to bother, too far to pass reliably
+      const advance=dy*attackDir; // positive = further forward than the passer
+      const score=advance-dist*0.15;
+      if(score>bestScore){ bestScore=score; best=c; }
+    }
+    return best;
+  }
   _knockback(loser,winner){
     if(!loser?.body||!winner?.body) return;
     const dx=loser.body.position.x-winner.body.position.x, dy=loser.body.position.y-winner.body.position.y, d=Math.hypot(dx,dy)||1;
@@ -981,7 +1013,14 @@ export default class GameScene extends Phaser.Scene {
       else if(!aiActive&&inputB.passTarget&&this.possRole==='B') this._doPass('B',inputB.passTarget);
       if(myInput.shootRequest&&this.possRole==='A') this._startConfront('shot','A','B',now);
       else if(!aiActive&&inputB.shootRequest&&this.possRole==='B') this._startConfront('shot','B','A',now);
-      else if(aiActive&&this.possRole==='B'){ const eB=this._activeEntry('B'); if(eB&&eB.body.position.y<GOAL_CLICK_MARGIN*2.5&&Math.random()<0.02) this._startConfront('shot','B','A',now); }
+      else if(aiActive&&this.possRole==='B'){
+        const eB=this._activeEntry('B');
+        if(eB&&eB.body.position.y<GOAL_CLICK_MARGIN*2.5&&Math.random()<0.02) this._startConfront('shot','B','A',now);
+        else if(eB&&Math.random()<0.012){
+          const mate=this._aiPickPassTarget('B',eB);
+          if(mate) this._doPass('B',{x:mate.body.position.x,y:mate.body.position.y});
+        }
+      }
       if(this.confrontation?.defenderRole==='B'&&aiActive){ const ds=this._statsFor('B',this.confrontation.defenderId); this.confrontation.defenderChoice=this._aiChoice(ds,'keeper'); }
       if(myInput.subRequest) this._trySub('A',myInput.subRequest);
       if(!aiActive&&inputB.subRequest) this._trySub('B',inputB.subRequest);
@@ -991,7 +1030,6 @@ export default class GameScene extends Phaser.Scene {
     this._renderClock(this.matchClock);
     this._renderResultBanner(this.confrontResult,now);
     const as=this._statsFor('A',this.activeIdA); if(as) this._paintHUD(as.sp,as.maxSP);
-    document.getElementById('sub-button').style.display=(this.benchA?.length)?'block':'none';
 
     if(now-this.lastStateSent>1000/STATE_HZ){
       this.lastStateSent=now;
@@ -1069,7 +1107,6 @@ export default class GameScene extends Phaser.Scene {
     this._renderResultBanner(this.remoteState.confrontResult,time);
     this._paintHUD(this.remoteState.sp.b,(this.remoteState.maxSp?.b)||100);
     this._updatePossRing();
-    document.getElementById('sub-button').style.display=((this.remoteState.benchIds?.b)||[]).length?'block':'none';
   }
 
   _syncClientIds(rs){

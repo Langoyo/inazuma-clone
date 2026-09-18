@@ -60,13 +60,11 @@
     .conf-btn .cost   { display: block; font-size: 10px; color: #ffd966; margin-top: 2px; }
 
     /* ------------------------------------------------------------------ Field buttons */
-    #sub-button, #formation-button {
-      position: fixed; bottom: 16px; z-index: 15;
+    #sub-button {
+      position: fixed; bottom: 16px; right: 16px; z-index: 15;
       padding: 10px 14px; border-radius: 10px; border: 2px solid white;
       background: rgba(20,20,20,0.78); color: white; font-size: 13px; display: none;
     }
-    #sub-button       { right: 16px; }
-    #formation-button { right: 130px; }
 
     /* Camera joystick (mobile) */
     #scroll-controls {
@@ -102,14 +100,15 @@
       background: #444; color: white; font-size: 14px;
     }
 
-    /* ---- formation-pick panel (inline preset buttons) */
-    #formation-pick-panel .preset-btns {
+    /* ---- formation preset buttons (top of the team panel) */
+    .preset-btns {
       display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 16px;
     }
-    #formation-pick-panel .preset-btns button {
+    .preset-btns button {
       padding: 10px 16px; border-radius: 8px; border: 2px solid white;
       background: rgba(20,20,20,0.85); color: white; font-size: 14px;
     }
+    .preset-btns button.active { border-color: #ffd966; background: rgba(60,50,0,0.9); }
 
     /* ---- topological squad editor */
     #squad-editor {
@@ -210,22 +209,16 @@
     </div>
   </div>
 
-  <!-- In-match buttons -->
-  <button id="sub-button">Substitute</button>
-  <button id="formation-button">Formation</button>
+  <!-- In-match button: formation + substitutions live in the same panel -->
+  <button id="sub-button">Team</button>
 
-  <!-- Formation-pick panel (just changes the preset mid-match) -->
-  <div id="formation-pick-panel" class="panel-overlay">
-    <h2>Change formation</h2>
-    <div class="preset-btns" id="formation-preset-btns"></div>
-    <button class="panel-close" id="formation-pick-close">Cancel</button>
-  </div>
-
-  <!-- Substitute panel: pitch + bench together, tap one of each to swap -->
+  <!-- Team panel: change formation, and tap a pitch player + a bench player to sub -->
   <div id="sub-panel" class="panel-overlay">
+    <h2 style="margin-bottom:8px;">Formation</h2>
+    <div class="preset-btns" id="formation-preset-btns"></div>
     <h2 id="sub-panel-title">Tap a player on the pitch, then one on the bench</h2>
     <div id="sub-list-inner"></div>
-    <button class="panel-close" id="sub-cancel-btn">Cancel</button>
+    <button class="panel-close" id="sub-cancel-btn">Close</button>
   </div>
 
   <!-- ===================== SQUAD EDITOR (team select) ===================== -->
