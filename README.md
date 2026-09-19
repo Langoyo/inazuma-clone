@@ -818,3 +818,40 @@ Comprobado con los dos jugadores igualados a propósito y ambos eligiendo
 acción normal, el porcentaje de duelos que gana el humano baja **55,1% →
 53,2% → 51,0% → 48,6%** de Easy a Expert, que es exactamente lo que
 predice la fórmula (4000 duelos por nivel).
+
+## Saques de centro, y un pase que se cuela ya no es gol
+
+### El equipo que no saca empieza más atrás
+Antes las dos líneas se quedaban pegadas al medio campo (28 px a cada
+lado), así que al que sacaba se le echaban encima antes de poder dar el
+primer pase. Ahora el bando **sin** balón arranca a **150 px** de la línea
+— bien fuera del círculo central, que tiene radio 60 — y el que saca sigue
+pegado a ella. El saque se monta de verdad: posesión para quien saca, un
+jugador de campo (nunca el portero) plantado sobre el balón en el punto
+central, y el resto colocado en formación en su propio campo.
+
+### Cada tiempo lo saca un equipo distinto
+Antes el partido y la segunda parte empezaban con el balón suelto en el
+centro y ganaba quien llegase antes. Ahora hay un sorteo al empezar
+(`kickoffRole`) y **la segunda parte la saca el otro equipo**, como en un
+partido de verdad. Se avisa con un cartel: *"Kick-off"* y *"Second half"*.
+
+### Un pase que entra en la portería no es gol
+Los goles de verdad los decide siempre el enfrentamiento de tiro, que se
+resuelve de forma abstracta y **nunca manda el balón físicamente dentro**.
+Así que todo lo que llegaba a los sensores de gol era un pase perdido o un
+balón suelto — y contaba como gol igualmente. El caso más molesto era el
+pase picado, que mientras vuela solo colisiona con la portería. Ahora el
+portero de esa portería simplemente lo recoge (saque de puerta, cartel
+*"Keeper collects it"*) y sigue el juego.
+
+## Random solo con jugadores de equipo
+
+Botón nuevo **"🎲 Random (club players)"** junto al aleatorio de siempre,
+que sortea el once solo entre los **1544 jugadores que tienen equipo real**
+en vez de entre los 4948 del roster entero. Son los que cubre la hoja de
+cálculo original, y se nota: el 10% mejor llega a **79 de media (contra
+71)**, llevan más técnicas (**1,15 extra por jugador contra 0,44**) y la
+mejor de cada uno pega más fuerte (**89,7 contra 85,8**). El botón actúa
+sobre la pestaña que tengas abierta, así que también puedes usarlo para
+armarle un rival decente a la IA. El aleatorio de siempre no cambia.

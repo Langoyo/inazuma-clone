@@ -121,6 +121,11 @@ const FORM_HIGHEST = 0.84;
 // both lines sit a little clear of it instead of players bunching right up
 // against — or exactly on — the line itself.
 const KICKOFF_HALF_GAP = 28;
+// ...and how far back the side that isn't kicking off starts. Bunching both
+// lines on the halfway line meant the kick-off was closed down before the
+// first pass got away, so the defending side drops off well clear of the
+// centre circle (radius 60) and the ball actually has somewhere to go.
+const KICKOFF_DEFEND_GAP = 150;
 
 // A loose ball is worth breaking shape for — whoever is closest chases it
 // down at full speed, as does anyone it has been played right next to.
@@ -527,6 +532,7 @@ export default class GameScene extends Phaser.Scene {
       this._edSetFormation(e.target.value); this._renderPitch();
     });
     document.getElementById('randomize-squad-btn').addEventListener('click',()=>this._randomize());
+    document.getElementById('randomize-club-btn').addEventListener('click',()=>this._randomize(true));
     document.getElementById('squad-whole-team-btn').addEventListener('click',()=>this._useWholeTeam());
     document.getElementById('squad-search').addEventListener('input',()=>this._renderPickList());
     document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickList());
@@ -1004,12 +1010,16 @@ export default class GameScene extends Phaser.Scene {
     this._renderPitch(); this._renderPickList();
   }
 
-  _randomize(){
+  /** `clubOnly` narrows the pool to players who belong to a real team. Those
+   *  are the ones the source spreadsheet actually covers, so they come out
+   *  far stronger and more recognisable than a draw from the whole roster,
+   *  most of which is filler. */
+  _randomize(clubOnly=false){
     // Shape first, then fill it position by position — the slot roles depend
     // on the formation, so picking it afterwards would mismatch them.
     this._edSetFormation(Phaser.Utils.Array.GetRandom(Object.keys(FORMATIONS)));
     document.getElementById('formation-select').value=this._edFormation();
-    this._fillSquadByPosition(this.rosterAll);
+    this._fillSquadByPosition(clubOnly?this.rosterAll.filter(p=>p.team):this.rosterAll);
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
@@ -1072,6 +1082,10 @@ export default class GameScene extends Phaser.Scene {
     this.gkIdB=this._findGkId(payloadB.starterIds);
     this.activeIdA=this.teamA[0]?.id; this.activeIdB=this.teamB[0]?.id;
     this.matchStarted=true;
+    // Coin toss for the first half; _tickClock hands the second to the other
+    // side, so each half is started by a different team.
+    this.kickoffRole=Math.random()<0.5?'A':'B';
+    this._kickoff(this.kickoffRole,'Kick-off');
     document.getElementById('squad-editor-panel').style.display='none';
     document.getElementById('sub-button').style.display='block';
     document.getElementById('scroll-controls').style.display='flex';
@@ -1148,7 +1162,10 @@ export default class GameScene extends Phaser.Scene {
     // before a whistle, where drifting a forward across it looks wrong.
     if(clampOwnHalf){
       const half=pSize/2;
-      primary = role==='A' ? Math.max(primary,half+KICKOFF_HALF_GAP) : Math.min(primary,half-KICKOFF_HALF_GAP);
+      // The side taking the kick-off stays tight to the line; the other one
+      // drops off, so whoever restarts has room to play the first pass.
+      const gap=(this.possRole&&this.possRole!==role)?KICKOFF_DEFEND_GAP:KICKOFF_HALF_GAP;
+      primary = role==='A' ? Math.max(primary,half+gap) : Math.min(primary,half-gap);
     }
     return {x:secondary, y:primary};
   }
@@ -1645,9 +1662,24 @@ export default class GameScene extends Phaser.Scene {
         this.lastTouch=owner;
         if(!this.possRole&&!this.confrontation) this.possRole=owner.role;
       }
-      if(lbls.includes('goalMin')) this._onGoal('a');
-      if(lbls.includes('goalMax')) this._onGoal('b');
+      // A ball that rolls or is chipped into the net is NOT a goal: every
+      // real goal is decided by the shot confrontation, which resolves
+      // abstractly and never sends the ball in physically. So anything that
+      // reaches these sensors is a stray pass or a loose ball, and the
+      // keeper simply collects it.
+      if(lbls.includes('goalMin')) this._strayIntoNet('B');
+      if(lbls.includes('goalMax')) this._strayIntoNet('A');
     }
+  }
+
+  /** Hands a stray ball that crossed the line back to the keeper defending
+   *  that goal, restarting from the six-yard spot like a goal kick. */
+  _strayIntoNet(defendingRole){
+    if(this.confrontation) return; // the ball is glued to a player mid-duel
+    const gkY=defendingRole==='B'?this.PA_H*0.6:this.FIELD_H-this.PA_H*0.6;
+    const now=this.time.now;
+    this._placeBallAndAward(defendingRole,{x:this.FIELD_W/2,y:gkY},now,{preferGk:true});
+    this.confrontResult={title:'Keeper collects it',outcome:'',until:now+1500,outcomeAt:now+1500};
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -1875,12 +1907,24 @@ export default class GameScene extends Phaser.Scene {
     // Standard kickoff rule: whoever conceded restarts with the ball,
     // rather than leaving possession unclaimed for whoever's body happens
     // to reach the centre spot first.
-    this.possRole=scorer==='a'?'B':'A';
-    this._endPassFlight();
-    this.matter.body.setPosition(this.ball,{x:this.FIELD_W/2,y:this.FIELD_H/2});
-    this.matter.body.setVelocity(this.ball,{x:0,y:0});
+    this._kickoff(scorer==='a'?'B':'A');
+  }
+
+  /** Centre-spot restart for `role`: possession is theirs, both sides line up
+   *  in formation on their own half (the side without the ball dropping off
+   *  further, see KICKOFF_DEFEND_GAP) and one of their players is stood over
+   *  the ball to take it. Used for the start of each half and after a goal. */
+  _kickoff(role,title){
+    const now=this.time.now;
+    this.possRole=role;
+    this.confrontation=null;
     this.stunMap.clear();
+    this._endPassFlight();
+    // Shape first: _placeBallAndAward picks whoever is nearest the centre
+    // spot, so the line-up has to be settled before it chooses the taker.
     this._resetFormPos();
+    this._placeBallAndAward(role,{x:this.FIELD_W/2,y:this.FIELD_H/2},now);
+    if(title) this.confrontResult={title,outcome:'',until:now+1800,outcomeAt:now+1800};
   }
   _resetFormPos(){
     const bp={x:this.FIELD_W/2,y:this.FIELD_H/2};
@@ -2015,7 +2059,12 @@ export default class GameScene extends Phaser.Scene {
     if(this.matchClock.ended) return;
     this.matchClock.secondsRemaining-=delta/1000;
     if(this.matchClock.secondsRemaining<=0){
-      if(this.matchClock.half===1){ this.matchClock.half=2; this.matchClock.secondsRemaining=HALF_S; this.possRole=null; this.confrontation=null; this.matter.body.setPosition(this.ball,{x:this.FIELD_W/2,y:this.FIELD_H/2}); this.matter.body.setVelocity(this.ball,{x:0,y:0}); this._resetFormPos(); }
+      if(this.matchClock.half===1){
+        this.matchClock.half=2; this.matchClock.secondsRemaining=HALF_S;
+        // Whoever didn't start the match gets the second half, as in a real
+        // one — it used to drop the ball at the centre for a free-for-all.
+        this._kickoff(this.kickoffRole==='A'?'B':'A','Second half');
+      }
       else { this.matchClock.ended=true; this.matchClock.secondsRemaining=0; }
     }
   }
