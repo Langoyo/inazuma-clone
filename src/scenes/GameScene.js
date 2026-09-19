@@ -626,7 +626,7 @@ export default class GameScene extends Phaser.Scene {
         // what the slot asks for — otherwise a keeper parked at centre-back
         // only shows up by opening their card one at a time.
         pin.innerHTML=`<div class="pin-avatar" style="background:${col}">${this._initials(p)}</div>`
-          +this._posBadge(p.position,p.position!==roles[slot])
+          +this._posBadge(p.position,p.position!==roles[slot])+this._ratingBadge(p)
           +`<div class="pin-name">${p.nickname||p.name}</div>`;
       } else {
         pin.classList.add('empty');
@@ -642,7 +642,7 @@ export default class GameScene extends Phaser.Scene {
       const pin=document.createElement('div'); pin.className='bench-pin'; pin.dataset.benchId=pid;
       const col=this._css3(this._rosterColor(p));
       pin.innerHTML=`<div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>`
-        +this._posBadge(p.position)+`<div class="pin-name">${p.nickname||p.name}</div>`;
+        +this._posBadge(p.position)+this._ratingBadge(p)+`<div class="pin-name">${p.nickname||p.name}</div>`;
       if(sel&&sel.type==='bench'&&sel.id===pid) pin.classList.add('selected');
       pin.addEventListener('click',()=>this._onSquadPinClick({type:'bench',id:pid}));
       strip.appendChild(pin);
@@ -682,6 +682,13 @@ export default class GameScene extends Phaser.Scene {
   _elBadge(el,withName=true){
     if(!el) return '';
     return `<span class="el-badge el-${el}">${ELEMENT_ICON[el]||''}${withName?' '+el:''}</span>`;
+  }
+  /** Overall rating chip for a pitch/bench pin — banded by strength so a
+   *  squad's weak spots stand out without reading each number. */
+  _ratingBadge(p){
+    const r=this._playerRating(p);
+    const band=r>=85?'hi':r>=70?'mid':'low';
+    return `<span class="rating-badge rating-${band}">${r}</span>`;
   }
 
   /** Team/game line for a card — with the game tag added whenever this
@@ -1189,7 +1196,7 @@ export default class GameScene extends Phaser.Scene {
         const selCls=(this.subSel&&this.subSel.type==='bench'&&this.subSel.id===id)?' selected':'';
         return `<div class="bench-pin${selCls}" data-bench-id="${id}">
           <div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>
-          ${this._posBadge(p.position)}
+          ${this._posBadge(p.position)}${this._ratingBadge(p)}
           <div class="pin-name">${p.nickname||p.name}</div>
         </div>`;
       }).join('')||'<p style="font-size:11px;opacity:.7;">No bench players.</p>'
@@ -1242,7 +1249,7 @@ export default class GameScene extends Phaser.Scene {
         const isOut=this._isOut(role,entry.id);
         return `<div class="slot-pin${selCls}" style="left:${left};top:${top};${isOut?'opacity:.4;pointer-events:none;':''}" data-roster-id="${entry.id}">
           <div class="pin-avatar" style="background:${col}">${this._initials(p)}</div>
-          ${this._posBadge(p.position,p.position!==roles[slot])}
+          ${this._posBadge(p.position,p.position!==roles[slot])}${this._ratingBadge(p)}
           <div class="pin-name">${p.nickname||p.name}${isOut?' (OFF)':''}</div>
         </div>`;
       }

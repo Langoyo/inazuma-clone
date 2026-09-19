@@ -724,3 +724,9 @@ en un hueco que pide otra demarcación, la chapa se marca en rojo: así un
 portero puesto de central se ve de un vistazo en vez de tener que abrir
 las fichas una a una. En las tarjetas y fichas se muestra también el
 elemento.
+
+### La media, también en el icono
+Cada pin del campo y del banquillo lleva ahora la **media del jugador** en
+la esquina contraria a la chapa de posición, con el fondo por tramos
+(dorado ≥85, gris ≥70, bronce por debajo) para que los puntos flojos de la
+alineación canten sin tener que leer número a número.
