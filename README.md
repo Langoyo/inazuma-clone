@@ -447,3 +447,79 @@ juego, como mucho al texto que se ve en el nombre de la técnica.
   supertécnica), pero ahora es una decisión real en vez de una opción
   oculta: sirve para guardarse los PT si el jugador prefiere no arriesgar
   la técnica en ese momento.
+
+## Sprint ligado a la estamina, reposicionar en directo, líneas que no se lían, media de jugador/equipo
+
+- **El sprint al dibujar una línea ya no es tan bestia**, y encima baja con
+  la estamina: a tope de condición física da un +18% de velocidad punta
+  (antes +35%, demasiado), y ese extra se va reduciendo a medida que el
+  jugador se cansa hasta desaparecer del todo con la estamina a cero — no
+  es solo el tope de velocidad general el que baja con el cansancio, el
+  propio impulso del sprint también.
+- **Reposicionar jugadores en directo**: en el panel de equipo durante el
+  partido, tocar dos jugadores del campo (en vez de uno del campo y otro
+  del banquillo) intercambia sus posiciones — sin resetear su PT ni su
+  condición física, porque a diferencia de un cambio, ninguno de los dos
+  viene fresco del banquillo.
+- **Arreglado el bug de la línea que hacía una V**: si tocabas para
+  dibujar una línea sin acertar exactamente encima del jugador (o el toque
+  no encontraba a nadie cerca y caía en el jugador activo, que podía estar
+  lejos), el primer tramo de la línea salía desde el punto exacto donde
+  tocaste en vez de desde donde estaba el jugador — así que primero corría
+  hacia ese punto y luego volvía hacia donde realmente habías dibujado.
+  Ahora la línea siempre arranca desde la posición real del jugador.
+- **Las líneas que se dibujan solas ya no son líneas**: cuando el jugador
+  agota tu línea dibujada y sigue corriendo por su cuenta hacia adelante
+  (mientras el equipo tiene el balón), eso ya no se pinta como una línea
+  amarilla — solo un puntito tenue en el destino, para que no se confunda
+  con algo que tú mismo dibujaste.
+- **Saque de centro dentro de tu campo**: al empezar el partido, tras un
+  gol o en la segunda parte, los once de cada equipo se colocan ahora
+  siempre dentro de su propia mitad — antes el sesgo que empuja a los
+  jugadores hacia el balón durante el juego normal podía dejar a algún
+  delantero un poco pasado de la línea de medio campo incluso en el saque.
+- **Media de jugador y de equipo**: cada jugador tiene ahora una nota
+  (30-99) calculada a partir de sus 5 estadísticas de combate, visible en
+  su ficha y en las tarjetas del buscador de jugadores. El editor de
+  plantilla también muestra la media del once que llevas armado ahora
+  mismo, junto al contador de "X/11 filled".
+
+## Jugadores repetidos diferenciados, y separar formación de la lista de jugadores
+
+- **Sí había jugadores repetidos**: 157 nombres (349 fichas en total) aparecen
+  más de una vez en el roster — el mismo personaje una vez por cada juego
+  en el que salió (p.ej. Mark Evans en IE1 y en Ares), cada uno con sus
+  propias estadísticas. Ya estaban incluidos como fichas independientes,
+  pero como comparten el mismo equipo real ("Raimon", etc.) se veían
+  idénticos en las tarjetas. Ahora, solo para los nombres repetidos, se
+  añade el juego entre paréntesis ("Raimon (IE1)" / "Raimon (Ares)") para
+  distinguirlos de un vistazo; el resto de jugadores (no repetidos) se ven
+  igual que antes.
+- **Separar la formación de la lista de jugadores**: el editor de plantilla
+  tenía todo apilado en una sola pantalla larga. Ahora hay dos pestañas más
+  ("📋 Formation" / "🔍 Browse Players") para enseñar solo el campo+banquillo
+  o solo el buscador+lista, sin tener que hacer scroll de uno a otro.
+  Funciona igual en la pestaña de "Your Team" y en la de "Rival Team".
+
+## Nombres de jugador legibles en el campo
+
+El texto bajo cada jugador tenía un borde negro de 3px sobre una letra de
+solo 7px — casi tan grueso como la propia letra, así que se veía como un
+borrón negro con un hilo blanco en medio. Ahora es blanco liso con una
+sombra suave (en vez de un contorno duro), que da el contraste justo
+contra el césped sin comerse el texto. También subí el tamaño de 7px a
+9px para que se lean mejor de un vistazo.
+
+## Sustituciones que a veces no se aplicaban
+
+Mientras probaba el cambio anterior encontré un bug intermitente: pedir un
+cambio de jugador (o mover a alguien de posición) durante el partido a
+veces no hacía nada, sin ningún error visible. La petición se guardaba en
+un flag de "una sola vez" que el bucle principal limpiaba cada frame, pero
+solo se procesaba si en ese instante no había ningún enfrentamiento (duelo)
+en curso en cualquier parte del campo — algo que puede empezar solo por
+proximidad, sin que tenga nada que ver con la sustitución. Si el duelo
+arrancaba justo en el frame en que tocaba aplicar el cambio, la petición se
+perdía para siempre. Ahora las sustituciones y reposicionamientos se
+procesan siempre, pase lo que pase con los enfrentamientos, así que ya no
+se pierden.
