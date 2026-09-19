@@ -21,6 +21,11 @@ const DRAG_THRESHOLD    = 14;
 const CONFRONT_MS       = 20000;
 const RESULT_MS         = 3500;
 const RESULT_DELAY_MS   = 800;
+// Once both sides have chosen, the duel holds on a VS card for a beat before
+// anything moves: both moves are shown facing each other, then the winner's
+// card lights up. Pure pacing — play is frozen for the whole window anyway.
+const DUEL_REVEAL_MS     = 1900;
+const DUEL_REVEAL_LIT_MS = 850;
 const POSSESS_OFFSET    = 24;
 // The ball's air friction decays its speed geometrically, so a kick covers
 // roughly speed/BALL_FRICTION_AIR before dying. Passes therefore scale their
@@ -37,6 +42,7 @@ const KNOCKBACK_SPEED   = 1.8;   // was 4 — nearly as fast as a pass, which co
 const STUN_MS           = 2500;  // how long the loser is frozen after a duel
 const TEAM_SIZE         = 11;
 const BENCH_MAX         = 5;
+const BENCH_COVER       = ['GK','DF','MF','FW','MF']; // positions the auto-picked bench covers
 const HALF_S            = 3 * 60;
 const STATE_HZ          = 20;
 const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
@@ -71,6 +77,18 @@ const FORM_HIGHEST = 0.84;
 // down at full speed, as does anyone it has been played right next to.
 const BALL_CHASE_RANGE   = 210;
 const KEEPER_CHASE_RANGE = 130;
+
+// AI difficulty (solo-vs-AI only). All decision-making rather than raw
+// speed, so a harder opponent plays sharper instead of simply outrunning
+// you: how readily it spends PT on a supertechnique, from how far out it
+// will shoot, how decisively it pulls the trigger once in range, and how
+// often it looks for a pass.
+const AI_LEVELS = {
+  easy:   { techChance:0.25, shootRange:190, shootChance:0.10, passChance:0.006 },
+  normal: { techChance:0.45, shootRange:300, shootChance:0.35, passChance:0.012 },
+  hard:   { techChance:0.70, shootRange:420, shootChance:0.70, passChance:0.022 }
+};
+const AI_LEVEL_DEFAULT = 'normal';
 
 // Fouls are meant to be a rare punctuation, not a regular interruption:
 // roughly one duel in a hundred, a little more often for weaker defenders.
@@ -227,6 +245,7 @@ export default class GameScene extends Phaser.Scene {
     this.squadSlots=Array(TEAM_SIZE).fill(null);
     this.benchIds=new Set();
     this.chosenFormation=DEFAULT_FORMATION;
+    this.aiLevel=AI_LEVEL_DEFAULT;
     this.mySquadConfirmed=false;
     this.mySquadPayload=null;
     this.remoteSquadPayload=null;
@@ -312,14 +331,13 @@ export default class GameScene extends Phaser.Scene {
   _setupScrollInput(){
     // Keyboard (PC)
     const kb=this.input.keyboard;
-    kb.on('keydown-UP',    ()=>{this.scrollKeys.up=true;});
-    kb.on('keyup-UP',      ()=>{this.scrollKeys.up=false;});
-    kb.on('keydown-DOWN',  ()=>{this.scrollKeys.down=true;});
-    kb.on('keyup-DOWN',    ()=>{this.scrollKeys.down=false;});
-    kb.on('keydown-LEFT',  ()=>{this.scrollKeys.left=true;});
-    kb.on('keyup-LEFT',    ()=>{this.scrollKeys.left=false;});
-    kb.on('keydown-RIGHT', ()=>{this.scrollKeys.right=true;});
-    kb.on('keyup-RIGHT',   ()=>{this.scrollKeys.right=false;});
+    // Arrows and WASD both pan the camera on desktop.
+    const bind=(keys,dir)=>keys.forEach(k=>{
+      kb.on(`keydown-${k}`,()=>{this.scrollKeys[dir]=true;});
+      kb.on(`keyup-${k}`,  ()=>{this.scrollKeys[dir]=false;});
+    });
+    bind(['UP','W'],'up');     bind(['DOWN','S'],'down');
+    bind(['LEFT','A'],'left'); bind(['RIGHT','D'],'right');
     this._setupJoystick();
   }
 
@@ -398,6 +416,7 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickList());
     document.getElementById('squad-team-filter').addEventListener('change',()=>this._renderPickList());
     document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
+    document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
     this._renderPitch(); this._renderPickList();
   }
 
@@ -545,29 +564,38 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-whole-team-btn').disabled=!gf&&!tf;
   }
 
+  /** Fills the XI from `pool` so every slot gets someone who actually plays
+   *  that position (keeper slot from keepers, defensive slots from defenders
+   *  and so on), then stocks the bench with a spread of cover. */
+  _fillSquadByPosition(pool){
+    const roles=SLOT_ROLES[this.chosenFormation]||SLOT_ROLES[DEFAULT_FORMATION];
+    const byPos={};
+    for(const p of pool) (byPos[p.position]=byPos[p.position]||[]).push(p);
+    Object.values(byPos).forEach(list=>Phaser.Utils.Array.Shuffle(list));
+    const take=pos=>{ const l=byPos[pos]; return l&&l.length?l.pop().id:null; };
+    const takeAny=()=>{ for(const l of Object.values(byPos)) if(l.length) return l.pop().id; return null; };
+    this.squadSlots=roles.slice(0,TEAM_SIZE).map(r=>take(r));
+    // A narrow pool (one club, say) may not field four defenders — backfill
+    // from whoever is left so the XI still comes out complete.
+    for(let i=0;i<TEAM_SIZE;i++) if(!this.squadSlots[i]) this.squadSlots[i]=takeAny();
+    this.benchIds=new Set(BENCH_COVER.map(pos=>take(pos)||takeAny()).filter(Boolean));
+  }
+
   _useWholeTeam(){
     const gf=document.getElementById('squad-game-filter').value;
     const tf=document.getElementById('squad-team-filter').value;
     if(!gf&&!tf) return;
-    const pool=this.rosterAll.filter(p=>(!tf||p.team===tf)&&(!gf||p.game===gf));
-    const gk=pool.find(p=>p.position==='GK'), rest=pool.filter(p=>!gk||p.id!==gk.id);
-    const ordered=gk?[gk,...rest]:rest;
-    this.squadSlots=ordered.slice(0,TEAM_SIZE).map(p=>p.id);
-    while(this.squadSlots.length<TEAM_SIZE) this.squadSlots.push(null);
-    this.benchIds=new Set(ordered.slice(TEAM_SIZE,TEAM_SIZE+BENCH_MAX).map(p=>p.id));
+    this._fillSquadByPosition(this.rosterAll.filter(p=>(!tf||p.team===tf)&&(!gf||p.game===gf)));
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
 
   _randomize(){
-    const pool=[...this.rosterAll]; Phaser.Utils.Array.Shuffle(pool);
-    const gk=pool.find(p=>p.position==='GK'), rest=pool.filter(p=>!gk||p.id!==gk.id);
-    const ordered=gk?[gk,...rest]:rest;
-    this.squadSlots=ordered.slice(0,TEAM_SIZE).map(p=>p.id);
-    while(this.squadSlots.length<TEAM_SIZE) this.squadSlots.push(null);
-    this.benchIds=new Set(ordered.slice(TEAM_SIZE,TEAM_SIZE+BENCH_MAX).map(p=>p.id));
-    const fk=Object.keys(FORMATIONS); this.chosenFormation=Phaser.Utils.Array.GetRandom(fk);
+    // Shape first, then fill it position by position — the slot roles depend
+    // on the formation, so picking it afterwards would mismatch them.
+    this.chosenFormation=Phaser.Utils.Array.GetRandom(Object.keys(FORMATIONS));
     document.getElementById('formation-select').value=this.chosenFormation;
+    this._fillSquadByPosition(this.rosterAll);
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
@@ -1060,13 +1088,18 @@ export default class GameScene extends Phaser.Scene {
     const dId=type==='shot'?(dRole==='A'?this.gkIdA:this.gkIdB):(dRole==='A'?this.activeIdA:this.activeIdB);
     this.confrontation={type,attackerRole:aRole,defenderRole:dRole,attackerId:aId,defenderId:dId,deadline:now+CONFRONT_MS,attackerChoice:null,defenderChoice:null};
   }
-  _aiChoice(stats,cat){ return canActivate(stats,cat)&&Math.random()<0.55?'technique':'normal'; }
+  _aiParams(){ return AI_LEVELS[this.aiLevel]||AI_LEVELS[AI_LEVEL_DEFAULT]; }
+  _aiChoice(stats,cat){ return canActivate(stats,cat)&&Math.random()<this._aiParams().techChance?'technique':'normal'; }
   _tryTech(stats,cat){ if(!canActivate(stats,cat)) return false; stats.sp-=stats.techniques[cat].cost; return true; }
   _statsFor(role,id){ return (role==='A'?this.statsMapA:this.statsMapB).get(id); }
 
   _entryById(role,id){ const team=role==='A'?this.teamA:this.teamB; return team.find(t=>t.id===id)||null; }
 
-  _resolveConfront(now){
+  /** Rolls the outcome and puts the confrontation into its reveal beat: both
+   *  moves are shown facing each other, then the winner lights up, and only
+   *  after that does _applyConfrontOutcome actually move anything. Play is
+   *  already frozen while a confrontation is live, so this reads as a pause. */
+  _prepareConfrontReveal(now){
     const c=this.confrontation;
     const as=this._statsFor(c.attackerRole,c.attackerId), ds=this._statsFor(c.defenderRole,c.defenderId);
     if(!as||!ds){this.confrontation=null;return;}
@@ -1084,23 +1117,34 @@ export default class GameScene extends Phaser.Scene {
       a: aU&&eAtk ? {x:eAtk.body.position.x,y:eAtk.body.position.y,color:c.attackerRole==='A'?this.teamColorA:this.teamColorB,name:aTN} : null,
       d: dU&&eDef ? {x:eDef.body.position.x,y:eDef.body.position.y,color:c.defenderRole==='A'?this.teamColorA:this.teamColorB,name:dTN} : null
     };
-    let title,outcome;
+    c.pending={aWins,aTN,dTN,fx,aName:as.name,dName:ds.name};
+    c.reveal={
+      until:now+DUEL_REVEAL_MS, litAt:now+DUEL_REVEAL_LIT_MS,
+      a:{name:as.name,move:aTN,winner:aWins},
+      d:{name:ds.name,move:dTN,winner:!aWins}
+    };
+  }
+
+  _applyConfrontOutcome(now){
+    const c=this.confrontation, r=c.pending;
+    if(!r){ this.confrontation=null; return; }
+    const {aWins,aTN,dTN,fx,aName,dName}=r;
+    let title,outcome=`${aName}: ${aTN} · ${dName}: ${dTN}`;
     if(c.type==='duel'){
       const eA=this._activeEntry(c.attackerRole), eD=this._activeEntry(c.defenderRole);
-      if(aWins){ this._knockback(eD,eA); this.stunMap.set(c.defenderId,now+STUN_MS); title=`${as.name} dribbles past!`; }
-      else { this.possRole=c.defenderRole; this._setActive(c.defenderRole,c.defenderId); this._knockback(eA,eD); this.stunMap.set(c.attackerId,now+STUN_MS); title=`${ds.name} wins the ball!`; }
-      outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
+      if(aWins){ this._knockback(eD,eA); this.stunMap.set(c.defenderId,now+STUN_MS); title=`${aName} dribbles past!`; }
+      else { this.possRole=c.defenderRole; this._setActive(c.defenderRole,c.defenderId); this._knockback(eA,eD); this.stunMap.set(c.attackerId,now+STUN_MS); title=`${dName} wins the ball!`; }
       this.duelLockUntil=now+STUN_MS+200;
     } else if(aWins){
       this._onGoal(c.attackerRole==='A'?'a':'b');
-      title=`⚽ GOAL! ${as.name} scores!`; outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
+      title=`⚽ GOAL! ${aName} scores!`;
     } else {
       // The keeper (defenderId here, not necessarily whoever was "active"
       // before the shot) made the save — the ball, and possession, are
       // theirs now.
       this.possRole=c.defenderRole;
       this._setActive(c.defenderRole,c.defenderId);
-      title=`${ds.name} saves it!`; outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
+      title=`${dName} saves it!`;
     }
     this.confrontation=null;
     this.confrontResult={title,outcome,until:now+RESULT_MS,outcomeAt:now+RESULT_DELAY_MS,fx};
@@ -1278,7 +1322,8 @@ export default class GameScene extends Phaser.Scene {
     let inputB=this.remoteInput;
     if(aiActive){
       const eB=this._activeEntry('B');
-      const ai=decideAIMove({selfPos:eB?eB.body.position:{x:this.FIELD_W/2,y:0},ballPos:this.ball.position,axis:'y',ownGoalValue:0,rivalGoalValue:this.FIELD_H,fieldPrimarySize:this.FIELD_H});
+      const ai=decideAIMove({selfPos:eB?eB.body.position:{x:this.FIELD_W/2,y:0},ballPos:this.ball.position,axis:'y',ownGoalValue:0,rivalGoalValue:this.FIELD_H,fieldPrimarySize:this.FIELD_H,
+        hasBall:this.possRole==='B',goalCentre:this.FIELD_W/2});
       inputB={targets:eB?[{id:eB.id,...ai.target}]:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,formationChange:null};
     }
     this.currentPossession=this.possRole;
@@ -1296,9 +1341,10 @@ export default class GameScene extends Phaser.Scene {
       if(myInput.shootRequest&&this.possRole==='A') this._startConfront('shot','A','B',now);
       else if(!aiActive&&inputB.shootRequest&&this.possRole==='B') this._startConfront('shot','B','A',now);
       else if(aiActive&&this.possRole==='B'){
-        const eB=this._activeEntry('B');
-        if(eB&&eB.body.position.y>this.FIELD_H-GOAL_CLICK_MARGIN*2.5&&Math.random()<0.02) this._startConfront('shot','B','A',now);
-        else if(eB&&Math.random()<0.012){
+        const eB=this._activeEntry('B'), p=this._aiParams();
+        // Shoot as soon as it's in range rather than dithering around the box
+        if(eB&&eB.body.position.y>this.FIELD_H-p.shootRange&&Math.random()<p.shootChance) this._startConfront('shot','B','A',now);
+        else if(eB&&Math.random()<p.passChance){
           const mate=this._aiPickPassTarget('B',eB);
           if(mate) this._doPass('B',{x:mate.body.position.x,y:mate.body.position.y});
         }
@@ -1326,7 +1372,7 @@ export default class GameScene extends Phaser.Scene {
         a:this.teamA.filter(e=>this._isOut('A',e.id)).map(e=>e.id),
         b:this.teamB.filter(e=>this._isOut('B',e.id)).map(e=>e.id)
       };
-      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},statsAll,sentOff,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
+      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},statsAll,sentOff,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline,reveal:this.confrontation.reveal||null}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
     }
   }
 
@@ -1370,6 +1416,15 @@ export default class GameScene extends Phaser.Scene {
 
   _progressConfront(now,myInput,inputB,aiActive){
     const c=this.confrontation;
+    // Already showing the VS cards: no more input matters, just wait out the
+    // beat and then apply what was rolled.
+    if(c.reveal){
+      // The host owns the timing and flips the flag, so the client lights the
+      // same card at the same moment instead of racing its own clock.
+      if(now>=c.reveal.litAt) c.reveal.lit=true;
+      if(now>=c.reveal.until) this._applyConfrontOutcome(now);
+      return;
+    }
     if(myInput.confrontationChoice){ if(c.attackerRole==='A'&&!c.attackerChoice)c.attackerChoice=myInput.confrontationChoice; if(c.defenderRole==='A'&&!c.defenderChoice)c.defenderChoice=myInput.confrontationChoice; }
     if(!aiActive&&inputB.confrontationChoice){ if(c.attackerRole==='B'&&!c.attackerChoice)c.attackerChoice=inputB.confrontationChoice; if(c.defenderRole==='B'&&!c.defenderChoice)c.defenderChoice=inputB.confrontationChoice; }
     if(aiActive){
@@ -1377,7 +1432,7 @@ export default class GameScene extends Phaser.Scene {
       if(c.attackerRole==='B'&&!c.attackerChoice){const s=this._statsFor('B',c.attackerId);c.attackerChoice=s?this._aiChoice(s,tf('B')):'normal';}
       if(c.defenderRole==='B'&&!c.defenderChoice){const s=this._statsFor('B',c.defenderId);c.defenderChoice=s?this._aiChoice(s,tf('B')):'normal';}
     }
-    if((c.attackerChoice&&c.defenderChoice)||now>=c.deadline){ if(!c.attackerChoice)c.attackerChoice='normal'; if(!c.defenderChoice)c.defenderChoice='normal'; this._resolveConfront(now); }
+    if((c.attackerChoice&&c.defenderChoice)||now>=c.deadline){ if(!c.attackerChoice)c.attackerChoice='normal'; if(!c.defenderChoice)c.defenderChoice='normal'; this._prepareConfrontReveal(now); }
   }
 
   _incomingState(data){
@@ -1456,9 +1511,28 @@ export default class GameScene extends Phaser.Scene {
     this.tweens.add({targets:txt,y:txt.y-24,alpha:0,duration:900,ease:'Cubic.Out',onComplete:()=>txt.destroy()});
   }
 
+  /** The VS beat: two cards face off, then the winner's lights up and the
+   *  loser's dims. Shown to both players, whoever is involved. */
+  _renderDuelReveal(rv){
+    const wrap=document.getElementById('duel-reveal');
+    wrap.style.display='flex';
+    const side=(pre,d,lit)=>{
+      const card=document.getElementById(`duel-card-${pre}`);
+      card.querySelector('.duel-who').textContent=d.name;
+      card.querySelector('.duel-move').textContent=d.move==='Normal'?'Normal action':d.move;
+      card.classList.toggle('winner',lit&&d.winner);
+      card.classList.toggle('loser',lit&&!d.winner);
+    };
+    const lit=!!rv.lit;
+    side('a',rv.a,lit); side('d',rv.d,lit);
+  }
+
   _updateConfrontUI(confrontation,now){
     const panel=document.getElementById('confrontation-ui');
-    if(!confrontation){panel.style.display='none';return;}
+    const reveal=document.getElementById('duel-reveal');
+    if(!confrontation){panel.style.display='none';reveal.style.display='none';return;}
+    if(confrontation.reveal){ panel.style.display='none'; this._renderDuelReveal(confrontation.reveal); return; }
+    reveal.style.display='none';
     const amA=confrontation.attackerRole===this.role, amD=confrontation.defenderRole===this.role;
     if(!amA&&!amD){panel.style.display='none';return;}
     panel.style.display='flex';
