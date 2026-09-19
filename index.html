@@ -12,6 +12,15 @@
     }
 
     /* ------------------------------------------------------------------ HUD */
+    /* These sit on top of the canvas, so anything purely informational has to
+       let pointer events through — otherwise tapping to pass silently does
+       nothing over the scoreboard, the PT bar or the result banner (and the
+       scoreboard sits right in front of the goal you attack). */
+    #room-ui, #ai-badge, #scoreboard, #sp-bar-wrap, #confrontation-result,
+    #confrontation-ui, #confrontation-title, #confrontation-player-info,
+    #confrontation-timer-wrap { pointer-events: none; }
+    .conf-btn { pointer-events: auto; }
+
     #room-ui {
       position: fixed; top: 8px; left: 8px; z-index: 10;
       background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 6px; font-size: 12px;
@@ -41,6 +50,31 @@
       display: none; max-width: 92vw;
     }
     #confrontation-result .outcome { font-size: 13px; color: #ffd966; margin-top: 6px; }
+
+    /* Duel VS beat: both moves face off for a moment, then the winner's card
+       lights up and the loser's dims. Purely a spectacle layer — never eats
+       taps, so play resumes cleanly the instant it disappears. */
+    #duel-reveal {
+      position: fixed; inset: 0; z-index: 28; pointer-events: none;
+      display: none; align-items: center; justify-content: center; gap: 10px;
+      background: rgba(0,0,10,0.45);
+    }
+    .duel-card {
+      width: 38vw; max-width: 200px; padding: 12px 10px; border-radius: 12px;
+      border: 2px solid rgba(255,255,255,0.55); background: rgba(10,12,30,0.92);
+      text-align: center; transition: transform 220ms ease, opacity 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+    }
+    .duel-card .duel-who  { font-size: 13px; font-weight: bold; }
+    .duel-card .duel-move { font-size: 12px; color: #ffd966; margin-top: 6px; }
+    .duel-card.winner {
+      border-color: #ffd966; box-shadow: 0 0 22px 4px rgba(255,217,102,0.7);
+      background: rgba(60,50,0,0.95); transform: scale(1.1);
+    }
+    .duel-card.loser { opacity: 0.35; filter: grayscale(1); transform: scale(0.92); }
+    #duel-vs {
+      font-size: 22px; font-weight: bold; color: #ff6b6b;
+      text-shadow: 0 0 8px rgba(0,0,0,0.9); flex: 0 0 auto;
+    }
 
     #confrontation-ui {
       position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); z-index: 20;
@@ -185,6 +219,12 @@
       background: rgba(4,18,10,0.97); border-top: 1px solid rgba(255,255,255,0.18);
       padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 4px;
     }
+    /* ---- full-time screen */
+    #fulltime-score    { font-size: 40px; font-weight: bold; margin: 4px 0 6px; }
+    #fulltime-verdict  { font-size: 15px; color: #ffd966; margin-bottom: 20px; }
+    #fulltime-menu-btn { padding: 12px 26px; border-radius: 10px; border: none; background: #3399ff; color: white; font-weight: bold; font-size: 15px; }
+    #fulltime-countdown { font-size: 12px; opacity: 0.8; margin-top: 12px; }
+
     #confirm-squad-btn { padding: 10px 24px; border-radius: 10px; border: none; background: #3399ff; color: white; font-weight: bold; font-size: 14px; }
     #confirm-squad-btn:disabled { opacity: 0.38; }
     #squad-status { font-size: 12px; opacity: 0.85; }
@@ -204,6 +244,13 @@
   <div id="confrontation-result">
     <div id="result-title"></div>
     <div class="outcome" id="result-outcome"></div>
+  </div>
+
+  <!-- Duel VS beat (shown for a moment once both moves are locked in) -->
+  <div id="duel-reveal">
+    <div class="duel-card" id="duel-card-a"><div class="duel-who"></div><div class="duel-move"></div></div>
+    <div id="duel-vs">VS</div>
+    <div class="duel-card" id="duel-card-d"><div class="duel-who"></div><div class="duel-move"></div></div>
   </div>
 
   <!-- Confrontation choice panel -->
@@ -229,6 +276,15 @@
     <button class="panel-close" id="sub-cancel-btn">Close</button>
   </div>
 
+  <!-- ===================== FULL TIME ===================== -->
+  <div id="fulltime-panel" class="panel-overlay" style="justify-content:center;text-align:center;">
+    <h2 style="font-size:20px;">Full time</h2>
+    <div id="fulltime-score">0 - 0</div>
+    <div id="fulltime-verdict"></div>
+    <button id="fulltime-menu-btn">Back to the menu</button>
+    <div id="fulltime-countdown"></div>
+  </div>
+
   <!-- ===================== SQUAD EDITOR (team select) ===================== -->
   <div id="squad-editor-panel" class="panel-overlay" style="display:flex;">
 
@@ -250,6 +306,16 @@
         </select>
         <button id="randomize-squad-btn" style="padding:6px 12px;border-radius:8px;border:1px solid white;background:rgba(51,153,255,0.3);color:white;">🎲 Random</button>
         <span id="squad-fill-count" style="font-size:11px;opacity:0.75;">0/11 filled</span>
+      </div>
+
+      <!-- AI difficulty (only applies when playing alone against the AI) -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+        <label style="font-size:12px;">AI difficulty:</label>
+        <select id="ai-level-select" style="padding:6px 10px;border-radius:8px;border:1px solid #555;background:rgba(255,255,255,0.08);color:white;">
+          <option value="easy">Easy</option>
+          <option value="normal" selected>Normal</option>
+          <option value="hard">Hard</option>
+        </select>
       </div>
 
       <div id="formation-pitch">

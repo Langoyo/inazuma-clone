@@ -5,8 +5,14 @@
 export const CATEGORIES = ['shot', 'dribble', 'defense', 'keeper'];
 
 // Power of a "normal" action (no SP spent), compared against a
-// supertechnique's power in the probability formula.
-export const NORMAL_ACTION_POWER = 40;
+// supertechnique's power in the probability formula (win chance is one side's
+// power over the sum of both). Roster techniques run 61–110 power, averaging
+// 82, so at 24 a supertechnique beats a normal action roughly 72–82% of the
+// time between players of equal ability — spending PT should feel decisive,
+// which at the old 40 (a 67% edge for the average move) it didn't. Normal vs
+// normal and technique vs technique are untouched: both sides scale together,
+// so those stay down to the players' stats.
+export const NORMAL_ACTION_POWER = 24;
 
 // Which player stat multiplies power for each category.
 export const STAT_FIELD_FOR_TECH = {

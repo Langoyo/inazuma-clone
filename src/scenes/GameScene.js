@@ -14,6 +14,14 @@ const VIEWPORT_W        = 480;   // canvas size — what the player actually see
 const VIEWPORT_H        = 760;
 const GOAL_HALF_WIDTH   = 70;
 const GOAL_CLICK_MARGIN = 80;
+// Room behind each goal line. The pitch itself still ends at the line, but the
+// camera may scroll past it, so the goal can sit in the middle of the screen
+// instead of jammed under the scoreboard or the PT bar. GOAL_DEPTH is how far
+// the goal box reaches back — a box is a far easier tap target than a line.
+const GOAL_RUNOFF       = 170;
+const GOAL_DEPTH        = 150;
+// How long the full-time screen stays up before it drops back to the menu.
+const FULLTIME_MENU_MS  = 9000;
 const WAYPOINT_RADIUS   = 20;
 const MIN_PATH_PT_DIST  = 18;
 const PLAYER_SEL_RADIUS = 36;
@@ -21,6 +29,11 @@ const DRAG_THRESHOLD    = 14;
 const CONFRONT_MS       = 20000;
 const RESULT_MS         = 3500;
 const RESULT_DELAY_MS   = 800;
+// Once both sides have chosen, the duel holds on a VS card for a beat before
+// anything moves: both moves are shown facing each other, then the winner's
+// card lights up. Pure pacing — play is frozen for the whole window anyway.
+const DUEL_REVEAL_MS     = 1900;
+const DUEL_REVEAL_LIT_MS = 850;
 const POSSESS_OFFSET    = 24;
 // The ball's air friction decays its speed geometrically, so a kick covers
 // roughly speed/BALL_FRICTION_AIR before dying. Passes therefore scale their
@@ -31,12 +44,19 @@ const BALL_FRICTION_AIR = 0.018;
 const PASS_REACH_BOOST  = 1.12;  // arrive with a bit of pace rather than stopping dead
 const PASS_MIN_SPEED    = 3.0;
 const PASS_MAX_SPEED    = 16;    // below the ball+player radius sum, so it can't tunnel through anyone
+// Passes are chipped rather than rolled. The ball is airborne over the first
+// stretch of its flight and can't be intercepted there, so a defender sitting
+// on the passer gets played over instead of blocking everything; it lands well
+// short of the target, so whoever marks the receiver can still read it.
+const PASS_LOFT_FRAC    = 0.55;  // share of the pass distance spent in the air
+const PASS_LOFT_MIN     = 55;    // even a short ball gets a little hop (px)
 const KNOCKBACK_SPEED   = 1.8;   // was 4 — nearly as fast as a pass, which could fling the
                                   // ball if it clipped the ball on the way (see _moveTeam's
                                   // stun handling, which also keeps the ball from hitting them)
 const STUN_MS           = 2500;  // how long the loser is frozen after a duel
 const TEAM_SIZE         = 11;
 const BENCH_MAX         = 5;
+const BENCH_COVER       = ['GK','DF','MF','FW','MF']; // positions the auto-picked bench covers
 const HALF_S            = 3 * 60;
 const STATE_HZ          = 20;
 const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
@@ -71,6 +91,18 @@ const FORM_HIGHEST = 0.84;
 // down at full speed, as does anyone it has been played right next to.
 const BALL_CHASE_RANGE   = 210;
 const KEEPER_CHASE_RANGE = 130;
+
+// AI difficulty (solo-vs-AI only). All decision-making rather than raw
+// speed, so a harder opponent plays sharper instead of simply outrunning
+// you: how readily it spends PT on a supertechnique, from how far out it
+// will shoot, how decisively it pulls the trigger once in range, and how
+// often it looks for a pass.
+const AI_LEVELS = {
+  easy:   { techChance:0.25, shootRange:190, shootChance:0.10, passChance:0.006 },
+  normal: { techChance:0.45, shootRange:300, shootChance:0.35, passChance:0.012 },
+  hard:   { techChance:0.70, shootRange:420, shootChance:0.70, passChance:0.022 }
+};
+const AI_LEVEL_DEFAULT = 'normal';
 
 // Fouls are meant to be a rare punctuation, not a regular interruption:
 // roughly one duel in a hundred, a little more often for weaker defenders.
@@ -173,6 +205,11 @@ export default class GameScene extends Phaser.Scene {
     // device sees a wide window into the pitch instead of a portrait strip.
     this.FIELD_W = FIELD_LOGICAL_W;
     this.FIELD_H = FIELD_LOGICAL_H;
+    // The visible world is taller than the pitch: the run-off behind each goal
+    // is scenery the camera can reach, not playable space (physics bounds stay
+    // on the pitch below).
+    this.WORLD_Y_MIN = -GOAL_RUNOFF;
+    this.WORLD_Y_MAX = this.FIELD_H + GOAL_RUNOFF;
     this.VP_W    = this.scale.width  || VIEWPORT_W;
     this.VP_H    = this.scale.height || VIEWPORT_H;
     this.scale.on('resize', gameSize=>this._onResize(gameSize));
@@ -190,15 +227,21 @@ export default class GameScene extends Phaser.Scene {
       {restitution:.7,frictionAir:BALL_FRICTION_AIR,label:'ball',
        collisionFilter:{category:CAT_BALL,mask:CAT_PLAYER|CAT_GOAL}});
     this.ballGfx=this.add.circle(this.ball.position.x,this.ball.position.y,10,0xffffff).setDepth(3);
+    // Sits on the ground under a ball in flight, so a chipped pass reads as
+    // one rather than as a ball that ignored a defender.
+    this.ballShadow=this.add.ellipse(this.ball.position.x,this.ball.position.y,17,11,0x000000,0.38).setDepth(2).setVisible(false);
+    this.ballFlight=null;
+    this._clientBall=null;
     this._drawGoals();
 
     this.possRing=this.add.circle(0,0,20).setStrokeStyle(3,0xffd966).setFillStyle(0,0).setVisible(false).setDepth(4);
 
     // Camera setup: camera scrolls over the logical world
-    this.cameras.main.setBounds(0,0,this.FIELD_W,this.FIELD_H);
+    this.cameras.main.setBounds(0,this.WORLD_Y_MIN,this.FIELD_W,this.WORLD_Y_MAX-this.WORLD_Y_MIN);
     this.cameras.main.setSize(this.VP_W,this.VP_H);
-    this.cameras.main.scrollX=Phaser.Math.Clamp(this.FIELD_W/2-this.VP_W/2,0,Math.max(0,this.FIELD_W-this.VP_W));
-    this.cameras.main.scrollY=Phaser.Math.Clamp(this.FIELD_H/2-this.VP_H/2,0,Math.max(0,this.FIELD_H-this.VP_H));
+    this.cameras.main.scrollX=this.FIELD_W/2-this.VP_W/2;
+    this.cameras.main.scrollY=this.FIELD_H/2-this.VP_H/2;
+    this._clampScroll();
     this.scrollKeys={up:false,down:false,left:false,right:false};
     this.joyVec={x:0,y:0};
     this._setupScrollInput();
@@ -218,6 +261,7 @@ export default class GameScene extends Phaser.Scene {
     this.pendingFormChange=null;
 
     this.matchClock={half:1,secondsRemaining:HALF_S,ended:false};
+    this._fullTimeShown=false; this._fullTimeTimer=null;
     this.possRole=null; this.currentPossession=null;
     this.duelLockUntil=0; this.confrontation=null;
     this.confrontResult=null;
@@ -227,6 +271,7 @@ export default class GameScene extends Phaser.Scene {
     this.squadSlots=Array(TEAM_SIZE).fill(null);
     this.benchIds=new Set();
     this.chosenFormation=DEFAULT_FORMATION;
+    this.aiLevel=AI_LEVEL_DEFAULT;
     this.mySquadConfirmed=false;
     this.mySquadPayload=null;
     this.remoteSquadPayload=null;
@@ -247,6 +292,7 @@ export default class GameScene extends Phaser.Scene {
 
     document.getElementById('conf-normal').addEventListener('pointerdown',(e)=>{e.stopPropagation();this.pendingChoice='normal';});
     document.getElementById('conf-technique').addEventListener('pointerdown',(e)=>{e.stopPropagation();this.pendingChoice='technique';});
+    document.getElementById('fulltime-menu-btn').addEventListener('click',()=>this._returnToMenu());
     document.getElementById('sub-button').addEventListener('click',()=>this._openSubPanel());
     document.getElementById('sub-cancel-btn').addEventListener('click',()=>{this.subSel=null;document.getElementById('sub-panel').style.display='none';});
 
@@ -278,6 +324,9 @@ export default class GameScene extends Phaser.Scene {
   // ════════════════════════════════════════════════════════════════════
   _drawField(){
     const w=this.FIELD_W, h=this.FIELD_H;
+    // Surround: the darker apron behind each goal, so the run-off reads as part
+    // of the ground rather than as empty space off the edge of the world.
+    this.add.rectangle(w/2,(this.WORLD_Y_MIN+this.WORLD_Y_MAX)/2,w,this.WORLD_Y_MAX-this.WORLD_Y_MIN,0x11512a).setDepth(-1);
     // Full field background
     this.add.rectangle(w/2,h/2,w,h,0x1e7a3c).setStrokeStyle(5,0xffffff).setDepth(0);
     // Halfway line
@@ -293,9 +342,15 @@ export default class GameScene extends Phaser.Scene {
 
   _drawGoals(){
     const w=this.FIELD_W, h=this.FIELD_H;
-    // Visual
-    this.add.rectangle(w/2,8,GOAL_HALF_WIDTH*2,12,0xffffff).setDepth(2);
-    this.add.rectangle(w/2,h-8,GOAL_HALF_WIDTH*2,12,0xffffff).setDepth(2);
+    // Visual: a box reaching back from the goal line into the run-off. Tapping
+    // a line was fiddly — anywhere in the box counts as "shoot here".
+    const box=(lineY,dir)=>{
+      const cy=lineY+dir*GOAL_DEPTH/2;
+      this.add.rectangle(w/2,cy,GOAL_HALF_WIDTH*2,GOAL_DEPTH,0xffffff,0.16).setStrokeStyle(4,0xffffff,0.9).setDepth(2);
+      for(let i=1;i<4;i++) this.add.rectangle(w/2-GOAL_HALF_WIDTH+i*(GOAL_HALF_WIDTH/2),cy,1,GOAL_DEPTH,0xffffff).setAlpha(0.28).setDepth(2);
+      this.add.rectangle(w/2,lineY,GOAL_HALF_WIDTH*2,6,0xffffff).setDepth(2);
+    };
+    box(0,-1); box(h,1);
     // Physics sensors
     this.goalMin=this.matter.add.rectangle(w/2,0,GOAL_HALF_WIDTH*2,16,{isSensor:true,isStatic:true,label:'goalMin',collisionFilter:{category:CAT_GOAL,mask:CAT_BALL}});
     this.goalMax=this.matter.add.rectangle(w/2,h,GOAL_HALF_WIDTH*2,16,{isSensor:true,isStatic:true,label:'goalMax',collisionFilter:{category:CAT_GOAL,mask:CAT_BALL}});
@@ -312,14 +367,13 @@ export default class GameScene extends Phaser.Scene {
   _setupScrollInput(){
     // Keyboard (PC)
     const kb=this.input.keyboard;
-    kb.on('keydown-UP',    ()=>{this.scrollKeys.up=true;});
-    kb.on('keyup-UP',      ()=>{this.scrollKeys.up=false;});
-    kb.on('keydown-DOWN',  ()=>{this.scrollKeys.down=true;});
-    kb.on('keyup-DOWN',    ()=>{this.scrollKeys.down=false;});
-    kb.on('keydown-LEFT',  ()=>{this.scrollKeys.left=true;});
-    kb.on('keyup-LEFT',    ()=>{this.scrollKeys.left=false;});
-    kb.on('keydown-RIGHT', ()=>{this.scrollKeys.right=true;});
-    kb.on('keyup-RIGHT',   ()=>{this.scrollKeys.right=false;});
+    // Arrows and WASD both pan the camera on desktop.
+    const bind=(keys,dir)=>keys.forEach(k=>{
+      kb.on(`keydown-${k}`,()=>{this.scrollKeys[dir]=true;});
+      kb.on(`keyup-${k}`,  ()=>{this.scrollKeys[dir]=false;});
+    });
+    bind(['UP','W'],'up');     bind(['DOWN','S'],'down');
+    bind(['LEFT','A'],'left'); bind(['RIGHT','D'],'right');
     this._setupJoystick();
   }
 
@@ -350,8 +404,15 @@ export default class GameScene extends Phaser.Scene {
   _onResize(gameSize){
     this.VP_W=gameSize.width; this.VP_H=gameSize.height;
     this.cameras.main.setSize(this.VP_W,this.VP_H);
-    this.cameras.main.scrollX=Phaser.Math.Clamp(this.cameras.main.scrollX,0,Math.max(0,this.FIELD_W-this.VP_W));
-    this.cameras.main.scrollY=Phaser.Math.Clamp(this.cameras.main.scrollY,0,Math.max(0,this.FIELD_H-this.VP_H));
+    this._clampScroll();
+  }
+
+  /** Keeps the camera inside the world, which now reaches past both goal lines
+   *  by GOAL_RUNOFF so the goals can be centred on screen. */
+  _clampScroll(){
+    const cam=this.cameras.main;
+    cam.scrollX=Phaser.Math.Clamp(cam.scrollX,0,Math.max(0,this.FIELD_W-this.VP_W));
+    cam.scrollY=Phaser.Math.Clamp(cam.scrollY,this.WORLD_Y_MIN,Math.max(this.WORLD_Y_MIN,this.WORLD_Y_MAX-this.VP_H));
   }
 
   _tickScroll(delta){
@@ -361,8 +422,8 @@ export default class GameScene extends Phaser.Scene {
     const ky=(this.scrollKeys.up?-1:0)+(this.scrollKeys.down?1:0);
     const vx=Phaser.Math.Clamp(kx+this.joyVec.x,-1,1);
     const vy=Phaser.Math.Clamp(ky+this.joyVec.y,-1,1);
-    cam.scrollX=Phaser.Math.Clamp(cam.scrollX+vx*spd,0,Math.max(0,this.FIELD_W-this.VP_W));
-    cam.scrollY=Phaser.Math.Clamp(cam.scrollY+vy*spd,0,Math.max(0,this.FIELD_H-this.VP_H));
+    cam.scrollX+=vx*spd; cam.scrollY+=vy*spd;
+    this._clampScroll();
   }
 
   /** Convert screen (pointer) coords to world coords accounting for camera. */
@@ -398,6 +459,7 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickList());
     document.getElementById('squad-team-filter').addEventListener('change',()=>this._renderPickList());
     document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
+    document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
     this._renderPitch(); this._renderPickList();
   }
 
@@ -545,29 +607,38 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-whole-team-btn').disabled=!gf&&!tf;
   }
 
+  /** Fills the XI from `pool` so every slot gets someone who actually plays
+   *  that position (keeper slot from keepers, defensive slots from defenders
+   *  and so on), then stocks the bench with a spread of cover. */
+  _fillSquadByPosition(pool){
+    const roles=SLOT_ROLES[this.chosenFormation]||SLOT_ROLES[DEFAULT_FORMATION];
+    const byPos={};
+    for(const p of pool) (byPos[p.position]=byPos[p.position]||[]).push(p);
+    Object.values(byPos).forEach(list=>Phaser.Utils.Array.Shuffle(list));
+    const take=pos=>{ const l=byPos[pos]; return l&&l.length?l.pop().id:null; };
+    const takeAny=()=>{ for(const l of Object.values(byPos)) if(l.length) return l.pop().id; return null; };
+    this.squadSlots=roles.slice(0,TEAM_SIZE).map(r=>take(r));
+    // A narrow pool (one club, say) may not field four defenders — backfill
+    // from whoever is left so the XI still comes out complete.
+    for(let i=0;i<TEAM_SIZE;i++) if(!this.squadSlots[i]) this.squadSlots[i]=takeAny();
+    this.benchIds=new Set(BENCH_COVER.map(pos=>take(pos)||takeAny()).filter(Boolean));
+  }
+
   _useWholeTeam(){
     const gf=document.getElementById('squad-game-filter').value;
     const tf=document.getElementById('squad-team-filter').value;
     if(!gf&&!tf) return;
-    const pool=this.rosterAll.filter(p=>(!tf||p.team===tf)&&(!gf||p.game===gf));
-    const gk=pool.find(p=>p.position==='GK'), rest=pool.filter(p=>!gk||p.id!==gk.id);
-    const ordered=gk?[gk,...rest]:rest;
-    this.squadSlots=ordered.slice(0,TEAM_SIZE).map(p=>p.id);
-    while(this.squadSlots.length<TEAM_SIZE) this.squadSlots.push(null);
-    this.benchIds=new Set(ordered.slice(TEAM_SIZE,TEAM_SIZE+BENCH_MAX).map(p=>p.id));
+    this._fillSquadByPosition(this.rosterAll.filter(p=>(!tf||p.team===tf)&&(!gf||p.game===gf)));
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
 
   _randomize(){
-    const pool=[...this.rosterAll]; Phaser.Utils.Array.Shuffle(pool);
-    const gk=pool.find(p=>p.position==='GK'), rest=pool.filter(p=>!gk||p.id!==gk.id);
-    const ordered=gk?[gk,...rest]:rest;
-    this.squadSlots=ordered.slice(0,TEAM_SIZE).map(p=>p.id);
-    while(this.squadSlots.length<TEAM_SIZE) this.squadSlots.push(null);
-    this.benchIds=new Set(ordered.slice(TEAM_SIZE,TEAM_SIZE+BENCH_MAX).map(p=>p.id));
-    const fk=Object.keys(FORMATIONS); this.chosenFormation=Phaser.Utils.Array.GetRandom(fk);
+    // Shape first, then fill it position by position — the slot roles depend
+    // on the formation, so picking it afterwards would mismatch them.
+    this.chosenFormation=Phaser.Utils.Array.GetRandom(Object.keys(FORMATIONS));
     document.getElementById('formation-select').value=this.chosenFormation;
+    this._fillSquadByPosition(this.rosterAll);
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
@@ -885,7 +956,9 @@ export default class GameScene extends Phaser.Scene {
     if(!this.matchStarted||this.matchClock.ended) return;
     const w=this._toWorld(pointer.x,pointer.y);
     if(this._iHavePossession()&&this._inGoalRegion(w)&&!this.confrontation){ this.pendingShoot=true; return; }
-    if(this.confrontation) return;
+    // Play is frozen during a confrontation, but drawing runs still works —
+    // it's the natural moment to set up where everyone goes next. Only the
+    // tap-to-pass in _pointerUp stays disabled until the duel resolves.
     this.gestureStart={x:w.x,y:w.y,sx:pointer.x,sy:pointer.y}; this.gestureMoved=false;
     const myTeam=this.role==='A'?this.teamA:this.teamB;
     let nearest=null, nearestD=PLAYER_SEL_RADIUS;
@@ -917,7 +990,11 @@ export default class GameScene extends Phaser.Scene {
     const half=this.FIELD_W/2;
     const towardMax=this.role==='B'; // A attacks toward y=0 now, B toward y=FIELD_H
     const withinX=Math.abs(w.x-half)<GOAL_HALF_WIDTH+40;
-    return withinX&&(towardMax?w.y>this.FIELD_H-GOAL_CLICK_MARGIN:w.y<GOAL_CLICK_MARGIN);
+    // Reaches from just in front of the line all the way back through the goal
+    // box, so the whole rectangle is a shooting tap.
+    return withinX&&(towardMax
+      ? w.y>this.FIELD_H-GOAL_CLICK_MARGIN&&w.y<this.WORLD_Y_MAX
+      : w.y<GOAL_CLICK_MARGIN&&w.y>this.WORLD_Y_MIN);
   }
   _iHavePossession(){ return this.currentPossession===this.role; }
 
@@ -991,6 +1068,38 @@ export default class GameScene extends Phaser.Scene {
     // kicking every ball the same and leaving long ones short.
     const speed=Phaser.Math.Clamp(dist*BALL_FRICTION_AIR*PASS_REACH_BOOST,PASS_MIN_SPEED,PASS_MAX_SPEED);
     this.matter.body.setVelocity(this.ball,{x:(dx/dist)*speed,y:(dy/dist)*speed});
+    this._startPassFlight({x:this.ball.position.x,y:this.ball.position.y},dist);
+  }
+
+  /** Lifts the ball for the first PASS_LOFT_FRAC of a pass: while it's up
+   *  there it stops colliding with players, so the chip clears anyone close to
+   *  the passer, and it drops back to the ground short of the target. */
+  _startPassFlight(from,dist){
+    const range=Math.max(PASS_LOFT_MIN,dist*PASS_LOFT_FRAC);
+    this.ballFlight={x0:from.x,y0:from.y,range,peak:Phaser.Math.Clamp(range*0.28,14,52),h:0};
+    this.ball.collisionFilter.mask=CAT_GOAL;
+  }
+  _endPassFlight(){
+    if(!this.ballFlight) return;
+    this.ballFlight=null;
+    this.ball.collisionFilter.mask=CAT_PLAYER|CAT_GOAL;
+  }
+  _updatePassFlight(){
+    const f=this.ballFlight; if(!f) return;
+    const b=this.ball.position;
+    const d=Math.hypot(b.x-f.x0,b.y-f.y0);
+    const sp=Math.hypot(this.ball.velocity.x,this.ball.velocity.y);
+    // Down again once it has covered its arc, or early if the pass died or
+    // the ball was handed to someone (a dead-ball restart, say).
+    if(this.possRole||d>=f.range||sp<0.35){ this._endPassFlight(); return; }
+    f.h=Math.sin((d/f.range)*Math.PI)*f.peak;
+  }
+
+  /** Ball with its height: lifted off its ground position and drawn bigger,
+   *  with the shadow left behind on the grass. */
+  _drawBall(x,y,h){
+    this.ballGfx.setPosition(x,y-h*0.55).setScale(1+h/70);
+    this.ballShadow.setVisible(h>1).setPosition(x,y).setScale(1-Math.min(0.3,h/170));
   }
   /** Picks a reasonable pass target for the AI: the most advanced teammate
    *  (closer to the rival goal than the passer) within a sane passing
@@ -1060,13 +1169,18 @@ export default class GameScene extends Phaser.Scene {
     const dId=type==='shot'?(dRole==='A'?this.gkIdA:this.gkIdB):(dRole==='A'?this.activeIdA:this.activeIdB);
     this.confrontation={type,attackerRole:aRole,defenderRole:dRole,attackerId:aId,defenderId:dId,deadline:now+CONFRONT_MS,attackerChoice:null,defenderChoice:null};
   }
-  _aiChoice(stats,cat){ return canActivate(stats,cat)&&Math.random()<0.55?'technique':'normal'; }
+  _aiParams(){ return AI_LEVELS[this.aiLevel]||AI_LEVELS[AI_LEVEL_DEFAULT]; }
+  _aiChoice(stats,cat){ return canActivate(stats,cat)&&Math.random()<this._aiParams().techChance?'technique':'normal'; }
   _tryTech(stats,cat){ if(!canActivate(stats,cat)) return false; stats.sp-=stats.techniques[cat].cost; return true; }
   _statsFor(role,id){ return (role==='A'?this.statsMapA:this.statsMapB).get(id); }
 
   _entryById(role,id){ const team=role==='A'?this.teamA:this.teamB; return team.find(t=>t.id===id)||null; }
 
-  _resolveConfront(now){
+  /** Rolls the outcome and puts the confrontation into its reveal beat: both
+   *  moves are shown facing each other, then the winner lights up, and only
+   *  after that does _applyConfrontOutcome actually move anything. Play is
+   *  already frozen while a confrontation is live, so this reads as a pause. */
+  _prepareConfrontReveal(now){
     const c=this.confrontation;
     const as=this._statsFor(c.attackerRole,c.attackerId), ds=this._statsFor(c.defenderRole,c.defenderId);
     if(!as||!ds){this.confrontation=null;return;}
@@ -1084,23 +1198,34 @@ export default class GameScene extends Phaser.Scene {
       a: aU&&eAtk ? {x:eAtk.body.position.x,y:eAtk.body.position.y,color:c.attackerRole==='A'?this.teamColorA:this.teamColorB,name:aTN} : null,
       d: dU&&eDef ? {x:eDef.body.position.x,y:eDef.body.position.y,color:c.defenderRole==='A'?this.teamColorA:this.teamColorB,name:dTN} : null
     };
-    let title,outcome;
+    c.pending={aWins,aTN,dTN,fx,aName:as.name,dName:ds.name};
+    c.reveal={
+      until:now+DUEL_REVEAL_MS, litAt:now+DUEL_REVEAL_LIT_MS,
+      a:{name:as.name,move:aTN,winner:aWins},
+      d:{name:ds.name,move:dTN,winner:!aWins}
+    };
+  }
+
+  _applyConfrontOutcome(now){
+    const c=this.confrontation, r=c.pending;
+    if(!r){ this.confrontation=null; return; }
+    const {aWins,aTN,dTN,fx,aName,dName}=r;
+    let title,outcome=`${aName}: ${aTN} · ${dName}: ${dTN}`;
     if(c.type==='duel'){
       const eA=this._activeEntry(c.attackerRole), eD=this._activeEntry(c.defenderRole);
-      if(aWins){ this._knockback(eD,eA); this.stunMap.set(c.defenderId,now+STUN_MS); title=`${as.name} dribbles past!`; }
-      else { this.possRole=c.defenderRole; this._setActive(c.defenderRole,c.defenderId); this._knockback(eA,eD); this.stunMap.set(c.attackerId,now+STUN_MS); title=`${ds.name} wins the ball!`; }
-      outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
+      if(aWins){ this._knockback(eD,eA); this.stunMap.set(c.defenderId,now+STUN_MS); title=`${aName} dribbles past!`; }
+      else { this.possRole=c.defenderRole; this._setActive(c.defenderRole,c.defenderId); this._knockback(eA,eD); this.stunMap.set(c.attackerId,now+STUN_MS); title=`${dName} wins the ball!`; }
       this.duelLockUntil=now+STUN_MS+200;
     } else if(aWins){
       this._onGoal(c.attackerRole==='A'?'a':'b');
-      title=`⚽ GOAL! ${as.name} scores!`; outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
+      title=`⚽ GOAL! ${aName} scores!`;
     } else {
       // The keeper (defenderId here, not necessarily whoever was "active"
       // before the shot) made the save — the ball, and possession, are
       // theirs now.
       this.possRole=c.defenderRole;
       this._setActive(c.defenderRole,c.defenderId);
-      title=`${ds.name} saves it!`; outcome=`${as.name}: ${aTN} · ${ds.name}: ${dTN}`;
+      title=`${dName} saves it!`;
     }
     this.confrontation=null;
     this.confrontResult={title,outcome,until:now+RESULT_MS,outcomeAt:now+RESULT_DELAY_MS,fx};
@@ -1110,6 +1235,7 @@ export default class GameScene extends Phaser.Scene {
     this.score[scorer]+=1;
     document.querySelector('#scoreboard .score').textContent=`${this.score.a} - ${this.score.b}`;
     this.possRole=null;
+    this._endPassFlight();
     this.matter.body.setPosition(this.ball,{x:this.FIELD_W/2,y:this.FIELD_H/2});
     this.matter.body.setVelocity(this.ball,{x:0,y:0});
     this.stunMap.clear();
@@ -1187,6 +1313,7 @@ export default class GameScene extends Phaser.Scene {
    *  to `awardedRole`, and teleport one of their eligible players there
    *  (their keeper if `preferGk`, otherwise whoever's nearest) to take it. */
   _placeBallAndAward(awardedRole,spot,now,{preferGk=false}={}){
+    this._endPassFlight();
     this.matter.body.setPosition(this.ball,spot);
     this.matter.body.setVelocity(this.ball,{x:0,y:0});
     const team=awardedRole==='A'?this.teamA:this.teamB;
@@ -1251,7 +1378,42 @@ export default class GameScene extends Phaser.Scene {
     }
   }
   static _fmtClock(s){ s=Math.max(0,Math.ceil(s)); const m=Math.floor(s/60),r=s%60; return `${m}:${r<10?'0':''}${r}`; }
-  _renderClock(c){ if(!c) return; document.getElementById('match-clock').textContent=c.ended?'Full time':`${c.half===1?'1st':'2nd'} half — ${GameScene._fmtClock(c.secondsRemaining)}`; }
+  _renderClock(c){
+    if(!c) return;
+    document.getElementById('match-clock').textContent=c.ended?'Full time':`${c.half===1?'1st':'2nd'} half — ${GameScene._fmtClock(c.secondsRemaining)}`;
+    if(c.ended) this._showFullTime();
+  }
+
+  /** Full time: show the final score, then drop back to the start menu. The
+   *  reset is a reload on purpose — every control in the menu is bound to this
+   *  scene instance, so rebuilding a match in place would leave the old
+   *  bindings behind. The room code lives in the URL, so it survives. */
+  _showFullTime(){
+    if(this._fullTimeShown) return;
+    this._fullTimeShown=true;
+    const scoreTxt=document.querySelector('#scoreboard .score').textContent;
+    const [a,b]=scoreTxt.split('-').map(n=>parseInt(n,10)||0);
+    const mine=this.role==='A'?a:b, theirs=this.role==='A'?b:a;
+    document.getElementById('fulltime-score').textContent=scoreTxt;
+    document.getElementById('fulltime-verdict').textContent=mine>theirs?'You win!':mine<theirs?'You lose':'Draw';
+    document.getElementById('confrontation-ui').style.display='none';
+    document.getElementById('duel-reveal').style.display='none';
+    document.getElementById('fulltime-panel').style.display='flex';
+    const cd=document.getElementById('fulltime-countdown');
+    let left=Math.round(FULLTIME_MENU_MS/1000);
+    const tick=()=>{
+      if(left<=0){ this._returnToMenu(); return; }
+      cd.textContent=`Back to the menu in ${left}s…`;
+      left-=1;
+    };
+    tick();
+    this._fullTimeTimer=setInterval(tick,1000);
+  }
+
+  _returnToMenu(){
+    if(this._fullTimeTimer){ clearInterval(this._fullTimeTimer); this._fullTimeTimer=null; }
+    window.location.reload();
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // Main loop
@@ -1278,7 +1440,8 @@ export default class GameScene extends Phaser.Scene {
     let inputB=this.remoteInput;
     if(aiActive){
       const eB=this._activeEntry('B');
-      const ai=decideAIMove({selfPos:eB?eB.body.position:{x:this.FIELD_W/2,y:0},ballPos:this.ball.position,axis:'y',ownGoalValue:0,rivalGoalValue:this.FIELD_H,fieldPrimarySize:this.FIELD_H});
+      const ai=decideAIMove({selfPos:eB?eB.body.position:{x:this.FIELD_W/2,y:0},ballPos:this.ball.position,axis:'y',ownGoalValue:0,rivalGoalValue:this.FIELD_H,fieldPrimarySize:this.FIELD_H,
+        hasBall:this.possRole==='B',goalCentre:this.FIELD_W/2});
       inputB={targets:eB?[{id:eB.id,...ai.target}]:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,formationChange:null};
     }
     this.currentPossession=this.possRole;
@@ -1296,9 +1459,10 @@ export default class GameScene extends Phaser.Scene {
       if(myInput.shootRequest&&this.possRole==='A') this._startConfront('shot','A','B',now);
       else if(!aiActive&&inputB.shootRequest&&this.possRole==='B') this._startConfront('shot','B','A',now);
       else if(aiActive&&this.possRole==='B'){
-        const eB=this._activeEntry('B');
-        if(eB&&eB.body.position.y>this.FIELD_H-GOAL_CLICK_MARGIN*2.5&&Math.random()<0.02) this._startConfront('shot','B','A',now);
-        else if(eB&&Math.random()<0.012){
+        const eB=this._activeEntry('B'), p=this._aiParams();
+        // Shoot as soon as it's in range rather than dithering around the box
+        if(eB&&eB.body.position.y>this.FIELD_H-p.shootRange&&Math.random()<p.shootChance) this._startConfront('shot','B','A',now);
+        else if(eB&&Math.random()<p.passChance){
           const mate=this._aiPickPassTarget('B',eB);
           if(mate) this._doPass('B',{x:mate.body.position.x,y:mate.body.position.y});
         }
@@ -1309,6 +1473,7 @@ export default class GameScene extends Phaser.Scene {
       if(!aiActive&&inputB.subRequest) this._trySub('B',inputB.subRequest);
     }
 
+    this._updatePassFlight();
     this._glueBall(); this._syncGfx();
     this._renderClock(this.matchClock);
     this._renderResultBanner(this.confrontResult,now);
@@ -1326,7 +1491,7 @@ export default class GameScene extends Phaser.Scene {
         a:this.teamA.filter(e=>this._isOut('A',e.id)).map(e=>e.id),
         b:this.teamB.filter(e=>this._isOut('B',e.id)).map(e=>e.id)
       };
-      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},statsAll,sentOff,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
+      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},ballH:this.ballFlight?Math.round(this.ballFlight.h):0,teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},statsAll,sentOff,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline,reveal:this.confrontation.reveal||null}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
     }
   }
 
@@ -1370,6 +1535,15 @@ export default class GameScene extends Phaser.Scene {
 
   _progressConfront(now,myInput,inputB,aiActive){
     const c=this.confrontation;
+    // Already showing the VS cards: no more input matters, just wait out the
+    // beat and then apply what was rolled.
+    if(c.reveal){
+      // The host owns the timing and flips the flag, so the client lights the
+      // same card at the same moment instead of racing its own clock.
+      if(now>=c.reveal.litAt) c.reveal.lit=true;
+      if(now>=c.reveal.until) this._applyConfrontOutcome(now);
+      return;
+    }
     if(myInput.confrontationChoice){ if(c.attackerRole==='A'&&!c.attackerChoice)c.attackerChoice=myInput.confrontationChoice; if(c.defenderRole==='A'&&!c.defenderChoice)c.defenderChoice=myInput.confrontationChoice; }
     if(!aiActive&&inputB.confrontationChoice){ if(c.attackerRole==='B'&&!c.attackerChoice)c.attackerChoice=inputB.confrontationChoice; if(c.defenderRole==='B'&&!c.defenderChoice)c.defenderChoice=inputB.confrontationChoice; }
     if(aiActive){
@@ -1377,7 +1551,7 @@ export default class GameScene extends Phaser.Scene {
       if(c.attackerRole==='B'&&!c.attackerChoice){const s=this._statsFor('B',c.attackerId);c.attackerChoice=s?this._aiChoice(s,tf('B')):'normal';}
       if(c.defenderRole==='B'&&!c.defenderChoice){const s=this._statsFor('B',c.defenderId);c.defenderChoice=s?this._aiChoice(s,tf('B')):'normal';}
     }
-    if((c.attackerChoice&&c.defenderChoice)||now>=c.deadline){ if(!c.attackerChoice)c.attackerChoice='normal'; if(!c.defenderChoice)c.defenderChoice='normal'; this._resolveConfront(now); }
+    if((c.attackerChoice&&c.defenderChoice)||now>=c.deadline){ if(!c.attackerChoice)c.attackerChoice='normal'; if(!c.defenderChoice)c.defenderChoice='normal'; this._prepareConfrontReveal(now); }
   }
 
   _incomingState(data){
@@ -1390,8 +1564,12 @@ export default class GameScene extends Phaser.Scene {
     const lerp=0.3;
     this._syncClientIds(this.remoteState);
     if(this.remoteState.stuns) this.remoteState.stuns.forEach(({id,until})=>this.stunMap.set(id,until));
-    this.ballGfx.x=Phaser.Math.Linear(this.ballGfx.x,this.remoteState.ball.x,lerp);
-    this.ballGfx.y=Phaser.Math.Linear(this.ballGfx.y,this.remoteState.ball.y,lerp);
+    // Track the ball's position on the ground and add the synced height on
+    // top, so a chipped pass looks the same on both screens.
+    if(!this._clientBall) this._clientBall={x:this.remoteState.ball.x,y:this.remoteState.ball.y};
+    this._clientBall.x=Phaser.Math.Linear(this._clientBall.x,this.remoteState.ball.x,lerp);
+    this._clientBall.y=Phaser.Math.Linear(this._clientBall.y,this.remoteState.ball.y,lerp);
+    this._drawBall(this._clientBall.x,this._clientBall.y,this.remoteState.ballH||0);
     this.teamA.forEach((e,i)=>{ const p=this.remoteState.teamA[i]; if(!p)return; e.gfx.x=Phaser.Math.Linear(e.gfx.x,p.x,lerp); e.gfx.y=Phaser.Math.Linear(e.gfx.y,p.y,lerp); e.label.setPosition(e.gfx.x,e.gfx.y+15); });
     this.teamB.forEach((e,i)=>{ const p=this.remoteState.teamB[i]; if(!p)return; e.gfx.x=Phaser.Math.Linear(e.gfx.x,p.x,lerp); e.gfx.y=Phaser.Math.Linear(e.gfx.y,p.y,lerp); e.label.setPosition(e.gfx.x,e.gfx.y+15); });
     if(this.remoteState.sentOff){
@@ -1456,9 +1634,28 @@ export default class GameScene extends Phaser.Scene {
     this.tweens.add({targets:txt,y:txt.y-24,alpha:0,duration:900,ease:'Cubic.Out',onComplete:()=>txt.destroy()});
   }
 
+  /** The VS beat: two cards face off, then the winner's lights up and the
+   *  loser's dims. Shown to both players, whoever is involved. */
+  _renderDuelReveal(rv){
+    const wrap=document.getElementById('duel-reveal');
+    wrap.style.display='flex';
+    const side=(pre,d,lit)=>{
+      const card=document.getElementById(`duel-card-${pre}`);
+      card.querySelector('.duel-who').textContent=d.name;
+      card.querySelector('.duel-move').textContent=d.move==='Normal'?'Normal action':d.move;
+      card.classList.toggle('winner',lit&&d.winner);
+      card.classList.toggle('loser',lit&&!d.winner);
+    };
+    const lit=!!rv.lit;
+    side('a',rv.a,lit); side('d',rv.d,lit);
+  }
+
   _updateConfrontUI(confrontation,now){
     const panel=document.getElementById('confrontation-ui');
-    if(!confrontation){panel.style.display='none';return;}
+    const reveal=document.getElementById('duel-reveal');
+    if(!confrontation){panel.style.display='none';reveal.style.display='none';return;}
+    if(confrontation.reveal){ panel.style.display='none'; this._renderDuelReveal(confrontation.reveal); return; }
+    reveal.style.display='none';
     const amA=confrontation.attackerRole===this.role, amD=confrontation.defenderRole===this.role;
     if(!amA&&!amD){panel.style.display='none';return;}
     panel.style.display='flex';
@@ -1480,7 +1677,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _syncGfx(){
-    this.ballGfx.setPosition(this.ball.position.x,this.ball.position.y);
+    this._drawBall(this.ball.position.x,this.ball.position.y,this.ballFlight?this.ballFlight.h:0);
     const now=this.time.now;
     this.teamA.forEach(e=>{
       e.gfx.setPosition(e.body.position.x,e.body.position.y);
