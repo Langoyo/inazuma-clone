@@ -152,9 +152,14 @@
       background: rgba(20,20,20,0.85); color: white; font-size: 13px; font-weight: bold;
     }
     .squad-side-tab.active { border-color: #3399ff; background: rgba(20,60,100,0.9); }
+    /* Formation/Browse are independent collapsible sections, not exclusive tabs —
+       both default open so you can see the pitch and the player list at once;
+       each button just toggles its own section. */
     .view-tab.active { border-color: #ffd966; background: rgba(70,58,0,0.9); }
-    #squad-players-view { display: none; width: 100%; }
-    #squad-players-view.active { display: block; }
+    .view-tab::after { content: ' \25B8'; }
+    .view-tab.active::after { content: ' \25BE'; }
+    #squad-players-view { width: 100%; }
+    #squad-editor.hidden-section, #squad-players-view.hidden-section { display: none; }
 
     /* ---- topological squad editor */
     #squad-editor {
@@ -201,6 +206,15 @@
       border: 2px solid rgba(255,120,120,0.8); background: rgba(90,20,20,0.75); color: #ffdede;
       max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
     }
+    /* ---- placement hint, shown only while a list pick is armed for placement */
+    #squad-place-hint {
+      display: none; align-items: center; justify-content: center; gap: 8px;
+      font-size: 12px; opacity: 0.9; margin-bottom: 10px; text-align: center;
+    }
+    #squad-place-cancel-btn {
+      padding: 4px 10px; border-radius: 6px; font-size: 11px;
+      border: 1px solid #888; background: rgba(255,255,255,0.08); color: white;
+    }
 
     /* ---- search list that feeds the editor */
     #squad-search-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; width: 100%; max-width: 500px; }
@@ -219,6 +233,7 @@
       border-radius: 8px; padding: 6px; font-size: 11px; cursor: pointer; touch-action: manipulation;
     }
     .pick-card.in-squad   { border-color: #ffd966; opacity: 0.5; pointer-events: none; }
+    .pick-card.selected   { border-color: #ffd966; box-shadow: 0 0 0 2px #ffd966; }
     .pick-card .pick-name { font-weight: bold; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #pick-count { font-size: 11px; opacity: 0.7; margin-bottom: 6px; }
 
@@ -304,7 +319,7 @@
 
     <h2 style="margin-bottom:4px;">Build your squad</h2>
     <p style="font-size:11px; opacity:0.75; margin:0 0 10px; text-align:center; max-width:500px;">
-      Tap a player from the list to add them. Tap two players (pitch or bench) to swap them — tap the same one twice to see their stats. Bench (up to 5) shown below the pitch.
+      Tap a player from the list, then tap a pitch or bench spot to place them there — works on an occupied spot too, and bumps whoever was there to the bench (or drops them if the bench is full). Tap two pitch/bench players to swap them instead. Tap the same player twice to see their stats. Bench (up to 5) shown below the pitch.
     </p>
 
     <!-- Switch between editing your own squad and the rival's (solo vs AI only —
@@ -317,12 +332,12 @@
       Only used if you end up playing solo against the AI — comes pre-filled at random, tweak it or leave it as is.
     </p>
 
-    <!-- Switch between the pitch/bench view and the searchable player list —
-         both edit the same squad, this just decides which one is on screen,
-         so you're not scrolling past one to reach the other. -->
+    <!-- Formation pitch/bench and the searchable player list are shown together
+         by default so you can tap a player in the list, then tap straight onto
+         a pitch spot; each button just collapses its own section for more room. -->
     <div id="squad-view-tabs">
       <button class="squad-side-tab view-tab active" data-view="formation">📋 Formation</button>
-      <button class="squad-side-tab view-tab" data-view="players">🔍 Browse Players</button>
+      <button class="squad-side-tab view-tab active" data-view="players">🔍 Browse Players</button>
     </div>
 
     <!-- Topological pitch editor -->
@@ -347,6 +362,7 @@
           <option value="easy">Easy</option>
           <option value="normal" selected>Normal</option>
           <option value="hard">Hard</option>
+          <option value="expert">Expert</option>
         </select>
       </div>
 
@@ -362,6 +378,11 @@
 
       <!-- Appears while a player on the pitch or bench is selected -->
       <div id="squad-remove-bar"><button id="squad-remove-btn">Remove</button></div>
+      <!-- Appears while a player picked from the list is armed for placement -->
+      <div id="squad-place-hint">
+        Tap a pitch or bench spot for <b id="squad-place-hint-name"></b>
+        <button id="squad-place-cancel-btn">Cancel</button>
+      </div>
     </div>
 
     <!-- Player search / list to pick from -->

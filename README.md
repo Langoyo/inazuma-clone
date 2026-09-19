@@ -523,3 +523,26 @@ arrancaba justo en el frame en que tocaba aplicar el cambio, la petición se
 perdía para siempre. Ahora las sustituciones y reposicionamientos se
 procesan siempre, pase lo que pase con los enfrentamientos, así que ya no
 se pierden.
+
+## Velocidad general un 5% más baja, más dificultad de IA, y editor de plantilla combinado
+
+- **Velocidad**: seguía pareciendo demasiado alta incluso después del ajuste
+  del sprint, así que bajé el techo de velocidad general (afecta a todo el
+  mundo por igual, con o sin sprint) otro 5% — de 0.72 a 0.684 para el
+  jugador con el balón/objetivo activo, y de 0.66 a 0.627 para el movimiento
+  automático sin balón.
+- **Nivel de IA "Expert"**: se añade un cuarto nivel por encima de "Hard" que
+  sigue la misma filosofía que los demás (decisiones más agudas, no más
+  velocidad bruta) — usa supertécnicas con más frecuencia, dispara desde
+  más lejos, tira el gatillo casi siempre que tiene ángulo y busca el pase
+  algo más a menudo.
+- **Editor de plantilla: campo y lista de jugadores a la vez**: las pestañas
+  "📋 Formation" / "🔍 Browse Players" ya no son exclusivas — ahora son dos
+  secciones independientes que se muestran las dos por defecto, y cada botón
+  solo colapsa la suya si hace falta más sitio en pantalla. Con las dos
+  visibles a la vez ahora se puede tocar un jugador de la lista y luego tocar
+  directamente un puesto del campo (o del banquillo) para colocarlo ahí,
+  esté ocupado o no — si el puesto ya tenía a alguien, ese jugador baja al
+  banquillo (o se descarta de la plantilla si el banquillo ya está lleno).
+  Un aviso junto al campo indica a quién se está colocando y permite
+  cancelar la selección.
