@@ -353,6 +353,13 @@ export default class GameScene extends Phaser.Scene {
       getGames().forEach(g=>{ const o=document.createElement('option'); o.value=g; o.textContent=g; gs.appendChild(o); });
       const ts=document.getElementById('squad-team-filter');
       getTeams().forEach(t=>{ const o=document.createElement('option'); o.value=t; o.textContent=t; ts.appendChild(o); });
+      // Several characters (Mark Evans, Axel Blaze...) show up once per game
+      // they appeared in, as separate roster entries with their own stats —
+      // same name, same real team, so cards need the game tag too or they're
+      // indistinguishable. Precomputed once so every card render is cheap.
+      const seen=new Map();
+      data.forEach(p=>seen.set(p.name,(seen.get(p.name)||0)+1));
+      this.duplicateNames=new Set([...seen].filter(([,n])=>n>1).map(([name])=>name));
       this._initSquadEditor();
     }).catch(err=>{ document.getElementById('squad-pick-list').innerHTML=`<p style="color:#f88">Couldn't load roster.<br>${err.message}</p>`; });
 
@@ -508,11 +515,24 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-team-filter').addEventListener('change',()=>this._renderPickList());
     document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
-    document.querySelectorAll('.squad-side-tab').forEach(btn=>btn.addEventListener('click',()=>this._setEditSide(btn.dataset.side)));
+    document.querySelectorAll('#squad-side-tabs .squad-side-tab').forEach(btn=>btn.addEventListener('click',()=>this._setEditSide(btn.dataset.side)));
+    document.querySelectorAll('.view-tab').forEach(btn=>btn.addEventListener('click',()=>this._setSquadView(btn.dataset.view)));
     // Give the rival a full, position-aware random XI up front — it plays
     // fine untouched, and is only ever used solo vs AI.
     this.editSide='rival'; this._fillSquadByPosition(this.rosterAll); this.editSide='me';
+    this._setSquadView('formation');
     this._renderPitch(); this._renderPickList();
+  }
+
+  /** Switches which half of the squad editor is on screen — the pitch/bench
+   *  ("formation") or the searchable player list ("players") — so mobile
+   *  isn't stuck scrolling past one to reach the other. Both edit the same
+   *  squad; this changes nothing about which side (me/rival) is active. */
+  _setSquadView(view){
+    this.squadView=view;
+    document.getElementById('squad-editor').style.display=view==='formation'?'block':'none';
+    document.getElementById('squad-players-view').classList.toggle('active',view==='players');
+    document.querySelectorAll('.view-tab').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
   }
 
   // ---- which side ("me"/"rival") the pitch editor currently shows -------
@@ -617,6 +637,16 @@ export default class GameScene extends Phaser.Scene {
     if(selP) document.getElementById('squad-remove-btn').textContent=`✕ Remove ${selP.nickname||selP.name}`;
   }
 
+  /** Team/game line for a card — with the game tag added whenever this
+   *  name shows up more than once in the roster (the same character
+   *  appearing once per game they were in, e.g. Mark Evans in both IE1 and
+   *  Ares), since otherwise two such cards read as identical duplicates. */
+  _teamLine(p){
+    const base=p.team||p.game;
+    if(!this.duplicateNames?.has(p.name)) return base;
+    return p.team?`${base} (${p.game})`:base;
+  }
+
   /** A single summary number from a player's 5 core stats — not a new
    *  gameplay stat, just something readable for the cards, on a rough
    *  0-99 scale (stats themselves average ~1.0, scaled up so a typical
@@ -654,7 +684,7 @@ export default class GameScene extends Phaser.Scene {
         <span style="width:44px;height:44px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:bold;color:rgba(0,0,0,.8);flex-shrink:0">${this._initials(p)}</span>
         <div>
           <div style="font-weight:bold;font-size:15px">${p.name} <span style="opacity:.75;font-weight:normal;font-size:12px">· ⭐ ${this._playerRating(p)}</span></div>
-          <div style="font-size:12px;opacity:.75">${p.position} · ${p.team||p.game}</div>
+          <div style="font-size:12px;opacity:.75">${p.position} · ${this._teamLine(p)}</div>
         </div>
         <button onclick="document.getElementById('player-stat-panel').style.display='none'" style="margin-left:auto;background:none;border:none;color:white;font-size:20px;cursor:pointer">×</button>
       </div>
@@ -722,7 +752,7 @@ export default class GameScene extends Phaser.Scene {
       const card=document.createElement('div');
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'');
       const col=this._css3(this._rosterColor(p));
-      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span><span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${p.position} · ${p.team||p.game}</div><div style="font-size:10px;opacity:.6">SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>`;
+      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span><span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${p.position} · ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>`;
       card.addEventListener('click',()=>{ if(inSquad.has(p.id)){this._showPlayerStats(p);return;} const slots=this._edSlots(), bench=this._edBench(); const e=slots.findIndex(s=>s===null); if(e!==-1){slots[e]=p.id;}else if(bench.size<BENCH_MAX){bench.add(p.id);} this._renderPitch();this._renderPickList(); });
       list.appendChild(card);
     });

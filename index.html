@@ -145,13 +145,16 @@
     }
     .preset-btns button.active { border-color: #ffd966; background: rgba(60,50,0,0.9); }
 
-    /* ---- your team / rival team tabs (squad editor) */
-    #squad-side-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+    /* ---- your team / rival team tabs, and formation / browse-players tabs (squad editor) */
+    #squad-side-tabs, #squad-view-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
     .squad-side-tab {
       padding: 8px 18px; border-radius: 8px; border: 2px solid white;
       background: rgba(20,20,20,0.85); color: white; font-size: 13px; font-weight: bold;
     }
     .squad-side-tab.active { border-color: #3399ff; background: rgba(20,60,100,0.9); }
+    .view-tab.active { border-color: #ffd966; background: rgba(70,58,0,0.9); }
+    #squad-players-view { display: none; width: 100%; }
+    #squad-players-view.active { display: block; }
 
     /* ---- topological squad editor */
     #squad-editor {
@@ -314,6 +317,14 @@
       Only used if you end up playing solo against the AI — comes pre-filled at random, tweak it or leave it as is.
     </p>
 
+    <!-- Switch between the pitch/bench view and the searchable player list —
+         both edit the same squad, this just decides which one is on screen,
+         so you're not scrolling past one to reach the other. -->
+    <div id="squad-view-tabs">
+      <button class="squad-side-tab view-tab active" data-view="formation">📋 Formation</button>
+      <button class="squad-side-tab view-tab" data-view="players">🔍 Browse Players</button>
+    </div>
+
     <!-- Topological pitch editor -->
     <div id="squad-editor" style="width:100%;max-width:500px;">
       <!-- Formation selector -->
@@ -354,14 +365,16 @@
     </div>
 
     <!-- Player search / list to pick from -->
-    <div id="squad-search-row">
-      <input id="squad-search" type="text" placeholder="Search player..." />
-      <select id="squad-game-filter"><option value="">All games</option></select>
-      <select id="squad-team-filter"><option value="">All teams</option></select>
-      <button id="squad-whole-team-btn" disabled>Use whole team</button>
+    <div id="squad-players-view">
+      <div id="squad-search-row">
+        <input id="squad-search" type="text" placeholder="Search player..." />
+        <select id="squad-game-filter"><option value="">All games</option></select>
+        <select id="squad-team-filter"><option value="">All teams</option></select>
+        <button id="squad-whole-team-btn" disabled>Use whole team</button>
+      </div>
+      <div id="pick-count"></div>
+      <div id="squad-pick-list"></div>
     </div>
-    <div id="pick-count"></div>
-    <div id="squad-pick-list"></div>
 
     <!-- Fixed confirm bar -->
     <div id="confirm-bar">

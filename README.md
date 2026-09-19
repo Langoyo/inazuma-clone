@@ -483,3 +483,20 @@ juego, como mucho al texto que se ve en el nombre de la técnica.
   su ficha y en las tarjetas del buscador de jugadores. El editor de
   plantilla también muestra la media del once que llevas armado ahora
   mismo, junto al contador de "X/11 filled".
+
+## Jugadores repetidos diferenciados, y separar formación de la lista de jugadores
+
+- **Sí había jugadores repetidos**: 157 nombres (349 fichas en total) aparecen
+  más de una vez en el roster — el mismo personaje una vez por cada juego
+  en el que salió (p.ej. Mark Evans en IE1 y en Ares), cada uno con sus
+  propias estadísticas. Ya estaban incluidos como fichas independientes,
+  pero como comparten el mismo equipo real ("Raimon", etc.) se veían
+  idénticos en las tarjetas. Ahora, solo para los nombres repetidos, se
+  añade el juego entre paréntesis ("Raimon (IE1)" / "Raimon (Ares)") para
+  distinguirlos de un vistazo; el resto de jugadores (no repetidos) se ven
+  igual que antes.
+- **Separar la formación de la lista de jugadores**: el editor de plantilla
+  tenía todo apilado en una sola pantalla larga. Ahora hay dos pestañas más
+  ("📋 Formation" / "🔍 Browse Players") para enseñar solo el campo+banquillo
+  o solo el buscador+lista, sin tener que hacer scroll de uno a otro.
+  Funciona igual en la pestaña de "Your Team" y en la de "Rival Team".
