@@ -572,3 +572,55 @@ se pierden.
 - **Separación de la línea de medio campo**: en los saques (inicio,
   reinicio tras gol, segunda parte) los jugadores ya no pueden quedarse
   pegados o justo encima de la línea — se añade un margen fijo a cada lado.
+
+## Más equipos reales, a partir de tu hoja jugador↔equipo
+
+Me pasaste `inazuma_eleven_relacion_jugador_equipo.xlsx`: 281 filas con
+Saga/Juego, Equipo, Nombre Español/Europa, Nombre Japonés y Demarcación,
+cubriendo IE1, IE2, IE3 y la trilogía GO. La crucé por nombre contra el
+roster (filtrando por el juego de cada fila) para ampliar la cobertura de
+`team`/`teamColor` más allá de los 976 jugadores que ya venían del Excel de
+manager anterior.
+
+- **Solo 140 de las 281 filas encontraron pareja exacta por nombre.** Las
+  otras 141 no son un fallo del cruce: muchas veces es el mismo personaje
+  con otra traducción del nombre entre esta hoja y el roster ya cargado
+  ("Timmy Sanders" en tu hoja / "Tim Saunders" en el roster; "Johan Taran" /
+  "Johan Tassman"), y otras veces son apodos de personajes disfrazados
+  (Occult, Instituto Wild) que el roster no tiene registrados con ese
+  alias. Probé un cruce "difuso" (por similitud de texto) para rescatar
+  estos casos y lo descarté: emparejaba nombres que no tienen nada que ver
+  entre sí solo por parecido superficial (p.ej. "Harry Potter" con "Barry
+  Potts"), así que antes prefiero dejarlos sin tocar que meter un dato
+  incorrecto.
+- **52 de esas 140 coincidencias ya tenían un equipo distinto** guardado
+  del Excel de manager anterior. Los revisé uno a uno: casi todos eran el
+  mismo equipo real con el nombre en otro formato (tu hoja trae el nombre
+  japonés entre paréntesis: "Royal" ya guardado / tu hoja "Royal Academy
+  (Teikoku)"; "Farm" / "Farm (Senbayama)"; "Orpheus" / "Orfeo (Italia)"…) —
+  en esos casos mantengo el nombre y color ya existentes para no duplicar
+  el filtro de equipo del editor de plantilla. Cuando de verdad era un
+  equipo distinto de la trama (p.ej. varios jugadores de Raimon en IE2
+  repartidos por error entre equipos que no pegan con esa parte de la
+  historia, cuando en realidad estaban secuestrados jugando para los
+  "Emperadores Oscuros"), uso el de tu hoja. Verifiqué cada fusión mirando
+  qué jugadores tenía ya cada equipo en el roster antes de unificar nada —
+  por ejemplo, descarté fusionar "Inazuma Japón" con el "Nihon" que ya
+  existía al comprobar que son dos plantillas de jugadores completamente
+  distintas.
+- **11 equipos nuevos** que no existían en el roster: Chrono Storm, Diamond
+  Dust, Earth Eleven, Dark Emperors (Emperadores Oscuros), Genesis,
+  Inazuma Japan, Prominence, Protocol Omega, The Lagoon, Gemini Storm y
+  Epsilon — la mayoría son los sub-equipos de Aliea Academy (IE2) y varios
+  equipos especiales de la trilogía GO. Tu hoja no trae colores, así que
+  les puse uno yo mismo (a diferencia de los equipos del Excel de manager,
+  que sí traía colores de camiseta reales).
+- **13 jugadores de la trilogía GO aparecen en más de un equipo** de tu
+  hoja (p.ej. Arion Sherwind juega tanto para "Raimon GO" como, más
+  adelante en la trama, para el equipo especial "Chrono Storm"), pero cada
+  ficha del roster solo admite un equipo. Me quedo con el que tu hoja
+  menciona primero para ese personaje, que siempre resulta ser su equipo
+  base/reconocible en vez del especial de un arco concreto.
+
+Resultado: **1056 jugadores del roster (de 4986) tienen ahora equipo real**,
+de **58 equipos** en total (antes 976 de 49).
