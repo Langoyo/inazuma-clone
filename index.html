@@ -219,6 +219,12 @@
       background: rgba(4,18,10,0.97); border-top: 1px solid rgba(255,255,255,0.18);
       padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 4px;
     }
+    /* ---- full-time screen */
+    #fulltime-score    { font-size: 40px; font-weight: bold; margin: 4px 0 6px; }
+    #fulltime-verdict  { font-size: 15px; color: #ffd966; margin-bottom: 20px; }
+    #fulltime-menu-btn { padding: 12px 26px; border-radius: 10px; border: none; background: #3399ff; color: white; font-weight: bold; font-size: 15px; }
+    #fulltime-countdown { font-size: 12px; opacity: 0.8; margin-top: 12px; }
+
     #confirm-squad-btn { padding: 10px 24px; border-radius: 10px; border: none; background: #3399ff; color: white; font-weight: bold; font-size: 14px; }
     #confirm-squad-btn:disabled { opacity: 0.38; }
     #squad-status { font-size: 12px; opacity: 0.85; }
@@ -268,6 +274,15 @@
     <h2 id="sub-panel-title">Tap a player on the pitch, then one on the bench</h2>
     <div id="sub-list-inner"></div>
     <button class="panel-close" id="sub-cancel-btn">Close</button>
+  </div>
+
+  <!-- ===================== FULL TIME ===================== -->
+  <div id="fulltime-panel" class="panel-overlay" style="justify-content:center;text-align:center;">
+    <h2 style="font-size:20px;">Full time</h2>
+    <div id="fulltime-score">0 - 0</div>
+    <div id="fulltime-verdict"></div>
+    <button id="fulltime-menu-btn">Back to the menu</button>
+    <div id="fulltime-countdown"></div>
   </div>
 
   <!-- ===================== SQUAD EDITOR (team select) ===================== -->

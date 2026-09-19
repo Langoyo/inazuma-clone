@@ -14,6 +14,14 @@ const VIEWPORT_W        = 480;   // canvas size — what the player actually see
 const VIEWPORT_H        = 760;
 const GOAL_HALF_WIDTH   = 70;
 const GOAL_CLICK_MARGIN = 80;
+// Room behind each goal line. The pitch itself still ends at the line, but the
+// camera may scroll past it, so the goal can sit in the middle of the screen
+// instead of jammed under the scoreboard or the PT bar. GOAL_DEPTH is how far
+// the goal box reaches back — a box is a far easier tap target than a line.
+const GOAL_RUNOFF       = 170;
+const GOAL_DEPTH        = 150;
+// How long the full-time screen stays up before it drops back to the menu.
+const FULLTIME_MENU_MS  = 9000;
 const WAYPOINT_RADIUS   = 20;
 const MIN_PATH_PT_DIST  = 18;
 const PLAYER_SEL_RADIUS = 36;
@@ -191,6 +199,11 @@ export default class GameScene extends Phaser.Scene {
     // device sees a wide window into the pitch instead of a portrait strip.
     this.FIELD_W = FIELD_LOGICAL_W;
     this.FIELD_H = FIELD_LOGICAL_H;
+    // The visible world is taller than the pitch: the run-off behind each goal
+    // is scenery the camera can reach, not playable space (physics bounds stay
+    // on the pitch below).
+    this.WORLD_Y_MIN = -GOAL_RUNOFF;
+    this.WORLD_Y_MAX = this.FIELD_H + GOAL_RUNOFF;
     this.VP_W    = this.scale.width  || VIEWPORT_W;
     this.VP_H    = this.scale.height || VIEWPORT_H;
     this.scale.on('resize', gameSize=>this._onResize(gameSize));
@@ -213,10 +226,11 @@ export default class GameScene extends Phaser.Scene {
     this.possRing=this.add.circle(0,0,20).setStrokeStyle(3,0xffd966).setFillStyle(0,0).setVisible(false).setDepth(4);
 
     // Camera setup: camera scrolls over the logical world
-    this.cameras.main.setBounds(0,0,this.FIELD_W,this.FIELD_H);
+    this.cameras.main.setBounds(0,this.WORLD_Y_MIN,this.FIELD_W,this.WORLD_Y_MAX-this.WORLD_Y_MIN);
     this.cameras.main.setSize(this.VP_W,this.VP_H);
-    this.cameras.main.scrollX=Phaser.Math.Clamp(this.FIELD_W/2-this.VP_W/2,0,Math.max(0,this.FIELD_W-this.VP_W));
-    this.cameras.main.scrollY=Phaser.Math.Clamp(this.FIELD_H/2-this.VP_H/2,0,Math.max(0,this.FIELD_H-this.VP_H));
+    this.cameras.main.scrollX=this.FIELD_W/2-this.VP_W/2;
+    this.cameras.main.scrollY=this.FIELD_H/2-this.VP_H/2;
+    this._clampScroll();
     this.scrollKeys={up:false,down:false,left:false,right:false};
     this.joyVec={x:0,y:0};
     this._setupScrollInput();
@@ -236,6 +250,7 @@ export default class GameScene extends Phaser.Scene {
     this.pendingFormChange=null;
 
     this.matchClock={half:1,secondsRemaining:HALF_S,ended:false};
+    this._fullTimeShown=false; this._fullTimeTimer=null;
     this.possRole=null; this.currentPossession=null;
     this.duelLockUntil=0; this.confrontation=null;
     this.confrontResult=null;
@@ -266,6 +281,7 @@ export default class GameScene extends Phaser.Scene {
 
     document.getElementById('conf-normal').addEventListener('pointerdown',(e)=>{e.stopPropagation();this.pendingChoice='normal';});
     document.getElementById('conf-technique').addEventListener('pointerdown',(e)=>{e.stopPropagation();this.pendingChoice='technique';});
+    document.getElementById('fulltime-menu-btn').addEventListener('click',()=>this._returnToMenu());
     document.getElementById('sub-button').addEventListener('click',()=>this._openSubPanel());
     document.getElementById('sub-cancel-btn').addEventListener('click',()=>{this.subSel=null;document.getElementById('sub-panel').style.display='none';});
 
@@ -297,6 +313,9 @@ export default class GameScene extends Phaser.Scene {
   // ════════════════════════════════════════════════════════════════════
   _drawField(){
     const w=this.FIELD_W, h=this.FIELD_H;
+    // Surround: the darker apron behind each goal, so the run-off reads as part
+    // of the ground rather than as empty space off the edge of the world.
+    this.add.rectangle(w/2,(this.WORLD_Y_MIN+this.WORLD_Y_MAX)/2,w,this.WORLD_Y_MAX-this.WORLD_Y_MIN,0x11512a).setDepth(-1);
     // Full field background
     this.add.rectangle(w/2,h/2,w,h,0x1e7a3c).setStrokeStyle(5,0xffffff).setDepth(0);
     // Halfway line
@@ -312,9 +331,15 @@ export default class GameScene extends Phaser.Scene {
 
   _drawGoals(){
     const w=this.FIELD_W, h=this.FIELD_H;
-    // Visual
-    this.add.rectangle(w/2,8,GOAL_HALF_WIDTH*2,12,0xffffff).setDepth(2);
-    this.add.rectangle(w/2,h-8,GOAL_HALF_WIDTH*2,12,0xffffff).setDepth(2);
+    // Visual: a box reaching back from the goal line into the run-off. Tapping
+    // a line was fiddly — anywhere in the box counts as "shoot here".
+    const box=(lineY,dir)=>{
+      const cy=lineY+dir*GOAL_DEPTH/2;
+      this.add.rectangle(w/2,cy,GOAL_HALF_WIDTH*2,GOAL_DEPTH,0xffffff,0.16).setStrokeStyle(4,0xffffff,0.9).setDepth(2);
+      for(let i=1;i<4;i++) this.add.rectangle(w/2-GOAL_HALF_WIDTH+i*(GOAL_HALF_WIDTH/2),cy,1,GOAL_DEPTH,0xffffff).setAlpha(0.28).setDepth(2);
+      this.add.rectangle(w/2,lineY,GOAL_HALF_WIDTH*2,6,0xffffff).setDepth(2);
+    };
+    box(0,-1); box(h,1);
     // Physics sensors
     this.goalMin=this.matter.add.rectangle(w/2,0,GOAL_HALF_WIDTH*2,16,{isSensor:true,isStatic:true,label:'goalMin',collisionFilter:{category:CAT_GOAL,mask:CAT_BALL}});
     this.goalMax=this.matter.add.rectangle(w/2,h,GOAL_HALF_WIDTH*2,16,{isSensor:true,isStatic:true,label:'goalMax',collisionFilter:{category:CAT_GOAL,mask:CAT_BALL}});
@@ -368,8 +393,15 @@ export default class GameScene extends Phaser.Scene {
   _onResize(gameSize){
     this.VP_W=gameSize.width; this.VP_H=gameSize.height;
     this.cameras.main.setSize(this.VP_W,this.VP_H);
-    this.cameras.main.scrollX=Phaser.Math.Clamp(this.cameras.main.scrollX,0,Math.max(0,this.FIELD_W-this.VP_W));
-    this.cameras.main.scrollY=Phaser.Math.Clamp(this.cameras.main.scrollY,0,Math.max(0,this.FIELD_H-this.VP_H));
+    this._clampScroll();
+  }
+
+  /** Keeps the camera inside the world, which now reaches past both goal lines
+   *  by GOAL_RUNOFF so the goals can be centred on screen. */
+  _clampScroll(){
+    const cam=this.cameras.main;
+    cam.scrollX=Phaser.Math.Clamp(cam.scrollX,0,Math.max(0,this.FIELD_W-this.VP_W));
+    cam.scrollY=Phaser.Math.Clamp(cam.scrollY,this.WORLD_Y_MIN,Math.max(this.WORLD_Y_MIN,this.WORLD_Y_MAX-this.VP_H));
   }
 
   _tickScroll(delta){
@@ -379,8 +411,8 @@ export default class GameScene extends Phaser.Scene {
     const ky=(this.scrollKeys.up?-1:0)+(this.scrollKeys.down?1:0);
     const vx=Phaser.Math.Clamp(kx+this.joyVec.x,-1,1);
     const vy=Phaser.Math.Clamp(ky+this.joyVec.y,-1,1);
-    cam.scrollX=Phaser.Math.Clamp(cam.scrollX+vx*spd,0,Math.max(0,this.FIELD_W-this.VP_W));
-    cam.scrollY=Phaser.Math.Clamp(cam.scrollY+vy*spd,0,Math.max(0,this.FIELD_H-this.VP_H));
+    cam.scrollX+=vx*spd; cam.scrollY+=vy*spd;
+    this._clampScroll();
   }
 
   /** Convert screen (pointer) coords to world coords accounting for camera. */
@@ -913,7 +945,9 @@ export default class GameScene extends Phaser.Scene {
     if(!this.matchStarted||this.matchClock.ended) return;
     const w=this._toWorld(pointer.x,pointer.y);
     if(this._iHavePossession()&&this._inGoalRegion(w)&&!this.confrontation){ this.pendingShoot=true; return; }
-    if(this.confrontation) return;
+    // Play is frozen during a confrontation, but drawing runs still works —
+    // it's the natural moment to set up where everyone goes next. Only the
+    // tap-to-pass in _pointerUp stays disabled until the duel resolves.
     this.gestureStart={x:w.x,y:w.y,sx:pointer.x,sy:pointer.y}; this.gestureMoved=false;
     const myTeam=this.role==='A'?this.teamA:this.teamB;
     let nearest=null, nearestD=PLAYER_SEL_RADIUS;
@@ -945,7 +979,11 @@ export default class GameScene extends Phaser.Scene {
     const half=this.FIELD_W/2;
     const towardMax=this.role==='B'; // A attacks toward y=0 now, B toward y=FIELD_H
     const withinX=Math.abs(w.x-half)<GOAL_HALF_WIDTH+40;
-    return withinX&&(towardMax?w.y>this.FIELD_H-GOAL_CLICK_MARGIN:w.y<GOAL_CLICK_MARGIN);
+    // Reaches from just in front of the line all the way back through the goal
+    // box, so the whole rectangle is a shooting tap.
+    return withinX&&(towardMax
+      ? w.y>this.FIELD_H-GOAL_CLICK_MARGIN&&w.y<this.WORLD_Y_MAX
+      : w.y<GOAL_CLICK_MARGIN&&w.y>this.WORLD_Y_MIN);
   }
   _iHavePossession(){ return this.currentPossession===this.role; }
 
@@ -1295,7 +1333,42 @@ export default class GameScene extends Phaser.Scene {
     }
   }
   static _fmtClock(s){ s=Math.max(0,Math.ceil(s)); const m=Math.floor(s/60),r=s%60; return `${m}:${r<10?'0':''}${r}`; }
-  _renderClock(c){ if(!c) return; document.getElementById('match-clock').textContent=c.ended?'Full time':`${c.half===1?'1st':'2nd'} half — ${GameScene._fmtClock(c.secondsRemaining)}`; }
+  _renderClock(c){
+    if(!c) return;
+    document.getElementById('match-clock').textContent=c.ended?'Full time':`${c.half===1?'1st':'2nd'} half — ${GameScene._fmtClock(c.secondsRemaining)}`;
+    if(c.ended) this._showFullTime();
+  }
+
+  /** Full time: show the final score, then drop back to the start menu. The
+   *  reset is a reload on purpose — every control in the menu is bound to this
+   *  scene instance, so rebuilding a match in place would leave the old
+   *  bindings behind. The room code lives in the URL, so it survives. */
+  _showFullTime(){
+    if(this._fullTimeShown) return;
+    this._fullTimeShown=true;
+    const scoreTxt=document.querySelector('#scoreboard .score').textContent;
+    const [a,b]=scoreTxt.split('-').map(n=>parseInt(n,10)||0);
+    const mine=this.role==='A'?a:b, theirs=this.role==='A'?b:a;
+    document.getElementById('fulltime-score').textContent=scoreTxt;
+    document.getElementById('fulltime-verdict').textContent=mine>theirs?'You win!':mine<theirs?'You lose':'Draw';
+    document.getElementById('confrontation-ui').style.display='none';
+    document.getElementById('duel-reveal').style.display='none';
+    document.getElementById('fulltime-panel').style.display='flex';
+    const cd=document.getElementById('fulltime-countdown');
+    let left=Math.round(FULLTIME_MENU_MS/1000);
+    const tick=()=>{
+      if(left<=0){ this._returnToMenu(); return; }
+      cd.textContent=`Back to the menu in ${left}s…`;
+      left-=1;
+    };
+    tick();
+    this._fullTimeTimer=setInterval(tick,1000);
+  }
+
+  _returnToMenu(){
+    if(this._fullTimeTimer){ clearInterval(this._fullTimeTimer); this._fullTimeTimer=null; }
+    window.location.reload();
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // Main loop
