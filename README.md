@@ -447,3 +447,39 @@ juego, como mucho al texto que se ve en el nombre de la técnica.
   supertécnica), pero ahora es una decisión real en vez de una opción
   oculta: sirve para guardarse los PT si el jugador prefiere no arriesgar
   la técnica en ese momento.
+
+## Sprint ligado a la estamina, reposicionar en directo, líneas que no se lían, media de jugador/equipo
+
+- **El sprint al dibujar una línea ya no es tan bestia**, y encima baja con
+  la estamina: a tope de condición física da un +18% de velocidad punta
+  (antes +35%, demasiado), y ese extra se va reduciendo a medida que el
+  jugador se cansa hasta desaparecer del todo con la estamina a cero — no
+  es solo el tope de velocidad general el que baja con el cansancio, el
+  propio impulso del sprint también.
+- **Reposicionar jugadores en directo**: en el panel de equipo durante el
+  partido, tocar dos jugadores del campo (en vez de uno del campo y otro
+  del banquillo) intercambia sus posiciones — sin resetear su PT ni su
+  condición física, porque a diferencia de un cambio, ninguno de los dos
+  viene fresco del banquillo.
+- **Arreglado el bug de la línea que hacía una V**: si tocabas para
+  dibujar una línea sin acertar exactamente encima del jugador (o el toque
+  no encontraba a nadie cerca y caía en el jugador activo, que podía estar
+  lejos), el primer tramo de la línea salía desde el punto exacto donde
+  tocaste en vez de desde donde estaba el jugador — así que primero corría
+  hacia ese punto y luego volvía hacia donde realmente habías dibujado.
+  Ahora la línea siempre arranca desde la posición real del jugador.
+- **Las líneas que se dibujan solas ya no son líneas**: cuando el jugador
+  agota tu línea dibujada y sigue corriendo por su cuenta hacia adelante
+  (mientras el equipo tiene el balón), eso ya no se pinta como una línea
+  amarilla — solo un puntito tenue en el destino, para que no se confunda
+  con algo que tú mismo dibujaste.
+- **Saque de centro dentro de tu campo**: al empezar el partido, tras un
+  gol o en la segunda parte, los once de cada equipo se colocan ahora
+  siempre dentro de su propia mitad — antes el sesgo que empuja a los
+  jugadores hacia el balón durante el juego normal podía dejar a algún
+  delantero un poco pasado de la línea de medio campo incluso en el saque.
+- **Media de jugador y de equipo**: cada jugador tiene ahora una nota
+  (30-99) calculada a partir de sus 5 estadísticas de combate, visible en
+  su ficha y en las tarjetas del buscador de jugadores. El editor de
+  plantilla también muestra la media del once que llevas armado ahora
+  mismo, junto al contador de "X/11 filled".
