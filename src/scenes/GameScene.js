@@ -91,8 +91,8 @@ const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 // couldn't get there with any urgency.
 const STEER_FORCE           = 0.00034;
 const AUTO_STEER_FORCE      = 0.00032;
-const BASE_MAX_SPEED        = 0.72;
-const AUTO_MAX_SPEED        = 0.66;
+const BASE_MAX_SPEED        = 0.684; // was 0.72, -5% per user feedback that speed was still too high
+const AUTO_MAX_SPEED        = 0.627; // was 0.66, same -5%
 // A player following a drawn line sprints: draw somewhere and it's a
 // deliberate run, so they push harder and cap out faster than everyone
 // else — but only as much as their legs currently allow. The bonus scales
@@ -117,6 +117,10 @@ const SLOT_Y_MIN  = 0.06;
 const SLOT_Y_MAX  = 0.66;
 const FORM_DEEPEST = 0.05;  // fraction of pitch length, measured from own goal
 const FORM_HIGHEST = 0.84;
+// Gap kept from the halfway line at kickoff/restart (goal, half-time) so
+// both lines sit a little clear of it instead of players bunching right up
+// against — or exactly on — the line itself.
+const KICKOFF_HALF_GAP = 28;
 
 // A loose ball is worth breaking shape for — whoever is closest chases it
 // down at full speed, as does anyone it has been played right next to.
@@ -131,7 +135,8 @@ const KEEPER_CHASE_RANGE = 130;
 const AI_LEVELS = {
   easy:   { techChance:0.25, shootRange:190, shootChance:0.10, passChance:0.006 },
   normal: { techChance:0.45, shootRange:300, shootChance:0.35, passChance:0.012 },
-  hard:   { techChance:0.70, shootRange:420, shootChance:0.70, passChance:0.022 }
+  hard:   { techChance:0.70, shootRange:420, shootChance:0.70, passChance:0.022 },
+  expert: { techChance:0.88, shootRange:520, shootChance:0.90, passChance:0.032 }
 };
 const AI_LEVEL_DEFAULT = 'normal';
 
@@ -513,26 +518,34 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-search').addEventListener('input',()=>this._renderPickList());
     document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickList());
     document.getElementById('squad-team-filter').addEventListener('change',()=>this._renderPickList());
+    document.getElementById('squad-sort-select').addEventListener('change',()=>this._renderPickList());
     document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
+    document.getElementById('squad-place-cancel-btn').addEventListener('click',()=>{ this._squadSel=null; this._renderPitch(); this._renderPickList(); });
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
     document.querySelectorAll('#squad-side-tabs .squad-side-tab').forEach(btn=>btn.addEventListener('click',()=>this._setEditSide(btn.dataset.side)));
-    document.querySelectorAll('.view-tab').forEach(btn=>btn.addEventListener('click',()=>this._setSquadView(btn.dataset.view)));
+    document.querySelectorAll('.view-tab').forEach(btn=>btn.addEventListener('click',()=>this._toggleSquadSection(btn.dataset.view)));
     // Give the rival a full, position-aware random XI up front — it plays
     // fine untouched, and is only ever used solo vs AI.
     this.editSide='rival'; this._fillSquadByPosition(this.rosterAll); this.editSide='me';
-    this._setSquadView('formation');
+    this.squadSectionOpen={formation:true,players:true};
+    this._applySquadSectionVisibility();
     this._renderPitch(); this._renderPickList();
   }
 
-  /** Switches which half of the squad editor is on screen — the pitch/bench
-   *  ("formation") or the searchable player list ("players") — so mobile
-   *  isn't stuck scrolling past one to reach the other. Both edit the same
-   *  squad; this changes nothing about which side (me/rival) is active. */
-  _setSquadView(view){
-    this.squadView=view;
-    document.getElementById('squad-editor').style.display=view==='formation'?'block':'none';
-    document.getElementById('squad-players-view').classList.toggle('active',view==='players');
-    document.querySelectorAll('.view-tab').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
+  /** The pitch/bench ("formation") and the searchable player list ("players")
+   *  are independent collapsible sections, both open by default so a player
+   *  picked from the list can be tapped straight onto a pitch/bench spot
+   *  without switching views first. Collapsing one just frees up screen
+   *  space; it doesn't affect which side (me/rival) is being edited. */
+  _toggleSquadSection(view){
+    this.squadSectionOpen[view]=!this.squadSectionOpen[view];
+    this._applySquadSectionVisibility();
+  }
+  _applySquadSectionVisibility(){
+    const open=this.squadSectionOpen;
+    document.getElementById('squad-editor').classList.toggle('hidden-section',!open.formation);
+    document.getElementById('squad-players-view').classList.toggle('hidden-section',!open.players);
+    document.querySelectorAll('.view-tab').forEach(b=>b.classList.toggle('active',!!open[b.dataset.view]));
   }
 
   // ---- which side ("me"/"rival") the pitch editor currently shows -------
@@ -631,10 +644,17 @@ export default class GameScene extends Phaser.Scene {
     const btn=document.getElementById('confirm-squad-btn');
     btn.textContent=`Confirm squad (${myFilled}/11)`; btn.disabled=myFilled!==TEAM_SIZE;
     // Offer the remove action only while a selected pin actually holds someone
-    const selP=sel?this._squadSelPlayer(sel):null;
+    // already in the squad — a 'pool' selection (a list pick armed for
+    // placement) isn't in the squad yet, so there's nothing to remove, just
+    // a hint about where it'll go.
+    const selP=(sel&&sel.type!=='pool')?this._squadSelPlayer(sel):null;
     const bar=document.getElementById('squad-remove-bar');
     bar.style.display=selP?'flex':'none';
     if(selP) document.getElementById('squad-remove-btn').textContent=`✕ Remove ${selP.nickname||selP.name}`;
+    const poolP=(sel&&sel.type==='pool')?getPlayerById(sel.id):null;
+    const hint=document.getElementById('squad-place-hint');
+    hint.style.display=poolP?'flex':'none';
+    if(poolP) document.getElementById('squad-place-hint-name').textContent=poolP.nickname||poolP.name;
   }
 
   /** Team/game line for a card — with the game tag added whenever this
@@ -704,16 +724,25 @@ export default class GameScene extends Phaser.Scene {
     el.style.display='block';
   }
 
-  // Tap-to-swap: tap a pin to select it, tap a different one to swap them,
-  // tap the same one again to view its stats. Replaces drag-and-drop, which
-  // was unreliable on touch (lost pointer capture, accidental scrolling).
+  // Tap-to-swap: tap a pin (or a not-yet-picked player card) to select it,
+  // tap a different one to swap/place them, tap the same one again to view
+  // its stats. Replaces drag-and-drop, which was unreliable on touch (lost
+  // pointer capture, accidental scrolling). A 'pool' selection is a player
+  // from the search list who isn't in the squad yet — placing them onto a
+  // slot/bench spot works whether or not that spot is already occupied.
   _squadSel=null;
   _onSquadPinClick(sel){
-    if(!this._squadSel){ this._squadSel=sel; this._renderPitch(); return; }
+    if(!this._squadSel){ this._squadSel=sel; this._renderPitch(); this._renderPickList(); return; }
     if(this._squadSel.type===sel.type&&(sel.type==='slot'?this._squadSel.slot===sel.slot:this._squadSel.id===sel.id)){
       const p=this._squadSelPlayer(sel);
-      this._squadSel=null; this._renderPitch();
+      this._squadSel=null; this._renderPitch(); this._renderPickList();
       if(p) this._showPlayerStats(p);
+      return;
+    }
+    if(this._squadSel.type==='pool'&&sel.type==='pool'){
+      // Picking a second, still-unassigned player just re-arms the
+      // selection to them instead of a meaningless pool-to-pool "swap".
+      this._squadSel=sel; this._renderPitch(); this._renderPickList();
       return;
     }
     this._swapSquadSelections(this._squadSel,sel);
@@ -724,8 +753,36 @@ export default class GameScene extends Phaser.Scene {
     const id=sel.type==='slot'?this._edSlots()[sel.slot]:sel.id;
     return id?getPlayerById(id):null;
   }
+  /** Maps a roster player to whichever selection they currently represent —
+   *  their pitch slot, their bench spot, or 'pool' if they're not in the
+   *  squad at all — so a card in the search list is, for selection purposes,
+   *  the exact same thing as tapping that player's own pin would be. */
+  _squadSelForPlayer(p){
+    const slotIdx=this._edSlots().indexOf(p.id);
+    if(slotIdx!==-1) return {type:'slot',slot:slotIdx};
+    if(this._edBench().has(p.id)) return {type:'bench',id:p.id};
+    return {type:'pool',id:p.id};
+  }
+  _selMatchesPlayer(sel,p){
+    if(!sel) return false;
+    return sel.type==='slot'?this._edSlots()[sel.slot]===p.id:sel.id===p.id;
+  }
   _swapSquadSelections(a,b){
     const slots=this._edSlots(), bench=this._edBench();
+    if(a.type==='pool'||b.type==='pool'){
+      const poolSel=a.type==='pool'?a:b, target=a.type==='pool'?b:a;
+      if(target.type==='slot'){
+        const cur=slots[target.slot];
+        slots[target.slot]=poolSel.id;
+        // The displaced starter goes to the bench if there's room, otherwise
+        // they're simply dropped from the squad (same as hitting Remove).
+        if(cur&&!bench.has(cur)&&bench.size<BENCH_MAX) bench.add(cur);
+      } else {
+        bench.delete(target.id);
+        bench.add(poolSel.id);
+      }
+      return;
+    }
     if(a.type==='slot'&&b.type==='slot'){
       const tmp=slots[a.slot]; slots[a.slot]=slots[b.slot]; slots[b.slot]=tmp;
     } else if(a.type==='bench'&&b.type==='bench'){
@@ -739,21 +796,44 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Sort comparators for the search list — stats sort strongest-first, name
+   *  and position sort alphabetically. */
+  _pickListSorters(){
+    const byName=(a,b)=>(a.nickname||a.name).localeCompare(b.nickname||b.name);
+    return {
+      rating:  (a,b)=>this._playerRating(b)-this._playerRating(a)||byName(a,b),
+      name:    byName,
+      position:(a,b)=>(a.position||'').localeCompare(b.position||'')||byName(a,b),
+      speed:       (a,b)=>b.stats.speed-a.stats.speed||byName(a,b),
+      shotPower:   (a,b)=>b.stats.shotPower-a.stats.shotPower||byName(a,b),
+      dribblePower:(a,b)=>b.stats.dribblePower-a.stats.dribblePower||byName(a,b),
+      defensePower:(a,b)=>b.stats.defensePower-a.stats.defensePower||byName(a,b),
+      keeperPower: (a,b)=>b.stats.keeperPower-a.stats.keeperPower||byName(a,b),
+    };
+  }
   _renderPickList(){
     const list=document.getElementById('squad-pick-list');
     const q=(document.getElementById('squad-search').value||'').toLowerCase();
     const gf=document.getElementById('squad-game-filter').value;
     const tf=document.getElementById('squad-team-filter').value;
+    const sortKey=document.getElementById('squad-sort-select').value;
     const inSquad=this._allInSquad(); const MAX=120;
+    const sel=this._squadSel;
     const matches=this.rosterAll.filter(p=>(!gf||p.game===gf)&&(!tf||p.team===tf)&&(!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q)));
+    const sorters=this._pickListSorters();
+    matches.sort(sorters[sortKey]||sorters.rating);
     document.getElementById('pick-count').textContent=matches.length>MAX?`Showing ${MAX} of ${matches.length}`:`${matches.length} players`;
     list.innerHTML='';
     matches.slice(0,MAX).forEach(p=>{
       const card=document.createElement('div');
-      card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'');
+      const isSel=this._selMatchesPlayer(sel,p);
+      card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'')+(isSel?' selected':'');
       const col=this._css3(this._rosterColor(p));
       card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span><span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${p.position} · ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>`;
-      card.addEventListener('click',()=>{ if(inSquad.has(p.id)){this._showPlayerStats(p);return;} const slots=this._edSlots(), bench=this._edBench(); const e=slots.findIndex(s=>s===null); if(e!==-1){slots[e]=p.id;}else if(bench.size<BENCH_MAX){bench.add(p.id);} this._renderPitch();this._renderPickList(); });
+      // A list card is, for selection purposes, exactly the pin it maps to
+      // (pitch slot / bench / pool) — tap to select, tap the same card again
+      // to see its full stats, tap a different target to swap/place.
+      card.addEventListener('click',()=>this._onSquadPinClick(this._squadSelForPlayer(p)));
       list.appendChild(card);
     });
     document.getElementById('squad-whole-team-btn').disabled=!gf&&!tf;
@@ -930,7 +1010,7 @@ export default class GameScene extends Phaser.Scene {
     // before a whistle, where drifting a forward across it looks wrong.
     if(clampOwnHalf){
       const half=pSize/2;
-      primary = role==='A' ? Math.max(primary,half) : Math.min(primary,half);
+      primary = role==='A' ? Math.max(primary,half+KICKOFF_HALF_GAP) : Math.min(primary,half-KICKOFF_HALF_GAP);
     }
     return {x:secondary, y:primary};
   }
@@ -1565,7 +1645,10 @@ export default class GameScene extends Phaser.Scene {
   _onGoal(scorer){
     this.score[scorer]+=1;
     document.querySelector('#scoreboard .score').textContent=`${this.score.a} - ${this.score.b}`;
-    this.possRole=null;
+    // Standard kickoff rule: whoever conceded restarts with the ball,
+    // rather than leaving possession unclaimed for whoever's body happens
+    // to reach the centre spot first.
+    this.possRole=scorer==='a'?'B':'A';
     this._endPassFlight();
     this.matter.body.setPosition(this.ball,{x:this.FIELD_W/2,y:this.FIELD_H/2});
     this.matter.body.setVelocity(this.ball,{x:0,y:0});

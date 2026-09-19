@@ -523,3 +523,52 @@ arrancaba justo en el frame en que tocaba aplicar el cambio, la petición se
 perdía para siempre. Ahora las sustituciones y reposicionamientos se
 procesan siempre, pase lo que pase con los enfrentamientos, así que ya no
 se pierden.
+
+## Velocidad general un 5% más baja, más dificultad de IA, y editor de plantilla combinado
+
+- **Velocidad**: seguía pareciendo demasiado alta incluso después del ajuste
+  del sprint, así que bajé el techo de velocidad general (afecta a todo el
+  mundo por igual, con o sin sprint) otro 5% — de 0.72 a 0.684 para el
+  jugador con el balón/objetivo activo, y de 0.66 a 0.627 para el movimiento
+  automático sin balón.
+- **Nivel de IA "Expert"**: se añade un cuarto nivel por encima de "Hard" que
+  sigue la misma filosofía que los demás (decisiones más agudas, no más
+  velocidad bruta) — usa supertécnicas con más frecuencia, dispara desde
+  más lejos, tira el gatillo casi siempre que tiene ángulo y busca el pase
+  algo más a menudo.
+- **Editor de plantilla: campo y lista de jugadores a la vez**: las pestañas
+  "📋 Formation" / "🔍 Browse Players" ya no son exclusivas — ahora son dos
+  secciones independientes que se muestran las dos por defecto, y cada botón
+  solo colapsa la suya si hace falta más sitio en pantalla. Con las dos
+  visibles a la vez ahora se puede tocar un jugador de la lista y luego tocar
+  directamente un puesto del campo (o del banquillo) para colocarlo ahí,
+  esté ocupado o no — si el puesto ya tenía a alguien, ese jugador baja al
+  banquillo (o se descarta de la plantilla si el banquillo ya está lleno).
+  Un aviso junto al campo indica a quién se está colocando y permite
+  cancelar la selección.
+
+## Lista de jugadores: orden, y ficha completa con doble toque
+
+- **Sort**: la lista de jugadores para elegir plantilla tiene ahora un
+  desplegable de orden — Rating (por defecto), Nombre, Posición, o cada
+  estadística de combate (Velocidad, Tiro, Regate, Defensa, Portero) de
+  mayor a menor.
+- **Las tarjetas de la lista funcionan igual que las fichas del campo**:
+  antes, tocar un jugador ya fichado enseñaba sus estadísticas al momento
+  (un solo toque), y tocar uno sin fichar lo colocaba directamente. Ahora
+  cualquier tarjeta de la lista — esté ya en la plantilla o no — se
+  selecciona con un toque (igual que un pin del campo o del banquillo), un
+  segundo toque sobre la misma tarjeta enseña la ficha completa, y tocar
+  una tarjeta distinta después la intercambia/coloca en consecuencia. Esto
+  además permite intercambiar dos titulares directamente desde la lista,
+  sin tener que buscarlos en el campo.
+
+## Posesión tras gol, y algo más de separación en el saque de centro
+
+- **Posesión tras gol**: al marcar, la posesión pasaba a "nadie" y se la
+  quedaba quien tocara antes el balón en el saque — ahora se asigna
+  explícitamente al equipo que ha encajado el gol, como marca la regla real
+  del saque de centro.
+- **Separación de la línea de medio campo**: en los saques (inicio,
+  reinicio tras gol, segunda parte) los jugadores ya no pueden quedarse
+  pegados o justo encima de la línea — se añade un margen fijo a cada lado.
