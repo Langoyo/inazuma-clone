@@ -823,8 +823,13 @@ export default class GameScene extends Phaser.Scene {
         collisionFilter:{category:CAT_PLAYER,mask:CAT_BALL|CAT_DEFAULT}}):null;
       if(body) this.bodyOwner.set(body,{role,id});
       const gfx=this.add.circle(pos.x,pos.y,12,tColor).setDepth(5);
+      // Plain white, no stroke — a 3px black outline on 7px text was almost
+      // as thick as the letters themselves and read as a black blob. A soft
+      // shadow instead gives just enough contrast against the grass without
+      // swallowing the glyphs.
       const label=this.add.text(pos.x,pos.y+15,rp.nickname||rp.name,
-        {fontSize:'7px',color:'#fff',stroke:'#000',strokeThickness:3,resolution:3}).setOrigin(.5,0).setDepth(6);
+        {fontSize:'7px',color:'#fff',resolution:3}).setOrigin(.5,0).setDepth(6)
+        .setShadow(0,1,'#000',2,false,true);
       team.push({id,body,gfx,label,slot,wanderPhase:Math.random()*Math.PI*2});
       const st=createPlayerStats(); applyRosterPlayerToStats(st,rp); map.set(id,st);
     });

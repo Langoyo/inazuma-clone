@@ -500,3 +500,11 @@ juego, como mucho al texto que se ve en el nombre de la técnica.
   ("📋 Formation" / "🔍 Browse Players") para enseñar solo el campo+banquillo
   o solo el buscador+lista, sin tener que hacer scroll de uno a otro.
   Funciona igual en la pestaña de "Your Team" y en la de "Rival Team".
+
+## Nombres de jugador legibles en el campo
+
+El texto bajo cada jugador tenía un borde negro de 3px sobre una letra de
+solo 7px — casi tan grueso como la propia letra, así que se veía como un
+borrón negro con un hilo blanco en medio. Ahora es blanco liso con una
+sombra suave (en vez de un contorno duro), que da el contraste justo
+contra el césped sin comerse el texto.
