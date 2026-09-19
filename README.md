@@ -314,3 +314,91 @@ comparte o lo sube a un repo público en inglés.
 5. IA más avanzada: hoy es un conjunto de reglas simples; se podría variar
    la dificultad según las estadísticas del jugador rival, o añadir más
    variedad táctica (presión, contraataque...).
+
+## Estadísticas al nivel 99: nuevo Excel, más mecánicas de tiro
+
+Me pasaste un PDF (`Inazuma_Eleven_level_99_stats.pdf`, una recopilación de
+fan con las estadísticas al nivel máximo de miles de personajes, en tres
+formatos de columnas distintos según la época) para que el roster reflejara
+esos números en vez de los que ya había.
+
+### Cómo lo procesé
+El PDF no tiene tablas de verdad (es texto con columnas alineadas por
+espacios, y a veces ni eso: dos técnicas seguidas quedan pegadas sin
+espacio si sus columnas coinciden en ancho). Para no adivinar a ciegas:
+
+1. Extraje las ~2841 filas válidas con un parser que detecta las 3
+   variantes de columnas (7, 8 o 9 estadísticas según la página).
+2. Para separar las 4 técnicas de cada jugador (a veces pegadas entre sí),
+   monté un diccionario con los **526 nombres de técnica que ya existían**
+   en el roster (con su categoría — shot/dribble/defense/keeper — ya
+   correcta) y usé segmentación por diccionario (como separar palabras en
+   un idioma sin espacios) para partir el texto por los nombres reales que
+   reconocía. Cubrió el 74% de las técnicas directamente.
+3. Para las técnicas que no reconocía, entrené un clasificador simple
+   sobre qué palabras predicen cada categoría a partir de esos mismos 526
+   nombres ya etiquetados (p.ej. "hand"/"catch"/"knuckle" → keeper,
+   "slide"/"sumo"/"cyclone" → defense), con la posición del jugador como
+   respaldo si ninguna palabra es concluyente.
+4. Emparejé cada fila del PDF con el roster **por nombre**. De las 2841
+   filas, 2169 encontraron jugador (algunos nombres del PDF son personajes
+   inventados por el propio fan, esos los dejé fuera) — en total **1959
+   jugadores del roster (de 4986) actualizados** con sus stats, técnicas,
+   PT y condición física reales de este documento. El resto conserva lo
+   que ya tenía.
+
+### Qué cambió en cada jugador actualizado
+- **Estadísticas de combate**: `shotPower` ← Kick, `dribblePower` ← media
+  de Body/Control (o Dribbling/Technique en el formato más reciente),
+  `defensePower` ← Guard/Block, `keeperPower` ← Guts/Catch, todas
+  normalizadas de forma que la media siga rondando 1.0 (mismo criterio que
+  las normalizaciones anteriores), aunque ahora el rango es algo más
+  amplio (0.3–1.8) porque el nivel 99 trae más variedad real entre
+  personajes.
+- **4 técnicas por jugador**, no solo 1 por categoría: si dos de sus 4
+  movimientos caen en la misma categoría, la de más potencia es la que se
+  puede usar en el partido y la otra queda guardada en
+  `techniquesExtra` (visible en los datos, no todavía en el panel de
+  jugador) — así el dato está completo aunque el combate siga siendo 1
+  supertécnica activa por categoría, como en los juegos originales.
+- **PT (`maxSP`) es ahora una estadística real por jugador**, sacada de la
+  columna TP del documento (antes todos tenían 100 fijo).
+- **Condición física (`maxStamina`)**, sacada de la columna FP — nueva,
+  alimenta el cansancio (ver debajo).
+
+### Cansancio
+Cada jugador tiene ahora una condición física que se agota a un ritmo fijo
+durante todo el partido (da igual la mitad); solo el tamaño del depósito
+cambia según su FP. Por debajo del 40% de su máximo, la velocidad empieza
+a bajar suavemente hasta quedarse en un 55% cuando se vacía del todo. Un
+cambio (sustitución) es la única forma de que un jugador salga con las
+piernas frescas otra vez. Se ve un indicador nuevo junto al PT ("STA: x%",
+en rojo si está bajo).
+
+### El tiro pierde fuerza con la distancia
+Un chute cerca del área sale a plena potencia; a partir de ahí la potencia
+baja de forma progresiva hasta quedarse en un 45% a partir de los ~900px
+(casi la longitud del campo). Un penalti nunca se ve afectado por esto
+(siempre se tira desde el punto de penalti a la potencia que le
+corresponda por la distancia real, sin límite artificial).
+
+### Bloqueo de tiros lejanos
+Si el tiro es "de lejos" (más de 320px) y hay un defensor rival plantado
+cerca de la línea recta entre el tirador y la portería (no el portero —
+él sigue siendo la última línea), antes de llegar al portero se dispara un
+enfrentamiento de **bloqueo**: el defensor puede gastar PT en una
+supertécnica de defensa para intentar frenarlo del todo. Si gana el
+defensor, el balón queda suelto a sus pies y cambia la posesión. Si gana
+el atacante, el tiro sigue su curso hacia el portero, pero con un 20% menos
+de potencia todavía (ya iba debilitado por la distancia, y encima ha
+rozado a un defensor) — se encadena automáticamente en el duelo normal de
+tiro contra el portero, con su propia pantalla de VS.
+
+### Limitación conocida
+El PDF es una recopilación de fan, con calidad de datos variable —
+personajes con formas "especiales"/evolucionadas (con nombres de técnica
+muy estilizados, números romanos, kanji suelto...) a veces generan un
+nombre de técnica algo deformado en los datos "no reconocidos" (por
+ejemplo, un fragmento de nombre roto). Es un puñado de casos dentro de los
+casi 4300 movimientos activos asignados — no afecta al equilibrio del
+juego, como mucho al texto que se ve en el nombre de la técnica.
