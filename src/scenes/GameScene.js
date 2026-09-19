@@ -22,7 +22,15 @@ const CONFRONT_MS       = 20000;
 const RESULT_MS         = 3500;
 const RESULT_DELAY_MS   = 800;
 const POSSESS_OFFSET    = 24;
-const PASS_SPEED        = 4.5;
+// The ball's air friction decays its speed geometrically, so a kick covers
+// roughly speed/BALL_FRICTION_AIR before dying. Passes therefore scale their
+// speed to the distance instead of using one fixed value — at a flat 4.5 a
+// pass always died after ~250px, well short of anything but a short ball.
+// Kept in one place so the ball body and the pass maths can't drift apart.
+const BALL_FRICTION_AIR = 0.018;
+const PASS_REACH_BOOST  = 1.12;  // arrive with a bit of pace rather than stopping dead
+const PASS_MIN_SPEED    = 3.0;
+const PASS_MAX_SPEED    = 16;    // below the ball+player radius sum, so it can't tunnel through anyone
 const KNOCKBACK_SPEED   = 1.8;   // was 4 — nearly as fast as a pass, which could fling the
                                   // ball if it clipped the ball on the way (see _moveTeam's
                                   // stun handling, which also keeps the ball from hitting them)
@@ -48,6 +56,41 @@ const AUTO_MAX_SPEED        = 0.66;
 const SUPPORT_BLEND  = 0.65;
 const PRESS_BLEND    = 0.5;
 const PRESS_RANGE    = 260;
+
+// The formation spans the whole pitch, not just the defending half: the
+// deepest slot sits on its own goal line and the most advanced one pushes
+// up near the rival box, so defenders/midfielders/forwards end up in their
+// own thirds and there's room between the lines to actually pass into.
+// SLOT_Y_* is the range the FORMATIONS presets below are authored in.
+const SLOT_Y_MIN  = 0.06;
+const SLOT_Y_MAX  = 0.66;
+const FORM_DEEPEST = 0.05;  // fraction of pitch length, measured from own goal
+const FORM_HIGHEST = 0.84;
+
+// A loose ball is worth breaking shape for — whoever is closest chases it
+// down at full speed, as does anyone it has been played right next to.
+const BALL_CHASE_RANGE   = 210;
+const KEEPER_CHASE_RANGE = 130;
+
+// Fouls are meant to be a rare punctuation, not a regular interruption:
+// roughly one duel in a hundred, a little more often for weaker defenders.
+// Set FOUL_CHANCE_BASE to 0 to turn fouls (and so cards/penalties) off.
+const FOUL_CHANCE_BASE = 0.01;
+const FOUL_CHANCE_MIN  = 0.004;
+const FOUL_CHANCE_MAX  = 0.015;
+
+// Off-ball players drift around their formation anchor instead of parking
+// exactly on it. Two slow, out-of-phase sine waves per player (periods are
+// deliberately not multiples of each other) keep the motion smooth and
+// non-repeating rather than twitchy like per-tick noise would be.
+const WANDER_AMPLITUDE = 52;
+const WANDER_PERIOD_X  = 3100;  // ms
+const WANDER_PERIOD_Y  = 4300;  // ms
+
+// When a drawn path runs out while the team is attacking, the player keeps
+// making ground toward the rival goal instead of turning back to formation.
+const RUN_ON_STEP = 170;   // how far ahead the next carry-on waypoint sits
+const RUN_ON_STOP = 150;   // stop running on once this close to the byline
 
 // Duels trigger on proximity, not physical contact — see collision
 // categories below — with a slightly generous radius (bigger than the old
@@ -144,7 +187,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.matter.world.setBounds(0,0,this.FIELD_W,this.FIELD_H);
     this.ball=this.matter.add.circle(this.FIELD_W/2,this.FIELD_H/2,10,
-      {restitution:.7,frictionAir:.018,label:'ball',
+      {restitution:.7,frictionAir:BALL_FRICTION_AIR,label:'ball',
        collisionFilter:{category:CAT_BALL,mask:CAT_PLAYER|CAT_GOAL}});
     this.ballGfx=this.add.circle(this.ball.position.x,this.ball.position.y,10,0xffffff).setDepth(3);
     this._drawGoals();
@@ -354,6 +397,17 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-search').addEventListener('input',()=>this._renderPickList());
     document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickList());
     document.getElementById('squad-team-filter').addEventListener('change',()=>this._renderPickList());
+    document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
+    this._renderPitch(); this._renderPickList();
+  }
+
+  /** Drops whichever pitch/bench player is currently selected back into the
+   *  pool, leaving their slot empty. */
+  _removeSelectedFromSquad(){
+    const sel=this._squadSel; if(!sel) return;
+    if(sel.type==='slot') this.squadSlots[sel.slot]=null;
+    else this.benchIds.delete(sel.id);
+    this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
 
@@ -400,6 +454,11 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-fill-count').textContent=`${filled}/11 filled`;
     const btn=document.getElementById('confirm-squad-btn');
     btn.textContent=`Confirm squad (${filled}/11)`; btn.disabled=filled!==TEAM_SIZE;
+    // Offer the remove action only while a selected pin actually holds someone
+    const selP=sel?this._squadSelPlayer(sel):null;
+    const bar=document.getElementById('squad-remove-bar');
+    bar.style.display=selP?'flex':'none';
+    if(selP) document.getElementById('squad-remove-btn').textContent=`✕ Remove ${selP.nickname||selP.name}`;
   }
 
   _showPlayerStats(p){
@@ -547,7 +606,7 @@ export default class GameScene extends Phaser.Scene {
       const gfx=this.add.circle(pos.x,pos.y,12,tColor).setDepth(5);
       const label=this.add.text(pos.x,pos.y+15,rp.nickname||rp.name,
         {fontSize:'7px',color:'#fff',stroke:'#000',strokeThickness:3,resolution:3}).setOrigin(.5,0).setDepth(6);
-      team.push({id,body,gfx,label,slot});
+      team.push({id,body,gfx,label,slot,wanderPhase:Math.random()*Math.PI*2});
       const st=createPlayerStats(); applyRosterPlayerToStats(st,rp); map.set(id,st);
     });
     return team;
@@ -602,12 +661,13 @@ export default class GameScene extends Phaser.Scene {
     const slotRole=roles[slot]||'MF';
 
     const pSize=this.FIELD_H, sSize=this.FIELD_W, margin=40;
-    const halfP=pSize/2-margin;
 
-    // Base Y from own goal→halfway. The team you control (role A) defends
+    // Base Y spread from own goal line up to near the rival box, so the
+    // shape covers the full pitch. The team you control (role A) defends
     // the bottom of the map (pSize) and attacks toward 0, so its own
     // formation gets mirrored instead of B's.
-    let primary=f.y*halfP+margin;
+    const depth=Phaser.Math.Clamp((f.y-SLOT_Y_MIN)/(SLOT_Y_MAX-SLOT_Y_MIN),0,1);
+    let primary=(FORM_DEEPEST+depth*(FORM_HIGHEST-FORM_DEEPEST))*pSize;
     if(role==='A') primary=pSize-primary;
 
     // Secondary spread (X) tracks ball loosely
@@ -628,11 +688,13 @@ export default class GameScene extends Phaser.Scene {
     // Whole-team push: when this team has the ball, everyone advances as a
     // unit by default (not just whoever's dribbling); when the opponent
     // does, drop back a little instead of holding the exact formation line.
+    // (Smaller than it used to be: the full-pitch base spread above now does
+    // most of the work, this only shifts the block a line or so.)
     if(slot!==0){
       if(this.possRole===role){
-        yBias += slotRole==='FW'?170:slotRole==='MF'?130:60;
+        yBias += slotRole==='FW'?90:slotRole==='MF'?80:45;
       } else if(this.possRole&&this.possRole!==role){
-        yBias += slotRole==='FW'?-40:slotRole==='MF'?-20:-8;
+        yBias += slotRole==='FW'?-90:slotRole==='MF'?-50:-15;
       }
     }
     // GK never moves from goal line
@@ -651,22 +713,22 @@ export default class GameScene extends Phaser.Scene {
     const base=this._formPos(role,e.slot,this.ball.position);
     if(e.slot===0||e.id===activeId) return base; // keeper & the on-ball player keep plain formation logic
 
+    let target=base;
     if(iHaveBall){
       const carrier=this._activeEntry(role);
-      if(!carrier) return base;
-      const attackDir=role==='A'?-1:1;
-      const side=(e.body.position.x>=carrier.body.position.x)?1:-1;
-      const supportSpot={
-        x:carrier.body.position.x+side*130,
-        y:carrier.body.position.y+attackDir*130
-      };
-      return {
-        x:Phaser.Math.Linear(base.x,supportSpot.x,SUPPORT_BLEND),
-        y:Phaser.Math.Linear(base.y,supportSpot.y,SUPPORT_BLEND)
-      };
-    }
-
-    if(ballCarrier){
+      if(carrier){
+        const attackDir=role==='A'?-1:1;
+        const side=(e.body.position.x>=carrier.body.position.x)?1:-1;
+        const supportSpot={
+          x:carrier.body.position.x+side*130,
+          y:carrier.body.position.y+attackDir*130
+        };
+        target={
+          x:Phaser.Math.Linear(base.x,supportSpot.x,SUPPORT_BLEND),
+          y:Phaser.Math.Linear(base.y,supportSpot.y,SUPPORT_BLEND)
+        };
+      }
+    } else if(ballCarrier){
       const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,ballCarrier.body.position.x,ballCarrier.body.position.y);
       if(d<PRESS_RANGE){
         const ownGoalY=role==='A'?this.FIELD_H:0;
@@ -674,13 +736,39 @@ export default class GameScene extends Phaser.Scene {
           x:Phaser.Math.Linear(ballCarrier.body.position.x,e.body.position.x,0.25),
           y:Phaser.Math.Linear(ballCarrier.body.position.y,ownGoalY,0.15)
         };
-        return {
+        target={
           x:Phaser.Math.Linear(base.x,pressSpot.x,PRESS_BLEND),
           y:Phaser.Math.Linear(base.y,pressSpot.y,PRESS_BLEND)
         };
       }
     }
-    return base;
+    return this._applyWander(e,target,iHaveBall);
+  }
+
+  /** Nudges an off-ball target around with two slow out-of-phase sines so
+   *  players keep finding little pockets of space instead of parking on an
+   *  exact formation spot. Wider when attacking, tighter when defending. */
+  _applyWander(e,target,iHaveBall){
+    const t=this.time.now, ph=e.wanderPhase||0;
+    const amp=WANDER_AMPLITUDE*(iHaveBall?1:0.6);
+    return {
+      x:Phaser.Math.Clamp(target.x+Math.sin(t/WANDER_PERIOD_X+ph)*amp,30,this.FIELD_W-30),
+      y:Phaser.Math.Clamp(target.y+Math.cos(t/WANDER_PERIOD_Y+ph*1.7)*amp,40,this.FIELD_H-40)
+    };
+  }
+
+  /** Where to sprint for a ball nobody owns — a pass in flight, a rebound, a
+   *  loose touch. The side's closest player always goes, as does anyone it
+   *  has been played right next to, so passes get collected instead of the
+   *  receiver drifting along at formation pace. Returns null when there's
+   *  nothing to chase. */
+  _looseBallChase(e,activeId){
+    if(this.possRole||this.confrontation) return null;
+    const bp=this.ball.position;
+    const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,bp.x,bp.y);
+    if(e.slot===0) return d<KEEPER_CHASE_RANGE?{x:bp.x,y:bp.y}:null; // keeper only for balls at their feet
+    if(e.id===activeId||d<BALL_CHASE_RANGE) return {x:bp.x,y:bp.y};
+    return null;
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -839,9 +927,24 @@ export default class GameScene extends Phaser.Scene {
       const path=this.myPaths.get(e.id); if(!path||!path.length) continue;
       const pos=e.body?e.body.position:e.gfx;
       while(path.length&&Phaser.Math.Distance.Between(pos.x,pos.y,path[0].x,path[0].y)<WAYPOINT_RADIUS) path.shift();
-      if(path.length) targets.push({id:e.id,x:path[0].x,y:path[0].y}); else this.myPaths.delete(e.id);
+      if(path.length){ targets.push({id:e.id,x:path[0].x,y:path[0].y}); continue; }
+      // The drawn line ran out: keep making ground while we're attacking
+      // rather than turning straight back into the formation.
+      const runOn=this._runOnWaypoint(pos);
+      if(runOn){ path.push(runOn); targets.push({id:e.id,...runOn}); }
+      else this.myPaths.delete(e.id);
     }
     return targets;
+  }
+
+  /** Next carry-on waypoint up the player's channel, or null once we've lost
+   *  the ball or they're already deep enough to stop. */
+  _runOnWaypoint(pos){
+    if(this.currentPossession!==this.role) return null;
+    const attackDir=this.role==='A'?-1:1;
+    const goalY=this.role==='A'?0:this.FIELD_H;
+    if(Math.abs(pos.y-goalY)<RUN_ON_STOP+WAYPOINT_RADIUS) return null;
+    return {x:pos.x,y:Phaser.Math.Clamp(pos.y+attackDir*RUN_ON_STEP,RUN_ON_STOP,this.FIELD_H-RUN_ON_STOP)};
   }
 
   _drawPaths(){
@@ -883,7 +986,11 @@ export default class GameScene extends Phaser.Scene {
     const e=this._activeEntry(role); if(!e?.body) return;
     const dx=target.x-e.body.position.x, dy=target.y-e.body.position.y, dist=Math.hypot(dx,dy)||1;
     this.possRole=null;
-    this.matter.body.setVelocity(this.ball,{x:(dx/dist)*PASS_SPEED,y:(dy/dist)*PASS_SPEED});
+    // Weight the pass to the distance: friction eats speed/BALL_FRICTION_AIR
+    // worth of travel, so aim for a touch beyond the target rather than
+    // kicking every ball the same and leaving long ones short.
+    const speed=Phaser.Math.Clamp(dist*BALL_FRICTION_AIR*PASS_REACH_BOOST,PASS_MIN_SPEED,PASS_MAX_SPEED);
+    this.matter.body.setVelocity(this.ball,{x:(dx/dist)*speed,y:(dy/dist)*speed});
   }
   /** Picks a reasonable pass target for the AI: the most advanced teammate
    *  (closer to the rival goal than the passer) within a sane passing
@@ -896,7 +1003,7 @@ export default class GameScene extends Phaser.Scene {
       if(c.id===entry.id||c.slot===0) continue; // not myself, not the keeper
       const dx=c.body.position.x-entry.body.position.x, dy=c.body.position.y-entry.body.position.y;
       const dist=Math.hypot(dx,dy);
-      if(dist<50||dist>380) continue; // too close to bother, too far to pass reliably
+      if(dist<50||dist>560) continue; // too close to bother, too far to pick out
       const advance=dy*attackDir; // positive = further forward than the passer
       const score=advance-dist*0.15;
       if(score>bestScore){ bestScore=score; best=c; }
@@ -1031,7 +1138,7 @@ export default class GameScene extends Phaser.Scene {
     const d=Phaser.Math.Distance.Between(eA.body.position.x,eA.body.position.y,eD.body.position.x,eD.body.position.y);
     if(d>=DUEL_HITBOX_RADIUS) return;
     const ds=this._statsFor(defenderRole,eD.id);
-    const foulChance=Phaser.Math.Clamp(0.16-(ds?ds.defensePower:1)*0.05,0.05,0.2);
+    const foulChance=Phaser.Math.Clamp(FOUL_CHANCE_BASE/(ds?ds.defensePower:1),FOUL_CHANCE_MIN,FOUL_CHANCE_MAX);
     if(Math.random()<foulChance) this._commitFoul(defenderRole,eD.id,attackerRole,now);
     else this._startConfront('duel',attackerRole,defenderRole,now);
   }
@@ -1243,7 +1350,9 @@ export default class GameScene extends Phaser.Scene {
       if(e.body&&e.body.collisionFilter.mask!==(CAT_BALL|CAT_DEFAULT)) e.body.collisionFilter.mask=CAT_BALL|CAT_DEFAULT;
       const st=this._statsFor(role,e.id), sp=st?st.speed:1;
       const t=byId.get(e.id);
+      const chase=t?null:this._looseBallChase(e,activeId);
       if(t) this._steer(e.body,t,sp,STEER_FORCE);
+      else if(chase) this._steer(e.body,chase,sp,STEER_FORCE); // full pace, not the off-ball amble
       else {
         // Autonomous position: hold roughly to formation, but lean into a
         // supporting run when we have the ball, or press the ball carrier

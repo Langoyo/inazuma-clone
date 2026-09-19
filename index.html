@@ -148,6 +148,14 @@
     .bench-pin .pin-avatar { width: 32px; height: 32px; border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: rgba(0,0,0,0.8); }
     .bench-pin .pin-name   { font-size: 8px; color: rgba(255,255,255,0.9); margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
+    /* ---- remove action, shown only while a squad player is selected */
+    #squad-remove-bar { display: none; justify-content: center; margin-bottom: 10px; }
+    #squad-remove-btn {
+      padding: 8px 16px; border-radius: 8px; font-size: 12px;
+      border: 2px solid rgba(255,120,120,0.8); background: rgba(90,20,20,0.75); color: #ffdede;
+      max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    }
+
     /* ---- search list that feeds the editor */
     #squad-search-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; width: 100%; max-width: 500px; }
     #squad-search-row input, #squad-search-row select {
@@ -253,6 +261,9 @@
       <div class="bench-strip" id="bench-strip">
         <!-- bench pins injected here -->
       </div>
+
+      <!-- Appears while a player on the pitch or bench is selected -->
+      <div id="squad-remove-bar"><button id="squad-remove-btn">Remove</button></div>
     </div>
 
     <!-- Player search / list to pick from -->
