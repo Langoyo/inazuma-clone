@@ -617,10 +617,20 @@ manager anterior.
   que sí traía colores de camiseta reales).
 - **13 jugadores de la trilogía GO aparecen en más de un equipo** de tu
   hoja (p.ej. Arion Sherwind juega tanto para "Raimon GO" como, más
-  adelante en la trama, para el equipo especial "Chrono Storm"), pero cada
-  ficha del roster solo admite un equipo. Me quedo con el que tu hoja
-  menciona primero para ese personaje, que siempre resulta ser su equipo
-  base/reconocible en vez del especial de un arco concreto.
+  adelante en la trama, para el equipo especial "Chrono Storm"). Como cada
+  ficha del roster solo admite un equipo, la ficha original se queda con el
+  primero que menciona tu hoja (su equipo base/reconocible) y por cada
+  equipo adicional creo una **ficha nueva** — mismas stats y técnicas, otro
+  `id`, el otro equipo — así que ahora sí aparece seleccionable bajo los
+  dos (o tres) equipos a la vez, en vez de perder el resto. Salieron 8
+  fichas nuevas por esto.
+- Todos los nombres de equipo que se guardan son en inglés (o su nombre
+  japonés romanizado, que es como ya estaban los equipos que trajo el
+  Excel de manager) — cuando en mis explicaciones aquí o en el chat uso el
+  nombre en español de tu hoja (p.ej. "Génesis", "Instituto Zeus") es solo
+  para que quede claro a qué fila de tu Excel me refiero, el dato guardado
+  siempre es el nombre en inglés ("Genesis", "Zeus").
 
-Resultado: **1056 jugadores del roster (de 4986) tienen ahora equipo real**,
-de **58 equipos** en total (antes 976 de 49).
+Resultado: el roster pasa de 4986 a **4994 jugadores** (las 8 fichas
+nuevas de arriba) y **1056 de ellos tienen ahora equipo real**, de **58
+equipos** en total (antes 976 de 4986, 49 equipos).
