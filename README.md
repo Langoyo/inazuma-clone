@@ -507,4 +507,19 @@ El texto bajo cada jugador tenía un borde negro de 3px sobre una letra de
 solo 7px — casi tan grueso como la propia letra, así que se veía como un
 borrón negro con un hilo blanco en medio. Ahora es blanco liso con una
 sombra suave (en vez de un contorno duro), que da el contraste justo
-contra el césped sin comerse el texto.
+contra el césped sin comerse el texto. También subí el tamaño de 7px a
+9px para que se lean mejor de un vistazo.
+
+## Sustituciones que a veces no se aplicaban
+
+Mientras probaba el cambio anterior encontré un bug intermitente: pedir un
+cambio de jugador (o mover a alguien de posición) durante el partido a
+veces no hacía nada, sin ningún error visible. La petición se guardaba en
+un flag de "una sola vez" que el bucle principal limpiaba cada frame, pero
+solo se procesaba si en ese instante no había ningún enfrentamiento (duelo)
+en curso en cualquier parte del campo — algo que puede empezar solo por
+proximidad, sin que tenga nada que ver con la sustitución. Si el duelo
+arrancaba justo en el frame en que tocaba aplicar el cambio, la petición se
+perdía para siempre. Ahora las sustituciones y reposicionamientos se
+procesan siempre, pase lo que pase con los enfrentamientos, así que ya no
+se pierden.

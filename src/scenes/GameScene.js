@@ -828,7 +828,7 @@ export default class GameScene extends Phaser.Scene {
       // shadow instead gives just enough contrast against the grass without
       // swallowing the glyphs.
       const label=this.add.text(pos.x,pos.y+15,rp.nickname||rp.name,
-        {fontSize:'7px',color:'#fff',resolution:3}).setOrigin(.5,0).setDepth(6)
+        {fontSize:'9px',color:'#fff',resolution:3}).setOrigin(.5,0).setDepth(6)
         .setShadow(0,1,'#000',2,false,true);
       team.push({id,body,gfx,label,slot,wanderPhase:Math.random()*Math.PI*2});
       const st=createPlayerStats(); applyRosterPlayerToStats(st,rp); map.set(id,st);
@@ -1801,6 +1801,10 @@ export default class GameScene extends Phaser.Scene {
         }
       }
       if(!this.confrontation) this._checkForDuel(now);
+    }
+    // Subs/repositions are queued one-shot from the UI and must not be lost
+    // just because a confrontation elsewhere happens to be active this tick.
+    if(!this.matchClock.ended){
       if(myInput.subRequest) this._trySub('A',myInput.subRequest);
       if(!aiActive&&inputB.subRequest) this._trySub('B',inputB.subRequest);
       if(myInput.repositionRequest) this._tryReposition('A',myInput.repositionRequest);
