@@ -44,6 +44,12 @@ const BALL_FRICTION_AIR = 0.018;
 const PASS_REACH_BOOST  = 1.12;  // arrive with a bit of pace rather than stopping dead
 const PASS_MIN_SPEED    = 3.0;
 const PASS_MAX_SPEED    = 16;    // below the ball+player radius sum, so it can't tunnel through anyone
+// Passes are chipped rather than rolled. The ball is airborne over the first
+// stretch of its flight and can't be intercepted there, so a defender sitting
+// on the passer gets played over instead of blocking everything; it lands well
+// short of the target, so whoever marks the receiver can still read it.
+const PASS_LOFT_FRAC    = 0.55;  // share of the pass distance spent in the air
+const PASS_LOFT_MIN     = 55;    // even a short ball gets a little hop (px)
 const KNOCKBACK_SPEED   = 1.8;   // was 4 — nearly as fast as a pass, which could fling the
                                   // ball if it clipped the ball on the way (see _moveTeam's
                                   // stun handling, which also keeps the ball from hitting them)
@@ -221,6 +227,11 @@ export default class GameScene extends Phaser.Scene {
       {restitution:.7,frictionAir:BALL_FRICTION_AIR,label:'ball',
        collisionFilter:{category:CAT_BALL,mask:CAT_PLAYER|CAT_GOAL}});
     this.ballGfx=this.add.circle(this.ball.position.x,this.ball.position.y,10,0xffffff).setDepth(3);
+    // Sits on the ground under a ball in flight, so a chipped pass reads as
+    // one rather than as a ball that ignored a defender.
+    this.ballShadow=this.add.ellipse(this.ball.position.x,this.ball.position.y,17,11,0x000000,0.38).setDepth(2).setVisible(false);
+    this.ballFlight=null;
+    this._clientBall=null;
     this._drawGoals();
 
     this.possRing=this.add.circle(0,0,20).setStrokeStyle(3,0xffd966).setFillStyle(0,0).setVisible(false).setDepth(4);
@@ -1057,6 +1068,38 @@ export default class GameScene extends Phaser.Scene {
     // kicking every ball the same and leaving long ones short.
     const speed=Phaser.Math.Clamp(dist*BALL_FRICTION_AIR*PASS_REACH_BOOST,PASS_MIN_SPEED,PASS_MAX_SPEED);
     this.matter.body.setVelocity(this.ball,{x:(dx/dist)*speed,y:(dy/dist)*speed});
+    this._startPassFlight({x:this.ball.position.x,y:this.ball.position.y},dist);
+  }
+
+  /** Lifts the ball for the first PASS_LOFT_FRAC of a pass: while it's up
+   *  there it stops colliding with players, so the chip clears anyone close to
+   *  the passer, and it drops back to the ground short of the target. */
+  _startPassFlight(from,dist){
+    const range=Math.max(PASS_LOFT_MIN,dist*PASS_LOFT_FRAC);
+    this.ballFlight={x0:from.x,y0:from.y,range,peak:Phaser.Math.Clamp(range*0.28,14,52),h:0};
+    this.ball.collisionFilter.mask=CAT_GOAL;
+  }
+  _endPassFlight(){
+    if(!this.ballFlight) return;
+    this.ballFlight=null;
+    this.ball.collisionFilter.mask=CAT_PLAYER|CAT_GOAL;
+  }
+  _updatePassFlight(){
+    const f=this.ballFlight; if(!f) return;
+    const b=this.ball.position;
+    const d=Math.hypot(b.x-f.x0,b.y-f.y0);
+    const sp=Math.hypot(this.ball.velocity.x,this.ball.velocity.y);
+    // Down again once it has covered its arc, or early if the pass died or
+    // the ball was handed to someone (a dead-ball restart, say).
+    if(this.possRole||d>=f.range||sp<0.35){ this._endPassFlight(); return; }
+    f.h=Math.sin((d/f.range)*Math.PI)*f.peak;
+  }
+
+  /** Ball with its height: lifted off its ground position and drawn bigger,
+   *  with the shadow left behind on the grass. */
+  _drawBall(x,y,h){
+    this.ballGfx.setPosition(x,y-h*0.55).setScale(1+h/70);
+    this.ballShadow.setVisible(h>1).setPosition(x,y).setScale(1-Math.min(0.3,h/170));
   }
   /** Picks a reasonable pass target for the AI: the most advanced teammate
    *  (closer to the rival goal than the passer) within a sane passing
@@ -1192,6 +1235,7 @@ export default class GameScene extends Phaser.Scene {
     this.score[scorer]+=1;
     document.querySelector('#scoreboard .score').textContent=`${this.score.a} - ${this.score.b}`;
     this.possRole=null;
+    this._endPassFlight();
     this.matter.body.setPosition(this.ball,{x:this.FIELD_W/2,y:this.FIELD_H/2});
     this.matter.body.setVelocity(this.ball,{x:0,y:0});
     this.stunMap.clear();
@@ -1269,6 +1313,7 @@ export default class GameScene extends Phaser.Scene {
    *  to `awardedRole`, and teleport one of their eligible players there
    *  (their keeper if `preferGk`, otherwise whoever's nearest) to take it. */
   _placeBallAndAward(awardedRole,spot,now,{preferGk=false}={}){
+    this._endPassFlight();
     this.matter.body.setPosition(this.ball,spot);
     this.matter.body.setVelocity(this.ball,{x:0,y:0});
     const team=awardedRole==='A'?this.teamA:this.teamB;
@@ -1428,6 +1473,7 @@ export default class GameScene extends Phaser.Scene {
       if(!aiActive&&inputB.subRequest) this._trySub('B',inputB.subRequest);
     }
 
+    this._updatePassFlight();
     this._glueBall(); this._syncGfx();
     this._renderClock(this.matchClock);
     this._renderResultBanner(this.confrontResult,now);
@@ -1445,7 +1491,7 @@ export default class GameScene extends Phaser.Scene {
         a:this.teamA.filter(e=>this._isOut('A',e.id)).map(e=>e.id),
         b:this.teamB.filter(e=>this._isOut('B',e.id)).map(e=>e.id)
       };
-      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},statsAll,sentOff,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline,reveal:this.confrontation.reveal||null}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
+      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},ballH:this.ballFlight?Math.round(this.ballFlight.h):0,teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},statsAll,sentOff,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline,reveal:this.confrontation.reveal||null}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
     }
   }
 
@@ -1518,8 +1564,12 @@ export default class GameScene extends Phaser.Scene {
     const lerp=0.3;
     this._syncClientIds(this.remoteState);
     if(this.remoteState.stuns) this.remoteState.stuns.forEach(({id,until})=>this.stunMap.set(id,until));
-    this.ballGfx.x=Phaser.Math.Linear(this.ballGfx.x,this.remoteState.ball.x,lerp);
-    this.ballGfx.y=Phaser.Math.Linear(this.ballGfx.y,this.remoteState.ball.y,lerp);
+    // Track the ball's position on the ground and add the synced height on
+    // top, so a chipped pass looks the same on both screens.
+    if(!this._clientBall) this._clientBall={x:this.remoteState.ball.x,y:this.remoteState.ball.y};
+    this._clientBall.x=Phaser.Math.Linear(this._clientBall.x,this.remoteState.ball.x,lerp);
+    this._clientBall.y=Phaser.Math.Linear(this._clientBall.y,this.remoteState.ball.y,lerp);
+    this._drawBall(this._clientBall.x,this._clientBall.y,this.remoteState.ballH||0);
     this.teamA.forEach((e,i)=>{ const p=this.remoteState.teamA[i]; if(!p)return; e.gfx.x=Phaser.Math.Linear(e.gfx.x,p.x,lerp); e.gfx.y=Phaser.Math.Linear(e.gfx.y,p.y,lerp); e.label.setPosition(e.gfx.x,e.gfx.y+15); });
     this.teamB.forEach((e,i)=>{ const p=this.remoteState.teamB[i]; if(!p)return; e.gfx.x=Phaser.Math.Linear(e.gfx.x,p.x,lerp); e.gfx.y=Phaser.Math.Linear(e.gfx.y,p.y,lerp); e.label.setPosition(e.gfx.x,e.gfx.y+15); });
     if(this.remoteState.sentOff){
@@ -1627,7 +1677,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _syncGfx(){
-    this.ballGfx.setPosition(this.ball.position.x,this.ball.position.y);
+    this._drawBall(this.ball.position.x,this.ball.position.y,this.ballFlight?this.ballFlight.h:0);
     const now=this.time.now;
     this.teamA.forEach(e=>{
       e.gfx.setPosition(e.body.position.x,e.body.position.y);
