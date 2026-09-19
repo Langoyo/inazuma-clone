@@ -13,6 +13,7 @@
 export function createPlayerStats(name = 'Player') {
   return {
     name,
+    element: null, // Fire / Wood / Air / Earth — see ELEMENT_BEATS in GameScene
     speed: 1,
     shotPower: 1,
     dribblePower: 1,
@@ -33,6 +34,7 @@ export function createPlayerStats(name = 'Player') {
 
 export function applyRosterPlayerToStats(stats, rosterPlayer) {
   stats.name = rosterPlayer.nickname || rosterPlayer.name;
+  stats.element = rosterPlayer.element || null;
   stats.speed = rosterPlayer.stats.speed;
   stats.shotPower = rosterPlayer.stats.shotPower;
   stats.dribblePower = rosterPlayer.stats.dribblePower;

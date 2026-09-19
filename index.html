@@ -232,6 +232,36 @@
       background: rgba(255,255,255,0.06); border: 2px solid transparent;
       border-radius: 8px; padding: 6px; font-size: 11px; cursor: pointer; touch-action: manipulation;
     }
+    /* ---- position / element chips (cards, pitch pins, player sheet) */
+    .pos-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 20px; padding: 0 3px; border-radius: 4px;
+      font-size: 9px; font-weight: bold; line-height: 13px; color: rgba(0,0,0,0.85);
+      flex-shrink: 0;
+    }
+    .pos-GK { background: #ffd966; }
+    .pos-DF { background: #7fb2ff; }
+    .pos-MF { background: #86e08a; }
+    .pos-FW { background: #ff9b7a; }
+    /* a player standing in a slot that asks for a different role */
+    .pos-mismatch { box-shadow: 0 0 0 1.5px #ff5252; }
+    /* on a pitch pin the chip rides on the avatar's corner */
+    .slot-pin .pos-badge, .bench-pin .pos-badge {
+      position: absolute; top: -3px; right: -4px; z-index: 2;
+      border: 1px solid rgba(0,0,0,0.45);
+    }
+    .bench-pin { position: relative; }
+    .el-badge { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+    .el-Fire  { color: #ff9b6a; }
+    .el-Wood  { color: #8fe08a; }
+    .el-Air   { color: #8fd6ff; }
+    .el-Earth { color: #ffd966; }
+    .duel-el {
+      display: inline-block; margin-left: 6px; font-size: 11px; font-weight: normal;
+      opacity: 0.85; vertical-align: middle;
+    }
+    .duel-el.edge { color: #7dff9b; opacity: 1; font-weight: bold; }
+
     .pick-card.in-squad   { border-color: #ffd966; opacity: 0.85; }
     .pick-card.selected   { border-color: #ffd966; box-shadow: 0 0 0 2px #ffd966; }
     .pick-card .pick-name { font-weight: bold; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

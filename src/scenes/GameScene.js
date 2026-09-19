@@ -127,6 +127,15 @@ const KICKOFF_HALF_GAP = 28;
 const BALL_CHASE_RANGE   = 210;
 const KEEPER_CHASE_RANGE = 130;
 
+// Elements, as the games have them: Fire → Wood → Air → Earth → Fire, each
+// beating the next. (Air is the same element the later games label Wind or
+// Water, and Earth the one they label Electric.) Having the edge in a
+// confrontation is a nudge, not a trump card — a well-picked technique or a
+// much better stat still decides most of them.
+const ELEMENT_BEATS = { Fire:'Wood', Wood:'Air', Air:'Earth', Earth:'Fire' };
+const ELEMENT_EDGE  = 1.15; // power multiplier for the favourable side
+const ELEMENT_ICON  = { Fire:'🔥', Wood:'🌿', Air:'💨', Earth:'⚡' };
+
 // AI difficulty (solo-vs-AI only). All decision-making rather than raw
 // speed, so a harder opponent plays sharper instead of simply outrunning
 // you: how readily it spends PT on a supertechnique, from how far out it
@@ -613,7 +622,12 @@ export default class GameScene extends Phaser.Scene {
       const pid=slots[slot]; const p=pid?getPlayerById(pid):null;
       if(p){
         const col=this._css3(this._rosterColor(p));
-        pin.innerHTML=`<div class="pin-avatar" style="background:${col}">${this._initials(p)}</div><div class="pin-name">${p.nickname||p.name}</div>`;
+        // Badge the position right on the pin, flagged when it doesn't match
+        // what the slot asks for — otherwise a keeper parked at centre-back
+        // only shows up by opening their card one at a time.
+        pin.innerHTML=`<div class="pin-avatar" style="background:${col}">${this._initials(p)}</div>`
+          +this._posBadge(p.position,p.position!==roles[slot])
+          +`<div class="pin-name">${p.nickname||p.name}</div>`;
       } else {
         pin.classList.add('empty');
         pin.innerHTML=`<div style="font-size:9px;opacity:.55">${roles[slot]}</div>`;
@@ -627,7 +641,8 @@ export default class GameScene extends Phaser.Scene {
       const p=getPlayerById(pid); if(!p) return;
       const pin=document.createElement('div'); pin.className='bench-pin'; pin.dataset.benchId=pid;
       const col=this._css3(this._rosterColor(p));
-      pin.innerHTML=`<div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div><div class="pin-name">${p.nickname||p.name}</div>`;
+      pin.innerHTML=`<div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>`
+        +this._posBadge(p.position)+`<div class="pin-name">${p.nickname||p.name}</div>`;
       if(sel&&sel.type==='bench'&&sel.id===pid) pin.classList.add('selected');
       pin.addEventListener('click',()=>this._onSquadPinClick({type:'bench',id:pid}));
       strip.appendChild(pin);
@@ -654,6 +669,19 @@ export default class GameScene extends Phaser.Scene {
     const hint=document.getElementById('squad-place-hint');
     hint.style.display=poolP?'flex':'none';
     if(poolP) document.getElementById('squad-place-hint-name').textContent=poolP.nickname||poolP.name;
+  }
+
+  /** Colour-coded GK/DF/MF/FW chip. `mismatch` marks a player sitting in a
+   *  slot that asks for a different role. */
+  _posBadge(pos,mismatch=false){
+    if(!pos) return '';
+    return `<span class="pos-badge pos-${pos}${mismatch?' pos-mismatch':''}">${pos}</span>`;
+  }
+  /** Element chip (icon + name), or '' for the players the roster has no
+   *  element for. */
+  _elBadge(el,withName=true){
+    if(!el) return '';
+    return `<span class="el-badge el-${el}">${ELEMENT_ICON[el]||''}${withName?' '+el:''}</span>`;
   }
 
   /** Team/game line for a card — with the game tag added whenever this
@@ -703,7 +731,7 @@ export default class GameScene extends Phaser.Scene {
         <span style="width:44px;height:44px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:bold;color:rgba(0,0,0,.8);flex-shrink:0">${this._initials(p)}</span>
         <div>
           <div style="font-weight:bold;font-size:15px">${p.name} <span style="opacity:.75;font-weight:normal;font-size:12px">· ⭐ ${this._playerRating(p)}</span></div>
-          <div style="font-size:12px;opacity:.75">${p.position} · ${this._teamLine(p)}</div>
+          <div style="font-size:12px;opacity:.75;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${this._posBadge(p.position)}${this._elBadge(p.element)}<span>${this._teamLine(p)}</span></div>
         </div>
         <button onclick="document.getElementById('player-stat-panel').style.display='none'" style="margin-left:auto;background:none;border:none;color:white;font-size:20px;cursor:pointer">×</button>
       </div>
@@ -870,7 +898,7 @@ export default class GameScene extends Phaser.Scene {
       const isSel=this._selMatchesPlayer(sel,p);
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'')+(isSel?' selected':'');
       const col=this._css3(this._rosterColor(p));
-      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span><span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${p.position} · ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>`;
+      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>`;
       // A list card is, for selection purposes, exactly the pin it maps to
       // (pitch slot / bench / pool) — tap to select, tap the same card again
       // to see its full stats, tap a different target to swap/place.
@@ -1161,6 +1189,7 @@ export default class GameScene extends Phaser.Scene {
         const selCls=(this.subSel&&this.subSel.type==='bench'&&this.subSel.id===id)?' selected':'';
         return `<div class="bench-pin${selCls}" data-bench-id="${id}">
           <div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>
+          ${this._posBadge(p.position)}
           <div class="pin-name">${p.nickname||p.name}</div>
         </div>`;
       }).join('')||'<p style="font-size:11px;opacity:.7;">No bench players.</p>'
@@ -1201,6 +1230,7 @@ export default class GameScene extends Phaser.Scene {
    *  the sub panel and mid-match formation view (same look as squad editor). */
   _renderMiniPitch(team, role, sel){
     const preset=FORMATIONS[this.formation[role]]||FORMATIONS[DEFAULT_FORMATION];
+    const roles=SLOT_ROLES[this.formation[role]]||SLOT_ROLES[DEFAULT_FORMATION];
     const teamColor=role==='A'?this._css3(this.teamColorA):this._css3(this.teamColorB);
     const pins=preset.map((f,slot)=>{
       const entry=team[slot]; const p=entry?getPlayerById(entry.id):null;
@@ -1212,6 +1242,7 @@ export default class GameScene extends Phaser.Scene {
         const isOut=this._isOut(role,entry.id);
         return `<div class="slot-pin${selCls}" style="left:${left};top:${top};${isOut?'opacity:.4;pointer-events:none;':''}" data-roster-id="${entry.id}">
           <div class="pin-avatar" style="background:${col}">${this._initials(p)}</div>
+          ${this._posBadge(p.position,p.position!==roles[slot])}
           <div class="pin-name">${p.nickname||p.name}${isOut?' (OFF)':''}</div>
         </div>`;
       }
@@ -1617,8 +1648,11 @@ export default class GameScene extends Phaser.Scene {
     // both the block attempt and the eventual keeper duel, since it's the
     // same weakened strike either way.
     const powerMul=(c.type==='shot'||c.type==='block')?(c.powerMul||1):1;
-    const aP=(aTech?aTech.power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]]*powerMul;
-    const dP=(dTech?dTech.power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]];
+    // Elemental edge — only one side can hold it, and only when both players
+    // have a known element (the roster doesn't have one for everyone).
+    const elEdge=this._elementEdge(as.element,ds.element);
+    const aP=(aTech?aTech.power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]]*powerMul*(elEdge>0?ELEMENT_EDGE:1);
+    const dP=(dTech?dTech.power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]]*(elEdge<0?ELEMENT_EDGE:1);
     // Blocking a shot takes a real supertechnique — a normal challenge can't
     // stop it, only soften what happens after (see BLOCK_PASS_PENALTY).
     const aWins=(c.type==='block'&&!dTech)?true:Math.random()<aP/(aP+dP);
@@ -1633,9 +1667,18 @@ export default class GameScene extends Phaser.Scene {
     c.pending={aWins,aTN,dTN,fx,aName:as.name,dName:ds.name,aTech};
     c.reveal={
       until:now+DUEL_REVEAL_MS, litAt:now+DUEL_REVEAL_LIT_MS,
-      a:{name:as.name,move:aTN,winner:aWins},
-      d:{name:ds.name,move:dTN,winner:!aWins}
+      a:{name:as.name,move:aTN,winner:aWins,element:as.element,edge:elEdge>0},
+      d:{name:ds.name,move:dTN,winner:!aWins,element:ds.element,edge:elEdge<0}
     };
+  }
+
+  /** +1 when `a`'s element beats `b`'s, -1 when it's the other way round, 0
+   *  when neither has the edge (same element, or either one unknown). */
+  _elementEdge(a,b){
+    if(!a||!b||a===b) return 0;
+    if(ELEMENT_BEATS[a]===b) return 1;
+    if(ELEMENT_BEATS[b]===a) return -1;
+    return 0;
   }
 
   _applyConfrontOutcome(now){
@@ -2124,7 +2167,11 @@ export default class GameScene extends Phaser.Scene {
     wrap.style.display='flex';
     const side=(pre,d,lit)=>{
       const card=document.getElementById(`duel-card-${pre}`);
-      card.querySelector('.duel-who').textContent=d.name;
+      // The element sits next to the name, flagged when it's the one with
+      // the edge, so a surprising result reads as "they had the element"
+      // rather than as a coin flip.
+      const el=d.element?`<span class="duel-el${d.edge?' edge':''}">${ELEMENT_ICON[d.element]||''} ${d.element}${d.edge?' ▲':''}</span>`:'';
+      card.querySelector('.duel-who').innerHTML=`${d.name}${el}`;
       card.querySelector('.duel-move').textContent=d.move==='Normal'?'Normal action':d.move;
       card.classList.toggle('winner',lit&&d.winner);
       card.classList.toggle('loser',lit&&!d.winner);
@@ -2173,7 +2220,18 @@ export default class GameScene extends Phaser.Scene {
     const myChoice=amA?confrontation.attackerChoice:confrontation.defenderChoice;
     const myChoiceIsTech=myChoice&&typeof myChoice==='object'&&typeof myChoice.tech==='number';
     normalBtn.classList.toggle('active',myChoice==='normal');
-    document.getElementById('confrontation-player-info').innerHTML=stats?`<b>${rp?.name||stats.name}</b> — PT ${Math.round(stats.sp)}/${Math.round(stats.maxSP)}`:'';
+    // Show the elemental matchup before the choice, not just in the reveal —
+    // it's the one thing you can actually plan around (e.g. save the PT when
+    // you're at a disadvantage anyway).
+    const oppRole=amA?confrontation.defenderRole:confrontation.attackerRole;
+    const oppId=amA?confrontation.defenderId:confrontation.attackerId;
+    const oppStats=this._statsFor(oppRole,oppId);
+    const edge=this._elementEdge(stats?.element,oppStats?.element);
+    const elLine=(stats?.element&&oppStats?.element)
+      ? ` · ${ELEMENT_ICON[stats.element]} ${stats.element} vs ${ELEMENT_ICON[oppStats.element]} ${oppStats.element}`
+        +(edge>0?' <span style="color:#7dff9b">▲ advantage</span>':edge<0?' <span style="color:#ff9b9b">▼ disadvantage</span>':'')
+      : (stats?.element?` · ${ELEMENT_ICON[stats.element]} ${stats.element}`:'');
+    document.getElementById('confrontation-player-info').innerHTML=stats?`<b>${rp?.name||stats.name}</b> — PT ${Math.round(stats.sp)}/${Math.round(stats.maxSP)}${elLine}`:'';
     // One button per technique this player has in the category — a player
     // with more than one of the same kind (see techniquesFor) can pick
     // whichever they want, not just whichever happens to be "the" one.
