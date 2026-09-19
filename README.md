@@ -634,3 +634,93 @@ manager anterior.
 Resultado: el roster pasa de 4986 a **4994 jugadores** (las 8 fichas
 nuevas de arriba) y **1056 de ellos tienen ahora equipo real**, de **58
 equipos** en total (antes 976 de 4986, 49 equipos).
+
+## Filtro de equipo por época, y el límite real de "Use whole team"
+
+Probando el editor de plantilla con estos equipos nuevos, viste que
+"Zeus" solo ofrece 5 jugadores para rellenar 11 — eso no es un bug, es el
+límite real de cuántos jugadores de ese equipo concreto están en la base
+de datos (4 de IE1 + 1 de IE3): ni tu hoja ni el Excel de manager traen
+el resto del plantel de fondo de cada colegio, así que "Use whole team"
+sigue sin poder completar un once para casi ningún equipo — ya estaba
+avisado más arriba, pero merece repetirse aquí porque acabas de
+encontrarlo con un ejemplo concreto.
+
+Lo que sí cambié: **la mayoría de equipos reales (45 de 58) aparecen en
+varios juegos a la vez** — Raimon, por ejemplo, tiene jugadores en IE1,
+IE2, IE3, GO1, GO2, GO3 y Ares, con plantillas completamente distintas
+entre sí. Antes, elegir "Raimon" en el filtro mezclaba a los 75 jugadores
+de todas esas épocas en una sola bolsa. Ahora, un equipo que solo aparece
+en un juego se sigue viendo igual (una opción suelta), pero uno que se
+repite en varios se agrupa en el desplegable bajo su nombre, con una
+opción "All eras" (el comportamiento de antes) más una por cada época
+concreta ("IE1 (23)", "GO1 (19)"...) — así puedes pedir el Raimon de IE1
+a secas en vez de la mezcla de las siete épocas.
+
+## Elementos (con ventaja en los enfrentamientos), y posición a la vista
+
+### Lo que salió del PDF "Ultimate Database"
+Me pasaste `Copy_of_Inazuma_Eleven_Ultimate_Database_Shared_2.pdf` (66
+páginas, exportado de una hoja de cálculo) para ver si servía para
+completar jugadores. Tiene seis secciones distintas: las bases de datos de
+IE1/IE2/IE3 (nombre, apodo, posición, género, tamaño, **elemento**, stats
+a nivel 1 y 99, técnicas, HEX ID), una de la era GO con Keshin, otra con
+nombres japoneses + romanización, y una en español de GO Galaxy con una
+columna "Fichatron" (dónde se ficha a cada jugador).
+
+Extraerlo tuvo su truco: las secciones de IE1-IE3 dibujan **cada letra
+como una "palabra" independiente**, así que la extracción por columnas las
+destroza ("Mark Evans" sale como "MEvaarkn s"). Para esas tiré del texto
+plano en orden de lectura, donde el formato es rígido y se puede anclar en
+la secuencia `POS Género Tamaño Elemento` para recuperar cada fila. Las
+secciones GO sí se extraen bien por columnas.
+
+Lo que **no** aporta: las técnicas ya estaban completas (solo 4 jugadores
+de 4994 no tienen ninguna), así que ahí no había hueco que rellenar.
+
+Lo que **sí** aporta:
+- **Elemento para 3584 jugadores de 4994** (72%). IE1/IE2/IE3 quedan
+  prácticamente completos (1015/1016, 637/639, 621/622) y GO1 casi entero
+  (798/900). Los ~1400 que siguen sin elemento son sobre todo los del tag
+  "VR". Como comprobación de que el cruce por nombre es correcto, la
+  **posición** que trae el PDF coincide con la del roster en 3661 de 3680
+  casos comparados (99,5%).
+- **Equipo para 92 jugadores más** (1064 → 1156). La columna "Fichatron"
+  de la sección Galaxy trae el equipo entre paréntesis (稲妻町 sin
+  paréntesis es un sitio, no un equipo, así que solo uso los de paréntesis).
+  Están en japonés, así que solo he fusionado los que puedo respaldar: o
+  bien el roster ya etiqueta a algunos de sus jugadores con ese nombre
+  inglés, o bien tu Excel anterior ya deletreaba ese mismo nombre japonés
+  ("Royal Academy (Teikoku)" para 帝国, "Kirkwood (Kidokawa Seishuu)" para
+  木戸川清修). Quedan ~88 equipos más en esa columna que el roster todavía
+  no tiene y habría que bautizar en inglés — eso sigue pendiente de decidir.
+- De rebote, esto arregla en parte el problema que viste con Zeus: por
+  ejemplo **Protocol Omega pasa de 4 a 31 jugadores**, y los equipos
+  capaces de alinear un once completo (con portero) pasan de 42 a 44.
+
+### Elementos con ventaja en combate
+Los cuatro elementos funcionan en ciclo, como en los juegos: **Fuego →
+Madera → Aire → Tierra → Fuego**, cada uno con ventaja sobre el siguiente
+(Aire es el que los juegos posteriores llaman Viento/Agua, y Tierra el que
+llaman Eléctrico). Cuando los dos jugadores de un enfrentamiento tienen
+elemento conocido y uno tiene ventaja, su potencia se multiplica por
+**1.15** — un empujón, no un botón de ganar: pasa de ganar el 50% de los
+enfrentamientos igualados a ganar el 53%, así que una buena técnica o unas
+stats mejores siguen decidiendo la mayoría.
+
+Se ve en dos sitios: en el panel de elección aparece "🔥 Fire vs 🌿 Wood ▲
+advantage" (así puedes decidir si merece la pena gastar PT), y en las
+tarjetas del VS de la revelación, con la ventaja marcada en verde — para
+que un resultado raro se lea como "tenía el elemento" y no como suerte.
+
+### Posición a la vista
+La posición ya salía en las tarjetas de la lista, pero perdida entre el
+texto pequeño, y en los pines del campo no salía en absoluto. Ahora hay
+una **chapa de color** (GK amarillo, DF azul, MF verde, FW naranja) en la
+esquina de cada pin del campo y del banquillo — tanto en el editor de
+plantilla como en el panel de equipo en pleno partido — y al principio de
+cada tarjeta y de cada ficha. En los pines del campo, si el jugador está
+en un hueco que pide otra demarcación, la chapa se marca en rojo: así un
+portero puesto de central se ve de un vistazo en vez de tener que abrir
+las fichas una a una. En las tarjetas y fichas se muestra también el
+elemento.
