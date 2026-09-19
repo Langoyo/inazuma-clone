@@ -634,3 +634,25 @@ manager anterior.
 Resultado: el roster pasa de 4986 a **4994 jugadores** (las 8 fichas
 nuevas de arriba) y **1056 de ellos tienen ahora equipo real**, de **58
 equipos** en total (antes 976 de 4986, 49 equipos).
+
+## Filtro de equipo por época, y el límite real de "Use whole team"
+
+Probando el editor de plantilla con estos equipos nuevos, viste que
+"Zeus" solo ofrece 5 jugadores para rellenar 11 — eso no es un bug, es el
+límite real de cuántos jugadores de ese equipo concreto están en la base
+de datos (4 de IE1 + 1 de IE3): ni tu hoja ni el Excel de manager traen
+el resto del plantel de fondo de cada colegio, así que "Use whole team"
+sigue sin poder completar un once para casi ningún equipo — ya estaba
+avisado más arriba, pero merece repetirse aquí porque acabas de
+encontrarlo con un ejemplo concreto.
+
+Lo que sí cambié: **la mayoría de equipos reales (45 de 58) aparecen en
+varios juegos a la vez** — Raimon, por ejemplo, tiene jugadores en IE1,
+IE2, IE3, GO1, GO2, GO3 y Ares, con plantillas completamente distintas
+entre sí. Antes, elegir "Raimon" en el filtro mezclaba a los 75 jugadores
+de todas esas épocas en una sola bolsa. Ahora, un equipo que solo aparece
+en un juego se sigue viendo igual (una opción suelta), pero uno que se
+repite en varios se agrupa en el desplegable bajo su nombre, con una
+opción "All eras" (el comportamiento de antes) más una por cada época
+concreta ("IE1 (23)", "GO1 (19)"...) — así puedes pedir el Raimon de IE1
+a secas en vez de la mezcla de las siete épocas.

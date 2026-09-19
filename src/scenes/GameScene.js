@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { connectToRoom, getOrCreateRoomCode } from '../network/network.js';
 import { NORMAL_ACTION_POWER, STAT_FIELD_FOR_TECH } from '../data/techniques.js';
 import { createPlayerStats, applyRosterPlayerToStats, canActivate, techniquesFor } from '../data/players.js';
-import { loadRoster, getPlayerById, getGames, getTeams } from '../data/roster.js';
+import { loadRoster, getPlayerById, getGames } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────
@@ -356,8 +356,7 @@ export default class GameScene extends Phaser.Scene {
       this.rosterAll=data;
       const gs=document.getElementById('squad-game-filter');
       getGames().forEach(g=>{ const o=document.createElement('option'); o.value=g; o.textContent=g; gs.appendChild(o); });
-      const ts=document.getElementById('squad-team-filter');
-      getTeams().forEach(t=>{ const o=document.createElement('option'); o.value=t; o.textContent=t; ts.appendChild(o); });
+      this._populateTeamFilter();
       // Several characters (Mark Evans, Axel Blaze...) show up once per game
       // they appeared in, as separate roster entries with their own stats —
       // same name, same real team, so cards need the game tag too or they're
@@ -796,6 +795,48 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Most real teams recur across several games (Raimon alone spans
+   *  IE1/IE2/IE3/GO1/GO2/GO3/Ares, each with a totally different XI) — a
+   *  flat "Raimon" filter option used to pool every era together, which
+   *  buries a specific squad in a much bigger, mixed-era one. A team with
+   *  just one game's worth of players stays a single plain option; one that
+   *  spans several gets an <optgroup> with an "All eras" option (the old
+   *  behaviour) plus one option per game, so a specific era's roster is
+   *  directly selectable instead of always getting the merged pool. */
+  _populateTeamFilter(){
+    const ts=document.getElementById('squad-team-filter');
+    const gameOrder=getGames();
+    const byTeam=new Map();
+    this.rosterAll.forEach(p=>{
+      if(!p.team) return;
+      if(!byTeam.has(p.team)) byTeam.set(p.team,new Map());
+      const gm=byTeam.get(p.team);
+      gm.set(p.game,(gm.get(p.game)||0)+1);
+    });
+    [...byTeam.keys()].sort((a,b)=>a.localeCompare(b)).forEach(team=>{
+      const gameCounts=byTeam.get(team);
+      const games=[...gameCounts.keys()].sort((a,b)=>gameOrder.indexOf(a)-gameOrder.indexOf(b));
+      if(games.length<=1){
+        const o=document.createElement('option'); o.value=team; o.textContent=team; ts.appendChild(o);
+        return;
+      }
+      const total=[...gameCounts.values()].reduce((s,n)=>s+n,0);
+      const group=document.createElement('optgroup'); group.label=team;
+      const allOpt=document.createElement('option'); allOpt.value=team; allOpt.textContent=`All eras (${total})`; group.appendChild(allOpt);
+      games.forEach(g=>{
+        const o=document.createElement('option'); o.value=`${team}::${g}`; o.textContent=`${g} (${gameCounts.get(g)})`; group.appendChild(o);
+      });
+      ts.appendChild(group);
+    });
+  }
+  /** Splits a `squad-team-filter` value back into {team, game} — plain team
+   *  filters (single-game teams, or the "All eras" option) have no game. */
+  _parseTeamFilter(tf){
+    if(!tf) return {team:null,game:null};
+    const i=tf.indexOf('::');
+    return i===-1?{team:tf,game:null}:{team:tf.slice(0,i),game:tf.slice(i+2)};
+  }
+
   /** Sort comparators for the search list — stats sort strongest-first, name
    *  and position sort alphabetically. */
   _pickListSorters(){
@@ -815,11 +856,11 @@ export default class GameScene extends Phaser.Scene {
     const list=document.getElementById('squad-pick-list');
     const q=(document.getElementById('squad-search').value||'').toLowerCase();
     const gf=document.getElementById('squad-game-filter').value;
-    const tf=document.getElementById('squad-team-filter').value;
+    const {team:tfTeam,game:tfGame}=this._parseTeamFilter(document.getElementById('squad-team-filter').value);
     const sortKey=document.getElementById('squad-sort-select').value;
     const inSquad=this._allInSquad(); const MAX=120;
     const sel=this._squadSel;
-    const matches=this.rosterAll.filter(p=>(!gf||p.game===gf)&&(!tf||p.team===tf)&&(!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q)));
+    const matches=this.rosterAll.filter(p=>(!gf||p.game===gf)&&(!tfTeam||p.team===tfTeam)&&(!tfGame||p.game===tfGame)&&(!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q)));
     const sorters=this._pickListSorters();
     matches.sort(sorters[sortKey]||sorters.rating);
     document.getElementById('pick-count').textContent=matches.length>MAX?`Showing ${MAX} of ${matches.length}`:`${matches.length} players`;
@@ -836,7 +877,7 @@ export default class GameScene extends Phaser.Scene {
       card.addEventListener('click',()=>this._onSquadPinClick(this._squadSelForPlayer(p)));
       list.appendChild(card);
     });
-    document.getElementById('squad-whole-team-btn').disabled=!gf&&!tf;
+    document.getElementById('squad-whole-team-btn').disabled=!gf&&!tfTeam;
   }
 
   /** Fills the XI from `pool` so every slot gets someone who actually plays
@@ -859,9 +900,9 @@ export default class GameScene extends Phaser.Scene {
 
   _useWholeTeam(){
     const gf=document.getElementById('squad-game-filter').value;
-    const tf=document.getElementById('squad-team-filter').value;
-    if(!gf&&!tf) return;
-    this._fillSquadByPosition(this.rosterAll.filter(p=>(!tf||p.team===tf)&&(!gf||p.game===gf)));
+    const {team:tfTeam,game:tfGame}=this._parseTeamFilter(document.getElementById('squad-team-filter').value);
+    if(!gf&&!tfTeam) return;
+    this._fillSquadByPosition(this.rosterAll.filter(p=>(!tfTeam||p.team===tfTeam)&&(!tfGame||p.game===tfGame)&&(!gf||p.game===gf)));
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
