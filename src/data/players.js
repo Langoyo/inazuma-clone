@@ -26,7 +26,8 @@ export function createPlayerStats(name = 'Player') {
     stamina: 150,
     onPitchSince: 0, // match-clock timestamp this player last took the field — resets their fatigue
 
-    techniques: { shot: null, dribble: null, defense: null, keeper: null }
+    techniques: { shot: null, dribble: null, defense: null, keeper: null },
+    techniquesExtra: [] // any further techniques of a category that already has one active (see techniquesFor)
   };
 }
 
@@ -38,6 +39,7 @@ export function applyRosterPlayerToStats(stats, rosterPlayer) {
   stats.defensePower = rosterPlayer.stats.defensePower;
   stats.keeperPower = rosterPlayer.stats.keeperPower;
   stats.techniques = rosterPlayer.techniques;
+  stats.techniquesExtra = rosterPlayer.techniquesExtra || [];
   stats.maxSP = rosterPlayer.maxSP || 100;
   stats.sp = stats.maxSP;
   stats.maxStamina = rosterPlayer.maxStamina || 150;
@@ -46,10 +48,21 @@ export function applyRosterPlayerToStats(stats, rosterPlayer) {
   return stats;
 }
 
-/** Can this player afford their supertechnique for `category` right now?
- * No cooldown — the only gate is whether they have enough PT left. */
+/** Every technique this player has for `category` — the one active in the
+ * `techniques` slot plus any others of the same category that were sitting
+ * unused in `techniquesExtra` (a player with, say, two shot techniques can
+ * now pick either one in a confrontation instead of only ever the first). */
+export function techniquesFor(stats, category) {
+  const list = [];
+  if (stats.techniques[category]) list.push(stats.techniques[category]);
+  if (stats.techniquesExtra) {
+    for (const t of stats.techniquesExtra) if (t.category === category) list.push(t);
+  }
+  return list;
+}
+
+/** Can this player afford at least one of their `category` supertechniques
+ * right now? No cooldown — the only gate is whether PT covers its cost. */
 export function canActivate(stats, category) {
-  const tech = stats.techniques[category];
-  if (!tech) return false;
-  return stats.sp >= tech.cost;
+  return techniquesFor(stats, category).some((t) => stats.sp >= t.cost);
 }

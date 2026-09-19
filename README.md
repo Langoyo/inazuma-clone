@@ -429,3 +429,21 @@ juego, como mucho al texto que se ve en el nombre de la técnica.
   el portero, ya debilitado por la distancia. Cuando sí puede intentarlo,
   el botón de "acción normal" desaparece del panel — solo se ofrece su
   supertécnica — para que quede claro que es la única opción real.
+
+## Usar cualquier técnica repetida, bloqueo desde cerca, y opción de no hacer nada
+
+- **Todas las técnicas de una categoría son usables, no solo la primera**:
+  si un jugador tiene, por ejemplo, dos técnicas de tiro, ahora aparece un
+  botón por cada una en el panel de confrontación (con su propio coste),
+  en vez de solo la que quedó como "la" técnica de esa categoría — las
+  demás vivían ya en los datos (`techniquesExtra`, ver la sección
+  anterior) pero no se podían elegir. La ficha del jugador también lista
+  ahora todas, no solo la primera de cada categoría.
+- **El bloqueo se puede intentar a cualquier distancia**, incluso dentro
+  del área — antes hacía falta que el tiro fuera "de lejos".
+- **El jugador que bloquea puede decidir no hacer nada**: el botón de
+  acción normal ya no desaparece del panel — pasa a llamarse "Let it
+  through" y sigue sin poder detener el tiro él solo (eso solo lo hace una
+  supertécnica), pero ahora es una decisión real en vez de una opción
+  oculta: sirve para guardarse los PT si el jugador prefiere no arriesgar
+  la técnica en ese momento.

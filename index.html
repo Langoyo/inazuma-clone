@@ -269,7 +269,9 @@
     <div id="confrontation-timer-wrap"><div id="confrontation-timer-fill"></div></div>
     <div id="confrontation-buttons">
       <button class="conf-btn" id="conf-normal">Normal action</button>
-      <button class="conf-btn" id="conf-technique">Supertechnique<span class="cost">-- PT</span></button>
+      <!-- One button per technique the player has in this category is
+           injected here — see GameScene._updateConfrontUI. -->
+      <div id="conf-tech-list" style="display:contents;"></div>
     </div>
   </div>
 

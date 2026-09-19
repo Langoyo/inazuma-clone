@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { connectToRoom, getOrCreateRoomCode } from '../network/network.js';
 import { NORMAL_ACTION_POWER, STAT_FIELD_FOR_TECH } from '../data/techniques.js';
-import { createPlayerStats, applyRosterPlayerToStats, canActivate } from '../data/players.js';
+import { createPlayerStats, applyRosterPlayerToStats, canActivate, techniquesFor } from '../data/players.js';
 import { loadRoster, getPlayerById, getGames, getTeams } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
 
@@ -32,12 +32,13 @@ const CONFRONT_MS       = 20000;
 const SHOT_FALLOFF_NEAR = 150;   // no penalty inside this range
 const SHOT_FALLOFF_FAR  = 900;   // power bottoms out at/beyond this range
 const SHOT_FALLOFF_MIN  = 0.45;  // floor multiplier at max range
-// A long shot with an opposing outfield player standing in its path (not the
-// keeper — they're the last line) triggers a block attempt first: that
-// defender can spend a supertechnique to try to stop it outright, same as a
-// duel. Losing that roll doesn't kill the shot, just costs it more power —
-// it's already weakened by distance — before it reaches the keeper.
-const BLOCK_MIN_DIST     = 320;  // only "long" shots can be walled
+// Any shot with an opposing outfield player standing in its path (not the
+// keeper — they're the last line, box or no box) triggers a block attempt
+// first: that defender can spend a supertechnique to try to stop it
+// outright, same as a duel — or deliberately do nothing (e.g. save the PT
+// for later). Losing that roll doesn't kill the shot, just costs it more
+// power — it's already weakened by distance — before it reaches the keeper.
+const BLOCK_MIN_DIST     = 0;    // any shot can be walled, penalty box included
 const BLOCK_CORRIDOR_HALF= 70;   // how far off the direct shot line still counts as "in the way"
 const BLOCK_PASS_PENALTY = 0.8;  // extra power lost grazing past a beaten blocker
 const RESULT_MS         = 3500;
@@ -323,7 +324,14 @@ export default class GameScene extends Phaser.Scene {
     this.input.on('pointerupoutside',(p)=>this._pointerUp(p));
 
     document.getElementById('conf-normal').addEventListener('pointerdown',(e)=>{e.stopPropagation();this.pendingChoice='normal';});
-    document.getElementById('conf-technique').addEventListener('pointerdown',(e)=>{e.stopPropagation();this.pendingChoice='technique';});
+    // Technique buttons are rebuilt per confrontation (a player can have more
+    // than one of the same category — see techniquesFor), so this listens on
+    // their shared container instead of a single fixed button.
+    document.getElementById('conf-tech-list').addEventListener('pointerdown',(e)=>{
+      const btn=e.target.closest('.conf-btn'); if(!btn||btn.disabled) return;
+      e.stopPropagation();
+      this.pendingChoice={tech:parseInt(btn.dataset.idx,10)};
+    });
     document.getElementById('fulltime-menu-btn').addEventListener('click',()=>this._returnToMenu());
     document.getElementById('sub-button').addEventListener('click',()=>this._openSubPanel());
     document.getElementById('sub-cancel-btn').addEventListener('click',()=>{this.subSel=null;document.getElementById('sub-panel').style.display='none';});
@@ -604,10 +612,10 @@ export default class GameScene extends Phaser.Scene {
     // Populate and show the stat panel overlay
     const el=document.getElementById('player-stat-panel');
     const col=this._css3(this._rosterColor(p));
-    const techs=['shot','dribble','defense','keeper'].map(cat=>{
-      const t=p.techniques&&p.techniques[cat];
-      return t?`<div style="display:flex;justify-content:space-between;gap:8px"><span>${t.name}</span><span style="opacity:.7">${t.cost} PT</span></div>`:'';
-    }).join('');
+    // All of a category's techniques, not just the one active in combat —
+    // a player with two of the same kind can use either (see techniquesFor).
+    const techs=['shot','dribble','defense','keeper'].flatMap(cat=>techniquesFor(p,cat))
+      .map(t=>`<div style="display:flex;justify-content:space-between;gap:8px"><span>${t.name}</span><span style="opacity:.7">${t.cost} PT</span></div>`).join('');
     const st=p.stats;
     // Mid-match, whoever's actually on the pitch has live PT/stamina; show
     // current/total for them. Otherwise (pre-match, or still on the bench)
@@ -1280,12 +1288,7 @@ export default class GameScene extends Phaser.Scene {
       const powerMul=opts.powerMulOverride!=null?opts.powerMulOverride:this._shotPowerMul(shotDist);
       if(!opts.skipBlockCheck&&shotDist>=BLOCK_MIN_DIST){
         const blocker=this._findBlocker(aRole,dRole,eAtk,goalY);
-        // Blocking only works with a supertechnique (see _prepareConfrontReveal)
-        // — if the blocker has none, or no PT left for it, there's nothing to
-        // decide, so skip the foregone-conclusion screen and go straight to
-        // the weakened shot instead of making anyone stare at a dead prompt.
-        const bs=blocker?this._statsFor(dRole,blocker.id):null;
-        if(blocker&&bs&&canActivate(bs,'defense')){
+        if(blocker){
           this.confrontation={type:'block',attackerRole:aRole,defenderRole:dRole,attackerId:aId,defenderId:blocker.id,deadline:now+CONFRONT_MS,attackerChoice:null,defenderChoice:null,powerMul,chainShot:{aRole,dRole}};
           return;
         }
@@ -1329,8 +1332,28 @@ export default class GameScene extends Phaser.Scene {
     return best;
   }
   _aiParams(){ return AI_LEVELS[this.aiLevel]||AI_LEVELS[AI_LEVEL_DEFAULT]; }
-  _aiChoice(stats,cat){ return canActivate(stats,cat)&&Math.random()<this._aiParams().techChance?'technique':'normal'; }
-  _tryTech(stats,cat){ if(!canActivate(stats,cat)) return false; stats.sp-=stats.techniques[cat].cost; return true; }
+  /** Picks the strongest `category` technique this player can actually
+   *  afford right now, as a {tech:index} choice into techniquesFor's list —
+   *  or 'normal' if none of them fit their remaining PT. */
+  _bestTechChoice(stats,cat){
+    const list=techniquesFor(stats,cat);
+    let bestIdx=-1,bestPower=-1;
+    list.forEach((t,i)=>{ if(stats.sp>=t.cost&&t.power>bestPower){ bestPower=t.power; bestIdx=i; } });
+    return bestIdx===-1?'normal':{tech:bestIdx};
+  }
+  _aiChoice(stats,cat){ return canActivate(stats,cat)&&Math.random()<this._aiParams().techChance?this._bestTechChoice(stats,cat):'normal'; }
+  /** Resolves a choice ('normal' or {tech:index}) against `stats`' own
+   *  techniquesFor(cat) list, spends the PT if it's actually affordable, and
+   *  returns the technique used — or null for a normal action / an
+   *  unaffordable or now-stale choice (e.g. sent before a PT-costing choice
+   *  elsewhere already spent it this tick). */
+  _tryTech(stats,cat,choice){
+    if(!choice||typeof choice!=='object'||typeof choice.tech!=='number') return null;
+    const tech=techniquesFor(stats,cat)[choice.tech];
+    if(!tech||stats.sp<tech.cost) return null;
+    stats.sp-=tech.cost;
+    return tech;
+  }
   _statsFor(role,id){ return (role==='A'?this.statsMapA:this.statsMapB).get(id); }
 
   _entryById(role,id){ const team=role==='A'?this.teamA:this.teamB; return team.find(t=>t.id===id)||null; }
@@ -1345,24 +1368,24 @@ export default class GameScene extends Phaser.Scene {
     if(!as||!ds){this.confrontation=null;return;}
     const atk=c.type==='duel'?'dribble':'shot';
     const def=c.type==='shot'?'keeper':'defense'; // duel and block both face a 'defense' roll
-    const aU=c.attackerChoice==='technique'&&this._tryTech(as,atk);
-    const dU=c.defenderChoice==='technique'&&this._tryTech(ds,def);
+    const aTech=this._tryTech(as,atk,c.attackerChoice);
+    const dTech=this._tryTech(ds,def,c.defenderChoice);
     // A shot's power fades with distance (see _shotPowerMul) — applies to
     // both the block attempt and the eventual keeper duel, since it's the
     // same weakened strike either way.
     const powerMul=(c.type==='shot'||c.type==='block')?(c.powerMul||1):1;
-    const aP=(aU?as.techniques[atk].power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]]*powerMul;
-    const dP=(dU?ds.techniques[def].power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]];
+    const aP=(aTech?aTech.power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]]*powerMul;
+    const dP=(dTech?dTech.power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]];
     // Blocking a shot takes a real supertechnique — a normal challenge can't
     // stop it, only soften what happens after (see BLOCK_PASS_PENALTY).
-    const aWins=(c.type==='block'&&!dU)?true:Math.random()<aP/(aP+dP);
-    const aTN=aU?as.techniques[atk].name:'Normal', dTN=dU?ds.techniques[def].name:'Normal';
+    const aWins=(c.type==='block'&&!dTech)?true:Math.random()<aP/(aP+dP);
+    const aTN=aTech?aTech.name:'Normal', dTN=dTech?dTech.name:'Normal';
     // Visual flourish data for whoever actually used a supertechnique —
     // rendered identically on host and client from the synced result.
     const eAtk=this._entryById(c.attackerRole,c.attackerId), eDef=this._entryById(c.defenderRole,c.defenderId);
     const fx={
-      a: aU&&eAtk ? {x:eAtk.body.position.x,y:eAtk.body.position.y,color:c.attackerRole==='A'?this.teamColorA:this.teamColorB,name:aTN} : null,
-      d: dU&&eDef ? {x:eDef.body.position.x,y:eDef.body.position.y,color:c.defenderRole==='A'?this.teamColorA:this.teamColorB,name:dTN} : null
+      a: aTech&&eAtk ? {x:eAtk.body.position.x,y:eAtk.body.position.y,color:c.attackerRole==='A'?this.teamColorA:this.teamColorB,name:aTN} : null,
+      d: dTech&&eDef ? {x:eDef.body.position.x,y:eDef.body.position.y,color:c.defenderRole==='A'?this.teamColorA:this.teamColorB,name:dTN} : null
     };
     c.pending={aWins,aTN,dTN,fx,aName:as.name,dName:ds.name};
     c.reveal={
@@ -1742,9 +1765,9 @@ export default class GameScene extends Phaser.Scene {
       if(c.attackerRole==='B'&&!c.attackerChoice){const s=this._statsFor('B',c.attackerId);c.attackerChoice=s?this._aiChoice(s,tf('B')):'normal';}
       if(c.defenderRole==='B'&&!c.defenderChoice){
         const s=this._statsFor('B',c.defenderId);
-        // A normal block never works — the AI always reaches for its
-        // supertechnique here instead of rolling its usual tech chance.
-        c.defenderChoice=c.type==='block'?(s&&canActivate(s,'defense')?'technique':'normal'):(s?this._aiChoice(s,tf('B')):'normal');
+        // A normal block never works — the AI always reaches for its best
+        // affordable supertechnique here instead of rolling its usual chance.
+        c.defenderChoice=c.type==='block'?(s?this._bestTechChoice(s,'defense'):'normal'):(s?this._aiChoice(s,tf('B')):'normal');
       }
     }
     if((c.attackerChoice&&c.defenderChoice)||now>=c.deadline){ if(!c.attackerChoice)c.attackerChoice='normal'; if(!c.defenderChoice)c.defenderChoice='normal'; this._prepareConfrontReveal(now); }
@@ -1863,33 +1886,38 @@ export default class GameScene extends Phaser.Scene {
     if(!amA&&!amD){panel.style.display='none';return;}
     panel.style.display='flex';
     const isDuel=confrontation.type==='duel', isBlock=confrontation.type==='block';
-    // Blocking a shot only works with a supertechnique — a normal challenge
-    // can never stop it (see _prepareConfrontReveal), so the defender in a
-    // block isn't even offered that option.
-    const blockDefenderCantNormal=isBlock&&amD;
     const techId=isDuel?(amA?'dribble':'defense'):isBlock?(amA?'shot':'defense'):(amA?'shot':'keeper');
     const relId=amA?confrontation.attackerId:confrontation.defenderId;
     const relRole=amA?confrontation.attackerRole:confrontation.defenderRole;
     const stats=this._statsFor(relRole,relId); const rp=relId?getPlayerById(relId):null;
-    const canBlock=stats&&canActivate(stats,techId);
     document.getElementById('confrontation-title').textContent=isDuel?(amA?"Duel! You're being tackled":'Duel! Go for the tackle')
-      :isBlock?(amA?'A defender is in the way!':(canBlock?'Block the shot — needs a supertechnique!':"No PT left — you can't block this one"))
+      :isBlock?(amA?'A defender is in the way!':'Block the shot — needs a supertechnique!')
       :(amA?'Shoot for goal!':'Save the shot!');
+    // A block only stops anything with a supertechnique (see
+    // _prepareConfrontReveal) — "normal" there just means the defender
+    // deliberately does nothing, e.g. to save the PT for later.
     const normalBtn=document.getElementById('conf-normal');
-    if(blockDefenderCantNormal){ normalBtn.style.display='none'; }
-    else {
-      normalBtn.style.display='block';
-      normalBtn.textContent=isDuel?(amA?'Normal dribble':'Normal tackle')
-        :isBlock?'Shoot anyway'
-        :(amA?'Normal shot':'Normal save');
-    }
+    normalBtn.style.display='block';
+    normalBtn.textContent=isDuel?(amA?'Normal dribble':'Normal tackle')
+      :isBlock?(amA?'Shoot anyway':"Let it through")
+      :(amA?'Normal shot':'Normal save');
     const myChoice=amA?confrontation.attackerChoice:confrontation.defenderChoice;
+    const myChoiceIsTech=myChoice&&typeof myChoice==='object'&&typeof myChoice.tech==='number';
     normalBtn.classList.toggle('active',myChoice==='normal');
-    document.getElementById('conf-technique').classList.toggle('active',myChoice==='technique');
     document.getElementById('confrontation-player-info').innerHTML=stats?`<b>${rp?.name||stats.name}</b> — PT ${Math.round(stats.sp)}/${Math.round(stats.maxSP)}`:'';
-    const techBtn=document.getElementById('conf-technique'); const tech=stats?stats.techniques[techId]:null;
-    if(tech){techBtn.style.display='block';techBtn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`;techBtn.disabled=!stats||!canActivate(stats,techId);}
-    else techBtn.style.display='none';
+    // One button per technique this player has in the category — a player
+    // with more than one of the same kind (see techniquesFor) can pick
+    // whichever they want, not just whichever happens to be "the" one.
+    const techWrap=document.getElementById('conf-tech-list'); techWrap.innerHTML='';
+    const techs=stats?techniquesFor(stats,techId):[];
+    techs.forEach((tech,idx)=>{
+      const btn=document.createElement('button');
+      btn.className='conf-btn'; btn.dataset.idx=idx;
+      btn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`;
+      btn.disabled=!stats||stats.sp<tech.cost;
+      if(myChoiceIsTech&&myChoice.tech===idx) btn.classList.add('active');
+      techWrap.appendChild(btn);
+    });
     const rem=Math.max(0,confrontation.deadline-now);
     document.getElementById('confrontation-timer-fill').style.width=`${(rem/CONFRONT_MS)*100}%`;
   }
