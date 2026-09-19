@@ -402,3 +402,30 @@ nombre de técnica algo deformado en los datos "no reconocidos" (por
 ejemplo, un fragmento de nombre roto). Es un puñado de casos dentro de los
 casi 4300 movimientos activos asignados — no afecta al equilibrio del
 juego, como mucho al texto que se ve en el nombre de la técnica.
+
+## Elegir también al rival, sprint al dibujar, PT/estamina en la tarjeta, y bloqueo solo con supertécnica
+
+- **Selector de equipo rival**: en el editor de plantilla hay ahora dos
+  pestañas, "Your Team" y "Rival Team". La del rival viene ya rellena al
+  azar (misma selección por posición que el botón 🎲) y solo se usa si
+  acabas jugando en solitario contra la IA — si se conecta un rival de
+  verdad, siempre elige su propio equipo, se ignora lo que hayas puesto
+  ahí. Se puede tocar tan poco o tanto como quieras: si dejas huecos, se
+  rellenan solos al confirmar.
+- **Sprint al dibujar una línea**: seguir un camino dibujado es una
+  carrera decidida, así que ahora el jugador va un 35% más rápido (y
+  acelera más rápido para llegar a esa velocidad) mientras sigue la línea,
+  en vez de moverse al ritmo normal.
+- **PT y estamina en la tarjeta del jugador**: la ficha que se abre al
+  tocar dos veces un jugador (en la plantilla o en el panel de equipo
+  durante el partido) muestra ahora también sus puntos de técnica y su
+  condición física — como número actual/total si el jugador ya está en el
+  campo durante un partido en marcha, o como su máximo antes de empezar.
+- **El bloqueo de tiros ahora exige supertécnica**: un bloqueo "normal"
+  nunca detiene el disparo — solo gastar PT en una técnica de defensa
+  puede hacerlo. Si el defensor no tiene ninguna técnica de defensa
+  asignada, o no le quedan PT para pagarla, la pantalla de bloqueo ni
+  siquiera aparece (no hay nada que decidir) y el tiro sigue directo hacia
+  el portero, ya debilitado por la distancia. Cuando sí puede intentarlo,
+  el botón de "acción normal" desaparece del panel — solo se ofrece su
+  supertécnica — para que quede claro que es la única opción real.

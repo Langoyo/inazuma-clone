@@ -92,6 +92,10 @@ const STEER_FORCE           = 0.00034;
 const AUTO_STEER_FORCE      = 0.00032;
 const BASE_MAX_SPEED        = 0.72;
 const AUTO_MAX_SPEED        = 0.66;
+// A player following a drawn line sprints: draw somewhere and it's a
+// deliberate run, so they push harder and cap out faster than everyone else.
+const SPRINT_SPEED_MUL      = 1.35;
+const SPRINT_FORCE_MUL      = 1.25;
 
 // Off-ball behaviour: how strongly teammates push forward to support the
 // ball carrier, and how close a defender presses the opponent on the ball.
@@ -293,6 +297,12 @@ export default class GameScene extends Phaser.Scene {
     this.squadSlots=Array(TEAM_SIZE).fill(null);
     this.benchIds=new Set();
     this.chosenFormation=DEFAULT_FORMATION;
+    // Rival-team state, only used solo vs AI — a real connected opponent
+    // always picks their own squad regardless of what's set here.
+    this.editSide='me';
+    this.rivalSquadSlots=Array(TEAM_SIZE).fill(null);
+    this.rivalBenchIds=new Set();
+    this.rivalFormation=DEFAULT_FORMATION;
     this.aiLevel=AI_LEVEL_DEFAULT;
     this.mySquadConfirmed=false;
     this.mySquadPayload=null;
@@ -473,7 +483,7 @@ export default class GameScene extends Phaser.Scene {
   // ════════════════════════════════════════════════════════════════════
   _initSquadEditor(){
     document.getElementById('formation-select').addEventListener('change',e=>{
-      this.chosenFormation=e.target.value; this._renderPitch();
+      this._edSetFormation(e.target.value); this._renderPitch();
     });
     document.getElementById('randomize-squad-btn').addEventListener('click',()=>this._randomize());
     document.getElementById('squad-whole-team-btn').addEventListener('click',()=>this._useWholeTeam());
@@ -482,36 +492,77 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-team-filter').addEventListener('change',()=>this._renderPickList());
     document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
+    document.querySelectorAll('.squad-side-tab').forEach(btn=>btn.addEventListener('click',()=>this._setEditSide(btn.dataset.side)));
+    // Give the rival a full, position-aware random XI up front — it plays
+    // fine untouched, and is only ever used solo vs AI.
+    this.editSide='rival'; this._fillSquadByPosition(this.rosterAll); this.editSide='me';
     this._renderPitch(); this._renderPickList();
+  }
+
+  // ---- which side ("me"/"rival") the pitch editor currently shows -------
+  _edSlots(){ return this.editSide==='rival'?this.rivalSquadSlots:this.squadSlots; }
+  _edSetSlots(v){ if(this.editSide==='rival') this.rivalSquadSlots=v; else this.squadSlots=v; }
+  _edBench(){ return this.editSide==='rival'?this.rivalBenchIds:this.benchIds; }
+  _edSetBench(v){ if(this.editSide==='rival') this.rivalBenchIds=v; else this.benchIds=v; }
+  _edFormation(){ return this.editSide==='rival'?this.rivalFormation:this.chosenFormation; }
+  _edSetFormation(v){ if(this.editSide==='rival') this.rivalFormation=v; else this.chosenFormation=v; }
+
+  _setEditSide(side){
+    this.editSide=side;
+    document.getElementById('formation-select').value=this._edFormation();
+    document.querySelectorAll('.squad-side-tab').forEach(b=>b.classList.toggle('active',b.dataset.side===side));
+    document.getElementById('rival-tab-note').style.display=side==='rival'?'block':'none';
+    this._squadSel=null;
+    this._renderPitch(); this._renderPickList();
+  }
+
+  /** Fills in any slot the rival XI is still missing at confirm time (e.g.
+   *  the user removed someone there and never replaced them) — the rival
+   *  never blocks the match from starting the way your own squad does. */
+  _rivalSquadPayload(){
+    const slots=this.rivalSquadSlots.slice();
+    if(slots.some(id=>!id)){
+      const exclude=new Set([...slots.filter(Boolean),...this.rivalBenchIds]);
+      const roles=SLOT_ROLES[this.rivalFormation]||SLOT_ROLES[DEFAULT_FORMATION];
+      const byPos={};
+      for(const p of this.rosterAll) if(!exclude.has(p.id)) (byPos[p.position]=byPos[p.position]||[]).push(p);
+      Object.values(byPos).forEach(list=>Phaser.Utils.Array.Shuffle(list));
+      const take=pos=>{ const l=byPos[pos]; return l&&l.length?l.pop().id:null; };
+      const takeAny=()=>{ for(const l of Object.values(byPos)) if(l.length) return l.pop().id; return null; };
+      for(let i=0;i<slots.length;i++) if(!slots[i]) slots[i]=take(roles[i])||takeAny();
+    }
+    return {starterIds:slots.filter(Boolean),benchIds:[...this.rivalBenchIds],formation:this.rivalFormation};
   }
 
   /** Drops whichever pitch/bench player is currently selected back into the
    *  pool, leaving their slot empty. */
   _removeSelectedFromSquad(){
     const sel=this._squadSel; if(!sel) return;
-    if(sel.type==='slot') this.squadSlots[sel.slot]=null;
-    else this.benchIds.delete(sel.id);
+    if(sel.type==='slot') this._edSlots()[sel.slot]=null;
+    else this._edBench().delete(sel.id);
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
 
   _allInSquad(){
-    const s=new Set(this.squadSlots.filter(Boolean));
-    this.benchIds.forEach(id=>s.add(id)); return s;
+    const s=new Set(this._edSlots().filter(Boolean));
+    this._edBench().forEach(id=>s.add(id)); return s;
   }
 
   _renderPitch(){
     const pitch=document.getElementById('formation-pitch');
     pitch.innerHTML='<div class="pitch-line-h"></div>';
-    const preset=FORMATIONS[this.chosenFormation]||FORMATIONS[DEFAULT_FORMATION];
-    const roles=SLOT_ROLES[this.chosenFormation]||SLOT_ROLES[DEFAULT_FORMATION];
+    const formation=this._edFormation();
+    const preset=FORMATIONS[formation]||FORMATIONS[DEFAULT_FORMATION];
+    const roles=SLOT_ROLES[formation]||SLOT_ROLES[DEFAULT_FORMATION];
+    const slots=this._edSlots();
     const sel=this._squadSel;
     preset.forEach((f,slot)=>{
       const pin=document.createElement('div');
       pin.className='slot-pin'; pin.dataset.slot=slot;
       pin.style.left=(f.x*100)+'%';
       pin.style.top =((1-f.y)*100)+'%';
-      const pid=this.squadSlots[slot]; const p=pid?getPlayerById(pid):null;
+      const pid=slots[slot]; const p=pid?getPlayerById(pid):null;
       if(p){
         const col=this._css3(this._rosterColor(p));
         pin.innerHTML=`<div class="pin-avatar" style="background:${col}">${this._initials(p)}</div><div class="pin-name">${p.nickname||p.name}</div>`;
@@ -524,7 +575,7 @@ export default class GameScene extends Phaser.Scene {
       pitch.appendChild(pin);
     });
     const strip=document.getElementById('bench-strip'); strip.innerHTML='';
-    [...this.benchIds].forEach(pid=>{
+    [...this._edBench()].forEach(pid=>{
       const p=getPlayerById(pid); if(!p) return;
       const pin=document.createElement('div'); pin.className='bench-pin'; pin.dataset.benchId=pid;
       const col=this._css3(this._rosterColor(p));
@@ -533,11 +584,15 @@ export default class GameScene extends Phaser.Scene {
       pin.addEventListener('click',()=>this._onSquadPinClick({type:'bench',id:pid}));
       strip.appendChild(pin);
     });
-    document.getElementById('bench-count').textContent=this.benchIds.size;
-    const filled=this.squadSlots.filter(Boolean).length;
-    document.getElementById('squad-fill-count').textContent=`${filled}/11 filled`;
+    document.getElementById('bench-count').textContent=this._edBench().size;
+    // The counter/button reflect the side on screen, but starting the match
+    // only ever needs YOUR OWN squad complete — the rival tops itself off
+    // automatically (see _rivalSquadPayload), so it never blocks Confirm.
+    const shownFilled=slots.filter(Boolean).length;
+    document.getElementById('squad-fill-count').textContent=`${shownFilled}/11 filled`;
+    const myFilled=this.squadSlots.filter(Boolean).length;
     const btn=document.getElementById('confirm-squad-btn');
-    btn.textContent=`Confirm squad (${filled}/11)`; btn.disabled=filled!==TEAM_SIZE;
+    btn.textContent=`Confirm squad (${myFilled}/11)`; btn.disabled=myFilled!==TEAM_SIZE;
     // Offer the remove action only while a selected pin actually holds someone
     const selP=sel?this._squadSelPlayer(sel):null;
     const bar=document.getElementById('squad-remove-bar');
@@ -554,6 +609,12 @@ export default class GameScene extends Phaser.Scene {
       return t?`<div style="display:flex;justify-content:space-between;gap:8px"><span>${t.name}</span><span style="opacity:.7">${t.cost} PT</span></div>`:'';
     }).join('');
     const st=p.stats;
+    // Mid-match, whoever's actually on the pitch has live PT/stamina; show
+    // current/total for them. Otherwise (pre-match, or still on the bench)
+    // there's no "current" yet, just their fresh starting totals.
+    const live=this.matchStarted?this._statsFor(this.role,p.id):null;
+    const ptLine=live?`${Math.round(live.sp)}/${Math.round(live.maxSP)}`:`${p.maxSP||100} max`;
+    const staLine=live?`${Math.round(live.stamina)}/${Math.round(live.maxStamina)}`:`${p.maxStamina||150} max`;
     el.innerHTML=`
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
         <span style="width:44px;height:44px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:bold;color:rgba(0,0,0,.8);flex-shrink:0">${this._initials(p)}</span>
@@ -569,6 +630,10 @@ export default class GameScene extends Phaser.Scene {
         <div>🛡 Defense <b>${st.defensePower.toFixed(2)}</b></div>
         <div>🧤 Keeper <b>${st.keeperPower.toFixed(2)}</b></div>
         <div>🏃 Speed <b>${st.speed.toFixed(2)}</b></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px;">
+        <div>🔋 PT <b>${ptLine}</b></div>
+        <div>🏋 Stamina <b>${staLine}</b></div>
       </div>
       ${techs?`<div style="font-size:11px;opacity:.7;margin-bottom:4px">Supertechniques:</div><div style="font-size:12px;display:flex;flex-direction:column;gap:3px">${techs}</div>`:'<div style="font-size:11px;opacity:.5">No supertechniques</div>'}
     `;
@@ -592,20 +657,21 @@ export default class GameScene extends Phaser.Scene {
     this._renderPitch(); this._renderPickList();
   }
   _squadSelPlayer(sel){
-    const id=sel.type==='slot'?this.squadSlots[sel.slot]:sel.id;
+    const id=sel.type==='slot'?this._edSlots()[sel.slot]:sel.id;
     return id?getPlayerById(id):null;
   }
   _swapSquadSelections(a,b){
+    const slots=this._edSlots(), bench=this._edBench();
     if(a.type==='slot'&&b.type==='slot'){
-      const tmp=this.squadSlots[a.slot]; this.squadSlots[a.slot]=this.squadSlots[b.slot]; this.squadSlots[b.slot]=tmp;
+      const tmp=slots[a.slot]; slots[a.slot]=slots[b.slot]; slots[b.slot]=tmp;
     } else if(a.type==='bench'&&b.type==='bench'){
       // Nothing changes — both stay on the bench.
     } else {
       const slotSel=a.type==='slot'?a:b, benchSel=a.type==='bench'?a:b;
-      const cur=this.squadSlots[slotSel.slot];
-      this.squadSlots[slotSel.slot]=benchSel.id;
-      this.benchIds.delete(benchSel.id);
-      if(cur) this.benchIds.add(cur);
+      const cur=slots[slotSel.slot];
+      slots[slotSel.slot]=benchSel.id;
+      bench.delete(benchSel.id);
+      if(cur) bench.add(cur);
     }
   }
 
@@ -623,7 +689,7 @@ export default class GameScene extends Phaser.Scene {
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'');
       const col=this._css3(this._rosterColor(p));
       card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span><span class="pick-name">${p.nickname||p.name}</span></div><div style="font-size:10px;opacity:.7">${p.position} · ${p.team||p.game}</div><div style="font-size:10px;opacity:.6">SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>`;
-      card.addEventListener('click',()=>{ if(inSquad.has(p.id)){this._showPlayerStats(p);return;} const e=this.squadSlots.findIndex(s=>s===null); if(e!==-1){this.squadSlots[e]=p.id;}else if(this.benchIds.size<BENCH_MAX){this.benchIds.add(p.id);} this._renderPitch();this._renderPickList(); });
+      card.addEventListener('click',()=>{ if(inSquad.has(p.id)){this._showPlayerStats(p);return;} const slots=this._edSlots(), bench=this._edBench(); const e=slots.findIndex(s=>s===null); if(e!==-1){slots[e]=p.id;}else if(bench.size<BENCH_MAX){bench.add(p.id);} this._renderPitch();this._renderPickList(); });
       list.appendChild(card);
     });
     document.getElementById('squad-whole-team-btn').disabled=!gf&&!tf;
@@ -633,17 +699,18 @@ export default class GameScene extends Phaser.Scene {
    *  that position (keeper slot from keepers, defensive slots from defenders
    *  and so on), then stocks the bench with a spread of cover. */
   _fillSquadByPosition(pool){
-    const roles=SLOT_ROLES[this.chosenFormation]||SLOT_ROLES[DEFAULT_FORMATION];
+    const roles=SLOT_ROLES[this._edFormation()]||SLOT_ROLES[DEFAULT_FORMATION];
     const byPos={};
     for(const p of pool) (byPos[p.position]=byPos[p.position]||[]).push(p);
     Object.values(byPos).forEach(list=>Phaser.Utils.Array.Shuffle(list));
     const take=pos=>{ const l=byPos[pos]; return l&&l.length?l.pop().id:null; };
     const takeAny=()=>{ for(const l of Object.values(byPos)) if(l.length) return l.pop().id; return null; };
-    this.squadSlots=roles.slice(0,TEAM_SIZE).map(r=>take(r));
+    const slots=roles.slice(0,TEAM_SIZE).map(r=>take(r));
     // A narrow pool (one club, say) may not field four defenders — backfill
     // from whoever is left so the XI still comes out complete.
-    for(let i=0;i<TEAM_SIZE;i++) if(!this.squadSlots[i]) this.squadSlots[i]=takeAny();
-    this.benchIds=new Set(BENCH_COVER.map(pos=>take(pos)||takeAny()).filter(Boolean));
+    for(let i=0;i<TEAM_SIZE;i++) if(!slots[i]) slots[i]=takeAny();
+    this._edSetSlots(slots);
+    this._edSetBench(new Set(BENCH_COVER.map(pos=>take(pos)||takeAny()).filter(Boolean)));
   }
 
   _useWholeTeam(){
@@ -658,8 +725,8 @@ export default class GameScene extends Phaser.Scene {
   _randomize(){
     // Shape first, then fill it position by position — the slot roles depend
     // on the formation, so picking it afterwards would mismatch them.
-    this.chosenFormation=Phaser.Utils.Array.GetRandom(Object.keys(FORMATIONS));
-    document.getElementById('formation-select').value=this.chosenFormation;
+    this._edSetFormation(Phaser.Utils.Array.GetRandom(Object.keys(FORMATIONS)));
+    document.getElementById('formation-select').value=this._edFormation();
     this._fillSquadByPosition(this.rosterAll);
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
@@ -672,17 +739,12 @@ export default class GameScene extends Phaser.Scene {
     this.net.sendSquad(payload);
     document.getElementById('confirm-squad-btn').disabled=true;
     if(this.role==='A'){
-      if(!this.net.hasPeer()) this._startMatch(payload,this._defaultAISquad());
+      if(!this.net.hasPeer()) this._startMatch(payload,this._rivalSquadPayload());
       else if(this.remoteSquadPayload) this._startMatch(payload,this.remoteSquadPayload);
       else document.getElementById('squad-status').textContent='Waiting for opponent…';
     } else { document.getElementById('squad-status').textContent='Waiting for match to start…'; }
   }
 
-  _defaultAISquad(){
-    const pool=this.rosterAll, gk=pool.find(p=>p.position==='GK'), rest=pool.filter(p=>!gk||p.id!==gk.id);
-    const ordered=gk?[gk,...rest]:rest;
-    return{starterIds:ordered.slice(0,TEAM_SIZE).map(p=>p.id),benchIds:ordered.slice(TEAM_SIZE,TEAM_SIZE+3).map(p=>p.id),formation:DEFAULT_FORMATION};
-  }
 
   // ════════════════════════════════════════════════════════════════════
   // Match setup
@@ -1026,11 +1088,12 @@ export default class GameScene extends Phaser.Scene {
       const path=this.myPaths.get(e.id); if(!path||!path.length) continue;
       const pos=e.body?e.body.position:e.gfx;
       while(path.length&&Phaser.Math.Distance.Between(pos.x,pos.y,path[0].x,path[0].y)<WAYPOINT_RADIUS) path.shift();
-      if(path.length){ targets.push({id:e.id,x:path[0].x,y:path[0].y}); continue; }
+      // Following a drawn line is a deliberate run — sprint for it.
+      if(path.length){ targets.push({id:e.id,x:path[0].x,y:path[0].y,sprint:true}); continue; }
       // The drawn line ran out: keep making ground while we're attacking
       // rather than turning straight back into the formation.
       const runOn=this._runOnWaypoint(pos);
-      if(runOn){ path.push(runOn); targets.push({id:e.id,...runOn}); }
+      if(runOn){ path.push(runOn); targets.push({id:e.id,...runOn,sprint:true}); }
       else this.myPaths.delete(e.id);
     }
     return targets;
@@ -1217,7 +1280,12 @@ export default class GameScene extends Phaser.Scene {
       const powerMul=opts.powerMulOverride!=null?opts.powerMulOverride:this._shotPowerMul(shotDist);
       if(!opts.skipBlockCheck&&shotDist>=BLOCK_MIN_DIST){
         const blocker=this._findBlocker(aRole,dRole,eAtk,goalY);
-        if(blocker){
+        // Blocking only works with a supertechnique (see _prepareConfrontReveal)
+        // — if the blocker has none, or no PT left for it, there's nothing to
+        // decide, so skip the foregone-conclusion screen and go straight to
+        // the weakened shot instead of making anyone stare at a dead prompt.
+        const bs=blocker?this._statsFor(dRole,blocker.id):null;
+        if(blocker&&bs&&canActivate(bs,'defense')){
           this.confrontation={type:'block',attackerRole:aRole,defenderRole:dRole,attackerId:aId,defenderId:blocker.id,deadline:now+CONFRONT_MS,attackerChoice:null,defenderChoice:null,powerMul,chainShot:{aRole,dRole}};
           return;
         }
@@ -1285,7 +1353,9 @@ export default class GameScene extends Phaser.Scene {
     const powerMul=(c.type==='shot'||c.type==='block')?(c.powerMul||1):1;
     const aP=(aU?as.techniques[atk].power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]]*powerMul;
     const dP=(dU?ds.techniques[def].power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]];
-    const aWins=Math.random()<aP/(aP+dP);
+    // Blocking a shot takes a real supertechnique — a normal challenge can't
+    // stop it, only soften what happens after (see BLOCK_PASS_PENALTY).
+    const aWins=(c.type==='block'&&!dU)?true:Math.random()<aP/(aP+dP);
     const aTN=aU?as.techniques[atk].name:'Normal', dTN=dU?ds.techniques[def].name:'Normal';
     // Visual flourish data for whoever actually used a supertechnique —
     // rendered identically on host and client from the synced result.
@@ -1633,7 +1703,7 @@ export default class GameScene extends Phaser.Scene {
       const st=this._statsFor(role,e.id), sp=st?st.speed*this._fatigueMul(st):1;
       const t=byId.get(e.id);
       const chase=t?null:this._looseBallChase(e,activeId);
-      if(t) this._steer(e.body,t,sp,STEER_FORCE);
+      if(t) this._steer(e.body,t,t.sprint?sp*SPRINT_SPEED_MUL:sp,t.sprint?STEER_FORCE*SPRINT_FORCE_MUL:STEER_FORCE);
       else if(chase) this._steer(e.body,chase,sp,STEER_FORCE); // full pace, not the off-ball amble
       else {
         // Autonomous position: hold roughly to formation, but lean into a
@@ -1670,7 +1740,12 @@ export default class GameScene extends Phaser.Scene {
         return r===c.attackerRole?'shot':'keeper';
       };
       if(c.attackerRole==='B'&&!c.attackerChoice){const s=this._statsFor('B',c.attackerId);c.attackerChoice=s?this._aiChoice(s,tf('B')):'normal';}
-      if(c.defenderRole==='B'&&!c.defenderChoice){const s=this._statsFor('B',c.defenderId);c.defenderChoice=s?this._aiChoice(s,tf('B')):'normal';}
+      if(c.defenderRole==='B'&&!c.defenderChoice){
+        const s=this._statsFor('B',c.defenderId);
+        // A normal block never works — the AI always reaches for its
+        // supertechnique here instead of rolling its usual tech chance.
+        c.defenderChoice=c.type==='block'?(s&&canActivate(s,'defense')?'technique':'normal'):(s?this._aiChoice(s,tf('B')):'normal');
+      }
     }
     if((c.attackerChoice&&c.defenderChoice)||now>=c.deadline){ if(!c.attackerChoice)c.attackerChoice='normal'; if(!c.defenderChoice)c.defenderChoice='normal'; this._prepareConfrontReveal(now); }
   }
@@ -1788,19 +1863,29 @@ export default class GameScene extends Phaser.Scene {
     if(!amA&&!amD){panel.style.display='none';return;}
     panel.style.display='flex';
     const isDuel=confrontation.type==='duel', isBlock=confrontation.type==='block';
+    // Blocking a shot only works with a supertechnique — a normal challenge
+    // can never stop it (see _prepareConfrontReveal), so the defender in a
+    // block isn't even offered that option.
+    const blockDefenderCantNormal=isBlock&&amD;
     const techId=isDuel?(amA?'dribble':'defense'):isBlock?(amA?'shot':'defense'):(amA?'shot':'keeper');
-    document.getElementById('confrontation-title').textContent=isDuel?(amA?"Duel! You're being tackled":'Duel! Go for the tackle')
-      :isBlock?(amA?'A defender is in the way!':'Block the shot!')
-      :(amA?'Shoot for goal!':'Save the shot!');
-    document.getElementById('conf-normal').textContent=isDuel?(amA?'Normal dribble':'Normal tackle')
-      :isBlock?(amA?'Shoot anyway':'Normal block')
-      :(amA?'Normal shot':'Normal save');
-    const myChoice=amA?confrontation.attackerChoice:confrontation.defenderChoice;
-    document.getElementById('conf-normal').classList.toggle('active',myChoice==='normal');
-    document.getElementById('conf-technique').classList.toggle('active',myChoice==='technique');
     const relId=amA?confrontation.attackerId:confrontation.defenderId;
     const relRole=amA?confrontation.attackerRole:confrontation.defenderRole;
     const stats=this._statsFor(relRole,relId); const rp=relId?getPlayerById(relId):null;
+    const canBlock=stats&&canActivate(stats,techId);
+    document.getElementById('confrontation-title').textContent=isDuel?(amA?"Duel! You're being tackled":'Duel! Go for the tackle')
+      :isBlock?(amA?'A defender is in the way!':(canBlock?'Block the shot — needs a supertechnique!':"No PT left — you can't block this one"))
+      :(amA?'Shoot for goal!':'Save the shot!');
+    const normalBtn=document.getElementById('conf-normal');
+    if(blockDefenderCantNormal){ normalBtn.style.display='none'; }
+    else {
+      normalBtn.style.display='block';
+      normalBtn.textContent=isDuel?(amA?'Normal dribble':'Normal tackle')
+        :isBlock?'Shoot anyway'
+        :(amA?'Normal shot':'Normal save');
+    }
+    const myChoice=amA?confrontation.attackerChoice:confrontation.defenderChoice;
+    normalBtn.classList.toggle('active',myChoice==='normal');
+    document.getElementById('conf-technique').classList.toggle('active',myChoice==='technique');
     document.getElementById('confrontation-player-info').innerHTML=stats?`<b>${rp?.name||stats.name}</b> — PT ${Math.round(stats.sp)}/${Math.round(stats.maxSP)}`:'';
     const techBtn=document.getElementById('conf-technique'); const tech=stats?stats.techniques[techId]:null;
     if(tech){techBtn.style.display='block';techBtn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`;techBtn.disabled=!stats||!canActivate(stats,techId);}

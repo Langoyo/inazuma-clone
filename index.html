@@ -145,6 +145,14 @@
     }
     .preset-btns button.active { border-color: #ffd966; background: rgba(60,50,0,0.9); }
 
+    /* ---- your team / rival team tabs (squad editor) */
+    #squad-side-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+    .squad-side-tab {
+      padding: 8px 18px; border-radius: 8px; border: 2px solid white;
+      background: rgba(20,20,20,0.85); color: white; font-size: 13px; font-weight: bold;
+    }
+    .squad-side-tab.active { border-color: #3399ff; background: rgba(20,60,100,0.9); }
+
     /* ---- topological squad editor */
     #squad-editor {
       width: 100%; max-width: 500px;
@@ -292,6 +300,16 @@
     <h2 style="margin-bottom:4px;">Build your squad</h2>
     <p style="font-size:11px; opacity:0.75; margin:0 0 10px; text-align:center; max-width:500px;">
       Tap a player from the list to add them. Tap two players (pitch or bench) to swap them — tap the same one twice to see their stats. Bench (up to 5) shown below the pitch.
+    </p>
+
+    <!-- Switch between editing your own squad and the rival's (solo vs AI only —
+         a real connected opponent always picks their own team regardless). -->
+    <div id="squad-side-tabs">
+      <button class="squad-side-tab active" data-side="me">Your Team</button>
+      <button class="squad-side-tab" data-side="rival">Rival Team</button>
+    </div>
+    <p id="rival-tab-note" style="display:none;font-size:11px;opacity:0.7;margin:-4px 0 10px;text-align:center;max-width:500px;">
+      Only used if you end up playing solo against the AI — comes pre-filled at random, tweak it or leave it as is.
     </p>
 
     <!-- Topological pitch editor -->
