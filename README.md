@@ -730,3 +730,29 @@ Cada pin del campo y del banquillo lleva ahora la **media del jugador** en
 la esquina contraria a la chapa de posición, con el fondo por tramos
 (dorado ≥85, gris ≥70, bronce por debajo) para que los puntos flojos de la
 alineación canten sin tener que leer número a número.
+
+## El partido se pausa al abrir "Team", y el panel ya no se cierra solo
+
+Dos quejas justas del panel de equipo en pleno partido: el partido seguía
+corriendo mientras decidías, y en cuanto hacías **un** cambio el panel se
+cerraba de golpe, así que para dos cambios había que abrirlo dos veces.
+
+- **Pausa**: al abrir "Team" se congela la simulación — Matter deja de
+  avanzar, el reloj se para y `_hostUpdate` se salta la jugada. Lo que sí
+  se sigue aplicando son los cambios hechos desde el propio panel, porque
+  son peticiones de un solo uso que el bucle limpia cada frame igualmente
+  (si no, el cambio que hicieras en pausa se perdería). Al reanudar, **todos
+  los plazos absolutos se recolocan** sumándoles el tiempo que estuvo
+  pausado (el contador del enfrentamiento, los aturdimientos, el banner de
+  resultado), así que nada caduca a traición mientras miras el banquillo:
+  comprobado que un duelo con 19,2 s en el marcador sigue teniendo 19,4 s
+  tras 4 s de pausa, en vez de resolverse solo.
+- **Solo contra la IA.** Con un rival conectado no se puede pausar: sería
+  congelarle a él el partido. En ese caso el panel se abre igual y avisa
+  ("▶ Match still running — your opponent is connected"), y en solitario
+  dice "⏸ Match paused".
+- **El panel se queda abierto** tras un cambio o un reposicionamiento, y se
+  **refresca solo** cuando la sustitución aterriza de verdad (que ocurre uno
+  o dos frames después, o por red si eres cliente) — compara una firma
+  barata de la alineación y solo vuelve a pintar si cambió, no cada frame.
+  Se cierra con su botón "Close panel" y ahí se reanuda el partido.

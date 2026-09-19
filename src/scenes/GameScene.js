@@ -356,7 +356,7 @@ export default class GameScene extends Phaser.Scene {
     });
     document.getElementById('fulltime-menu-btn').addEventListener('click',()=>this._returnToMenu());
     document.getElementById('sub-button').addEventListener('click',()=>this._openSubPanel());
-    document.getElementById('sub-cancel-btn').addEventListener('click',()=>{this.subSel=null;document.getElementById('sub-panel').style.display='none';});
+    document.getElementById('sub-cancel-btn').addEventListener('click',()=>this._closeSubPanel());
 
     // Roster load → squad editor
     this.rosterAll=[];
@@ -1166,8 +1166,46 @@ export default class GameScene extends Phaser.Scene {
    *  squad editor. Tap a player on the pitch, then one on the bench (or
    *  vice versa), to sub them. */
   _openSubPanel(){
-    this.subSel=null; this._renderSubPanel();
+    this.subSel=null; this._subPanelSig=null; this._renderSubPanel();
     document.getElementById('sub-panel').style.display='flex';
+    // Solo vs the AI the match holds still while you sort the team out. With
+    // a real opponent connected it can't: freezing the simulation would
+    // freeze their match too, so there it keeps running and the panel says so.
+    this._setPaused(!this.net.hasPeer());
+  }
+  _closeSubPanel(){
+    this.subSel=null;
+    document.getElementById('sub-panel').style.display='none';
+    this._setPaused(false);
+  }
+
+  /** Holds the simulation still without stopping the scene: Matter stops
+   *  stepping, `_hostUpdate` skips play (but still applies squad changes made
+   *  from the open panel), and every absolute deadline is pushed back by the
+   *  paused time on resume so nothing silently expires meanwhile. */
+  _setPaused(on){
+    if(!!this.paused===!!on) return;
+    this.paused=on;
+    if(on){
+      this._pausedAt=this.time.now;
+      this.matter.world.pause();
+    } else {
+      this._shiftTimers(this.time.now-(this._pausedAt??this.time.now));
+      this._pausedAt=null;
+      this.matter.world.resume();
+    }
+  }
+  _shiftTimers(dt){
+    if(!(dt>0)) return;
+    const c=this.confrontation;
+    if(c){
+      if(c.deadline) c.deadline+=dt;
+      if(c.reveal){ c.reveal.until+=dt; c.reveal.litAt+=dt; }
+    }
+    if(this.confrontResult){ this.confrontResult.until+=dt; this.confrontResult.outcomeAt+=dt; }
+    if(this.duelLockUntil) this.duelLockUntil+=dt;
+    this.stunMap.forEach((until,id)=>this.stunMap.set(id,until+dt));
+    this.lastStateSent+=dt;
   }
   _renderFormationPresets(){
     const wrap=document.getElementById('formation-preset-btns'); wrap.innerHTML='';
@@ -1185,6 +1223,12 @@ export default class GameScene extends Phaser.Scene {
   _renderSubPanel(){
     this._renderFormationPresets();
     document.getElementById('sub-panel-title').textContent='Tap two pitch players to swap positions, or a pitch player then a bench one to substitute';
+    const st=document.getElementById('sub-panel-state');
+    if(st){
+      st.textContent=this.paused?'⏸ Match paused — make as many changes as you like, then close'
+        :'▶ Match still running — your opponent is connected, so it can\'t be paused';
+      st.className=this.paused?'paused':'running';
+    }
     const listEl=document.getElementById('sub-list-inner'); listEl.innerHTML='';
     const myTeam=this.role==='A'?this.teamA:this.teamB;
     const myBench=this.role==='A'?(this.benchA||[]):(this.benchB||[]);
@@ -1222,7 +1266,7 @@ export default class GameScene extends Phaser.Scene {
       // fresh off the bench.
       this.pendingReposition={aId:this.subSel.id,bId:sel.id};
       this.subSel=null;
-      document.getElementById('sub-panel').style.display='none';
+      this._renderSubPanel();
       return;
     }
     if(this.subSel.type===sel.type){ this.subSel=null; this._renderSubPanel(); return; } // both bench: not a valid action
@@ -1230,7 +1274,10 @@ export default class GameScene extends Phaser.Scene {
     const inId =this.subSel.type==='bench'?this.subSel.id:sel.id;
     this.pendingSub={outId,inId};
     this.subSel=null;
-    document.getElementById('sub-panel').style.display='none';
+    // The panel stays up: a substitution is rarely the only change you want
+    // to make, and it re-renders itself once the swap actually lands (see
+    // _subPanelTick), so you close it yourself when you're done.
+    this._renderSubPanel();
   }
 
   /** Render a simplified pitch HTML with current player positions for use in
@@ -1679,6 +1726,20 @@ export default class GameScene extends Phaser.Scene {
     };
   }
 
+  /** Formation / substitution / reposition requests from either side. These
+   *  are one-shot flags update() clears every frame, so they're applied on
+   *  every host tick — including a paused one, and regardless of whether a
+   *  confrontation elsewhere on the pitch happens to be running. */
+  _applySquadRequests(myInput,inputB,aiActive){
+    if(myInput.formationChange) this.formation.A=myInput.formationChange;
+    if(!aiActive&&inputB.formationChange) this.formation.B=inputB.formationChange;
+    if(this.matchClock.ended) return;
+    if(myInput.subRequest) this._trySub('A',myInput.subRequest);
+    if(!aiActive&&inputB.subRequest) this._trySub('B',inputB.subRequest);
+    if(myInput.repositionRequest) this._tryReposition('A',myInput.repositionRequest);
+    if(!aiActive&&inputB.repositionRequest) this._tryReposition('B',inputB.repositionRequest);
+  }
+
   /** +1 when `a`'s element beats `b`'s, -1 when it's the other way round, 0
    *  when neither has the edge (same element, or either one unknown). */
   _elementEdge(a,b){
@@ -1937,7 +1998,22 @@ export default class GameScene extends Phaser.Scene {
     if(amHost){ if(this.matchStarted) this._hostUpdate(time,delta,myInput); else if(time-this.lastStateSent>1000/STATE_HZ){this.lastStateSent=time;this.net.sendState({matchStarted:false});} }
     else this._clientUpdate(time);
 
-    if(this.matchStarted){ this._updateConfrontUI(this.confrontation,time); this._drawPaths(); }
+    if(this.matchStarted){ this._updateConfrontUI(this.confrontation,time); this._drawPaths(); this._subPanelTick(); }
+  }
+
+  /** Keeps the open team panel in step with the squad: a substitution lands a
+   *  frame or two after you tap it (host-side, or over the wire as a client),
+   *  and the panel now stays open to show the result. Re-renders only when the
+   *  line-up actually changed, not every frame. */
+  _subPanelTick(){
+    if(document.getElementById('sub-panel').style.display!=='flex'){ this._subPanelSig=null; return; }
+    // With an opponent connected the match can't be frozen for them, so make
+    // sure a pause from a previous solo match isn't left hanging.
+    if(this.paused&&this.net.hasPeer()) this._setPaused(false);
+    const team=this.role==='A'?this.teamA:this.teamB;
+    const bench=this.role==='A'?(this.benchA||[]):(this.benchB||[]);
+    const sig=`${team.map(e=>e.id).join(',')}|${[...bench].join(',')}|${this.formation[this.role]}`;
+    if(sig!==this._subPanelSig){ this._subPanelSig=sig; this._renderSubPanel(); }
   }
 
   _hostUpdate(now,delta,myInput){
@@ -1951,8 +2027,15 @@ export default class GameScene extends Phaser.Scene {
       inputB={targets:eB?[{id:eB.id,...ai.target}]:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,repositionRequest:null,formationChange:null};
     }
     this.currentPossession=this.possRole;
-    if(myInput.formationChange) this.formation.A=myInput.formationChange;
-    if(!aiActive&&inputB.formationChange) this.formation.B=inputB.formationChange;
+    // Paused (team panel open, solo vs AI): nothing about the match advances,
+    // but changes made from that open panel still have to land — they're
+    // one-shot requests that update() clears every frame either way.
+    if(this.paused){
+      this._applySquadRequests(myInput,inputB,aiActive);
+      this._syncGfx(); this._renderClock(this.matchClock);
+      return;
+    }
+    this._applySquadRequests(myInput,inputB,aiActive);
     if(!this.matchClock.ended) this._tickClock(delta);
     if(!this.matchClock.ended) this._tickFatigue(delta);
 
@@ -1976,15 +2059,6 @@ export default class GameScene extends Phaser.Scene {
       }
       if(!this.confrontation) this._checkForDuel(now);
     }
-    // Subs/repositions are queued one-shot from the UI and must not be lost
-    // just because a confrontation elsewhere happens to be active this tick.
-    if(!this.matchClock.ended){
-      if(myInput.subRequest) this._trySub('A',myInput.subRequest);
-      if(!aiActive&&inputB.subRequest) this._trySub('B',inputB.subRequest);
-      if(myInput.repositionRequest) this._tryReposition('A',myInput.repositionRequest);
-      if(!aiActive&&inputB.repositionRequest) this._tryReposition('B',inputB.repositionRequest);
-    }
-
     this._updatePassFlight();
     this._glueBall(); this._syncGfx();
     this._renderClock(this.matchClock);

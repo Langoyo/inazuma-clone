@@ -279,6 +279,12 @@
 
     /* ---- sub panel: pitch + bench together, same look as the squad editor */
     #sub-list-inner { width: 100%; max-width: 500px; }
+    #sub-panel-state {
+      font-size: 12px; font-weight: bold; margin: -4px 0 10px; padding: 4px 12px;
+      border-radius: 999px; text-align: center;
+    }
+    #sub-panel-state.paused  { background: rgba(255,217,102,0.16); color: #ffd966; }
+    #sub-panel-state.running { background: rgba(120,200,255,0.14); color: #8fd6ff; }
 
     /* ---- confirm bar */
     #confirm-bar {
@@ -341,8 +347,9 @@
     <h2 style="margin-bottom:8px;">Formation</h2>
     <div class="preset-btns" id="formation-preset-btns"></div>
     <h2 id="sub-panel-title">Tap two pitch players to swap positions, or a pitch player then a bench one to substitute</h2>
+    <div id="sub-panel-state"></div>
     <div id="sub-list-inner"></div>
-    <button class="panel-close" id="sub-cancel-btn">Close</button>
+    <button class="panel-close" id="sub-cancel-btn">Close panel</button>
   </div>
 
   <!-- ===================== FULL TIME ===================== -->
