@@ -136,18 +136,23 @@ const ELEMENT_BEATS = { Fire:'Wood', Wood:'Air', Air:'Earth', Earth:'Fire' };
 const ELEMENT_EDGE  = 1.15; // power multiplier for the favourable side
 const ELEMENT_ICON  = { Fire:'🔥', Wood:'🌿', Air:'💨', Earth:'⚡' };
 
-// AI difficulty (solo-vs-AI only). All decision-making rather than raw
-// speed, so a harder opponent plays sharper instead of simply outrunning
-// you: how readily it spends PT on a supertechnique, from how far out it
-// will shoot, how decisively it pulls the trigger once in range, and how
-// often it looks for a pass.
+// AI difficulty (solo-vs-AI only). The whole ladder used to top out about
+// where "easy" now starts — the old hard is this easy, and every level above
+// it is new ground. Decision-making is still the main lever (how readily it
+// spends PT on a supertechnique, from how far out it shoots, how decisively
+// it pulls the trigger, how often it looks for a pass), but from normal up
+// the AI side also gets its stats inflated, because sharper decisions alone
+// run out of room once it's already taking every chance it gets.
+// `statMul` scales its combat stats; movement gets half of that bonus, so a
+// hard opponent is stronger in a duel without simply outrunning you.
 const AI_LEVELS = {
-  easy:   { techChance:0.25, shootRange:190, shootChance:0.10, passChance:0.006 },
-  normal: { techChance:0.45, shootRange:300, shootChance:0.35, passChance:0.012 },
-  hard:   { techChance:0.70, shootRange:420, shootChance:0.70, passChance:0.022 },
-  expert: { techChance:0.88, shootRange:520, shootChance:0.90, passChance:0.032 }
+  easy:   { techChance:0.70, shootRange:420, shootChance:0.70, passChance:0.022, statMul:1.00 },
+  normal: { techChance:0.80, shootRange:470, shootChance:0.80, passChance:0.027, statMul:1.08 },
+  hard:   { techChance:0.90, shootRange:530, shootChance:0.90, passChance:0.034, statMul:1.18 },
+  expert: { techChance:0.97, shootRange:620, shootChance:0.97, passChance:0.042, statMul:1.30 }
 };
 const AI_LEVEL_DEFAULT = 'normal';
+const AI_SPEED_BONUS_SHARE = 0.5; // movement gets half the stat inflation
 
 // Fouls are meant to be a rare punctuation, not a regular interruption:
 // roughly one duel in a hundred, a little more often for weaker defenders.
@@ -1714,6 +1719,17 @@ export default class GameScene extends Phaser.Scene {
     return best;
   }
   _aiParams(){ return AI_LEVELS[this.aiLevel]||AI_LEVELS[AI_LEVEL_DEFAULT]; }
+  /** Difficulty stat inflation for `role`, applied live rather than baked
+   *  into the stored stats: it only ever applies to the AI's own side (B,
+   *  and only while nobody is connected to play it), so switching level or
+   *  having a real opponent join leaves the roster's numbers untouched. */
+  _aiStatMul(role){
+    if(role!=='B'||this.net.hasPeer()) return 1;
+    return this._aiParams().statMul??1;
+  }
+  _aiSpeedMul(role){
+    return 1+(this._aiStatMul(role)-1)*AI_SPEED_BONUS_SHARE;
+  }
   /** Picks the strongest `category` technique this player can actually
    *  afford right now, as a {tech:index} choice into techniquesFor's list —
    *  or 'normal' if none of them fit their remaining PT. */
@@ -1762,8 +1778,10 @@ export default class GameScene extends Phaser.Scene {
     // Elemental edge — only one side can hold it, and only when both players
     // have a known element (the roster doesn't have one for everyone).
     const elEdge=this._elementEdge(as.element,ds.element);
-    const aP=(aTech?aTech.power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]]*powerMul*(elEdge>0?ELEMENT_EDGE:1);
-    const dP=(dTech?dTech.power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]]*(elEdge<0?ELEMENT_EDGE:1);
+    const aP=(aTech?aTech.power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]]*powerMul*(elEdge>0?ELEMENT_EDGE:1)
+      *this._aiStatMul(c.attackerRole);
+    const dP=(dTech?dTech.power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]]*(elEdge<0?ELEMENT_EDGE:1)
+      *this._aiStatMul(c.defenderRole);
     // Blocking a shot takes a real supertechnique — a normal challenge can't
     // stop it, only soften what happens after (see BLOCK_PASS_PENALTY).
     const aWins=(c.type==='block'&&!dTech)?true:Math.random()<aP/(aP+dP);
@@ -2156,7 +2174,7 @@ export default class GameScene extends Phaser.Scene {
         return;
       }
       if(e.body&&e.body.collisionFilter.mask!==(CAT_BALL|CAT_DEFAULT)) e.body.collisionFilter.mask=CAT_BALL|CAT_DEFAULT;
-      const st=this._statsFor(role,e.id), sp=st?st.speed*this._fatigueMul(st):1;
+      const st=this._statsFor(role,e.id), sp=(st?st.speed*this._fatigueMul(st):1)*this._aiSpeedMul(role);
       const t=byId.get(e.id);
       const chase=t?null:this._looseBallChase(e,activeId);
       // The sprint bonus itself shrinks as stamina drains, on top of the

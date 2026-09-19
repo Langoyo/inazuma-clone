@@ -792,3 +792,29 @@ Resultado: **1544 jugadores con equipo** (antes 1156), **101 equipos**, y
 los que pueden alinear un once completo con portero pasan de 44 a **64**.
 Si alguno de los nombres que he traducido no es el que usa el doblaje,
 cambiarlo es una línea en la tabla de mapeo.
+
+## La escalera de dificultad, subida un escalón entero
+
+Me dijiste que el "fácil" ya podía ser el difícil, y que los difíciles
+tenían que serlo más — por ejemplo inflando las estadísticas del rival.
+Las dos cosas:
+
+- **Toda la escalera sube**: el antiguo *Hard* (técnicas el 70% de las
+  veces, dispara desde 420) es ahora el **Easy**, y de ahí para arriba es
+  terreno nuevo. *Expert* llega a usar supertécnica el 97% de las veces y
+  dispara desde 620.
+- **Inflado de estadísticas** a partir de Normal, porque afinar decisiones
+  se queda sin recorrido cuando la IA ya aprovecha todas las ocasiones:
+  **Normal +8%, Hard +18%, Expert +30%** a las estadísticas de combate del
+  equipo de la IA, y **la mitad de ese bonus al movimiento** (así es más
+  dura en el uno contra uno sin limitarse a correr más que tú).
+
+El multiplicador se aplica **en vivo, no tocando los datos**: solo afecta
+al bando B y solo mientras no haya nadie conectado jugándolo, así que
+cambiar de nivel o que entre un rival humano deja las cifras del roster
+intactas — y las fichas siguen mostrando las de verdad.
+
+Comprobado con los dos jugadores igualados a propósito y ambos eligiendo
+acción normal, el porcentaje de duelos que gana el humano baja **55,1% →
+53,2% → 51,0% → 48,6%** de Easy a Expert, que es exactamente lo que
+predice la fórmula (4000 duelos por nivel).

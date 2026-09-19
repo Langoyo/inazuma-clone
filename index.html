@@ -420,12 +420,16 @@
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <label style="font-size:12px;">AI difficulty:</label>
         <select id="ai-level-select" style="padding:6px 10px;border-radius:8px;border:1px solid #555;background:rgba(255,255,255,0.08);color:white;">
-          <option value="easy">Easy</option>
-          <option value="normal" selected>Normal</option>
-          <option value="hard">Hard</option>
-          <option value="expert">Expert</option>
+          <option value="easy">Easy — sharp, no stat boost</option>
+          <option value="normal" selected>Normal — AI stats +8%</option>
+          <option value="hard">Hard — AI stats +18%</option>
+          <option value="expert">Expert — AI stats +30%</option>
         </select>
       </div>
+      <p style="font-size:11px;opacity:0.7;margin:-4px 0 8px;max-width:500px;">
+        Every level now plays at least as sharply as the old "Hard". Above Easy the AI's
+        side also gets its combat stats inflated (and half of that on movement).
+      </p>
 
       <div id="formation-pitch">
         <div class="pitch-line-h"></div>
