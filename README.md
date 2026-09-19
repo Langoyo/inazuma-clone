@@ -546,3 +546,29 @@ se pierden.
   banquillo (o se descarta de la plantilla si el banquillo ya está lleno).
   Un aviso junto al campo indica a quién se está colocando y permite
   cancelar la selección.
+
+## Lista de jugadores: orden, y ficha completa con doble toque
+
+- **Sort**: la lista de jugadores para elegir plantilla tiene ahora un
+  desplegable de orden — Rating (por defecto), Nombre, Posición, o cada
+  estadística de combate (Velocidad, Tiro, Regate, Defensa, Portero) de
+  mayor a menor.
+- **Las tarjetas de la lista funcionan igual que las fichas del campo**:
+  antes, tocar un jugador ya fichado enseñaba sus estadísticas al momento
+  (un solo toque), y tocar uno sin fichar lo colocaba directamente. Ahora
+  cualquier tarjeta de la lista — esté ya en la plantilla o no — se
+  selecciona con un toque (igual que un pin del campo o del banquillo), un
+  segundo toque sobre la misma tarjeta enseña la ficha completa, y tocar
+  una tarjeta distinta después la intercambia/coloca en consecuencia. Esto
+  además permite intercambiar dos titulares directamente desde la lista,
+  sin tener que buscarlos en el campo.
+
+## Posesión tras gol, y algo más de separación en el saque de centro
+
+- **Posesión tras gol**: al marcar, la posesión pasaba a "nadie" y se la
+  quedaba quien tocara antes el balón en el saque — ahora se asigna
+  explícitamente al equipo que ha encajado el gol, como marca la regla real
+  del saque de centro.
+- **Separación de la línea de medio campo**: en los saques (inicio,
+  reinicio tras gol, segunda parte) los jugadores ya no pueden quedarse
+  pegados o justo encima de la línea — se añade un margen fijo a cada lado.

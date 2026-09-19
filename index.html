@@ -232,7 +232,7 @@
       background: rgba(255,255,255,0.06); border: 2px solid transparent;
       border-radius: 8px; padding: 6px; font-size: 11px; cursor: pointer; touch-action: manipulation;
     }
-    .pick-card.in-squad   { border-color: #ffd966; opacity: 0.5; pointer-events: none; }
+    .pick-card.in-squad   { border-color: #ffd966; opacity: 0.85; }
     .pick-card.selected   { border-color: #ffd966; box-shadow: 0 0 0 2px #ffd966; }
     .pick-card .pick-name { font-weight: bold; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #pick-count { font-size: 11px; opacity: 0.7; margin-bottom: 6px; }
@@ -391,6 +391,16 @@
         <input id="squad-search" type="text" placeholder="Search player..." />
         <select id="squad-game-filter"><option value="">All games</option></select>
         <select id="squad-team-filter"><option value="">All teams</option></select>
+        <select id="squad-sort-select">
+          <option value="rating">Sort: Rating</option>
+          <option value="name">Sort: Name</option>
+          <option value="position">Sort: Position</option>
+          <option value="speed">Sort: Speed</option>
+          <option value="shotPower">Sort: Shot</option>
+          <option value="dribblePower">Sort: Dribble</option>
+          <option value="defensePower">Sort: Defense</option>
+          <option value="keeperPower">Sort: Keeper</option>
+        </select>
         <button id="squad-whole-team-btn" disabled>Use whole team</button>
       </div>
       <div id="pick-count"></div>
