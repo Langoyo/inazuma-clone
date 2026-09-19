@@ -161,6 +161,13 @@
     #squad-players-view { width: 100%; }
     #squad-editor.hidden-section, #squad-players-view.hidden-section { display: none; }
 
+    .squad-store-btn {
+      padding: 6px 12px; border-radius: 8px; font-size: 12px;
+      border: 1px solid #888; background: rgba(255,255,255,0.08); color: white;
+    }
+    .squad-store-btn:disabled { opacity: 0.4; }
+    #squad-save-status { font-size: 11px; opacity: 0.8; color: #8fe08a; }
+
     /* ---- topological squad editor */
     #squad-editor {
       width: 100%; max-width: 500px;
@@ -400,6 +407,13 @@
         </select>
         <button id="randomize-squad-btn" style="padding:6px 12px;border-radius:8px;border:1px solid white;background:rgba(51,153,255,0.3);color:white;">🎲 Random</button>
         <span id="squad-fill-count" style="font-size:11px;opacity:0.75;">0/11 filled</span>
+      </div>
+
+      <!-- Keep the squad you built between sessions (this browser only) -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+        <button id="squad-save-btn" class="squad-store-btn">💾 Save squad</button>
+        <button id="squad-load-btn" class="squad-store-btn" disabled>📂 Load saved</button>
+        <span id="squad-save-status"></span>
       </div>
 
       <!-- AI difficulty (only applies when playing alone against the AI) -->

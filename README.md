@@ -756,3 +756,39 @@ cerraba de golpe, así que para dos cambios había que abrirlo dos veces.
   o dos frames después, o por red si eres cliente) — compara una firma
   barata de la alineación y solo vuelve a pintar si cambió, no cada frame.
   Se cierra con su botón "Close panel" y ahí se reanuda el partido.
+
+## Plantilla guardada, fichas duplicadas fuera, y el resto de equipos japoneses
+
+### Guardar tu plantilla
+Elegir once de ~5000 era trabajo que se perdía al cerrar la pestaña. Ahora
+hay **💾 Save squad / 📂 Load saved** en el editor: se guarda en
+`localStorage` (solo en ese navegador) el once, el banquillo y la
+formación, y **solo los ids** — al cargar se resuelven contra el roster, así
+que si un jugador ya no está en los datos se salta ese hueco y te avisa en
+vez de romperse. El botón de cargar enseña cuántos guardaste ("📂 Load
+saved (11/11)") y está desactivado si no hay nada guardado.
+
+### 46 fichas duplicadas fuera
+El roster traía personajes repetidos con **el mismo juego, equipo, stats y
+técnicas** ("Arion Sherwind" dos veces en GO1, "Vladimir Blade" tres), que
+en el buscador salían como tarjetas idénticas. Se quedan solo una: 4994 →
+**4948 fichas**. Los clones a propósito (el mismo jugador en dos equipos
+distintos) se distinguen por el campo `team`, así que sobreviven.
+
+### El resto de la columna de equipos del PDF
+Los ~88 equipos japoneses que había dejado sin tocar resultaron ser dos
+cosas distintas. **Muchos eran abreviaturas de equipos que ya teníamos** —
+(オルフェウス) Orpheus, (Lギガント) Little Gigantes, (Bウェイブス)/(大海原)
+Big Waves, (FF帝国) Teikoku → Royal, (白恋) Hakuren → Alpine — y esos reusan
+el nombre y color existentes para no llenar el filtro de casi-duplicados.
+El resto sí son equipos nuevos: los de katakana se transliteran de vuelta
+(ドラゴンリンク → Dragon Link, デストラクチャーズ → Destructors) y los
+colegios en kanji van romanizados (白鹿組 → Hakushika, 聖堂山 → Seidouzan),
+que es fiel aunque no siempre sea la palabra del doblaje inglés. Donde no
+tenía forma de saberlo, dejo la abreviatura de la propia hoja (S Wolf,
+M Tiger) en vez de inventarme un nombre.
+
+Resultado: **1544 jugadores con equipo** (antes 1156), **101 equipos**, y
+los que pueden alinear un once completo con portero pasan de 44 a **64**.
+Si alguno de los nombres que he traducido no es el que usa el doblaje,
+cambiarlo es una línea en la tabla de mapeo.

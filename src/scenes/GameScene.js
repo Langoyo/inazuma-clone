@@ -532,12 +532,69 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
     document.querySelectorAll('#squad-side-tabs .squad-side-tab').forEach(btn=>btn.addEventListener('click',()=>this._setEditSide(btn.dataset.side)));
     document.querySelectorAll('.view-tab').forEach(btn=>btn.addEventListener('click',()=>this._toggleSquadSection(btn.dataset.view)));
+    document.getElementById('squad-save-btn').addEventListener('click',()=>this._saveSquad());
+    document.getElementById('squad-load-btn').addEventListener('click',()=>this._loadSquad());
     // Give the rival a full, position-aware random XI up front — it plays
     // fine untouched, and is only ever used solo vs AI.
     this.editSide='rival'; this._fillSquadByPosition(this.rosterAll); this.editSide='me';
     this.squadSectionOpen={formation:true,players:true};
     this._applySquadSectionVisibility();
     this._renderPitch(); this._renderPickList();
+    this._refreshSavedSquadUI();
+  }
+
+  // ---- saved squad (this browser only) ---------------------------------
+  /** Picking eleven out of ~5000 is a lot of work to redo every session, so
+   *  the squad you built is kept in localStorage — ids only, resolved against
+   *  the roster on load so a player who's since gone from the data is simply
+   *  skipped rather than breaking the lot. */
+  _savedSquadKey(){ return 'inazuma-clone:squad:v1'; }
+  _readSavedSquad(){
+    try{ return JSON.parse(localStorage.getItem(this._savedSquadKey())||'null'); }
+    catch{ return null; }
+  }
+  _saveSquad(){
+    const payload={
+      slots:this.squadSlots.slice(),
+      bench:[...this.benchIds],
+      formation:this.chosenFormation,
+      savedAt:Date.now()
+    };
+    try{
+      localStorage.setItem(this._savedSquadKey(),JSON.stringify(payload));
+      this._flashSquadStatus(`Saved — ${payload.slots.filter(Boolean).length}/11 and ${payload.bench.length} on the bench`);
+    }catch(err){
+      this._flashSquadStatus(`Couldn't save: ${err.message}`);
+    }
+    this._refreshSavedSquadUI();
+  }
+  _loadSquad(){
+    const saved=this._readSavedSquad();
+    if(!saved) return;
+    const known=id=>id&&getPlayerById(id)?id:null;
+    const slots=(saved.slots||[]).slice(0,TEAM_SIZE).map(known);
+    while(slots.length<TEAM_SIZE) slots.push(null);
+    const bench=new Set((saved.bench||[]).map(known).filter(Boolean));
+    const dropped=(saved.slots||[]).filter(Boolean).length-slots.filter(Boolean).length;
+    if(saved.formation&&FORMATIONS[saved.formation]){
+      this.chosenFormation=saved.formation;
+      document.getElementById('formation-select').value=saved.formation;
+    }
+    this.squadSlots=slots; this.benchIds=bench;
+    this._setEditSide('me'); // a saved squad is always your own side
+    this._flashSquadStatus(`Loaded ${slots.filter(Boolean).length}/11${dropped?` — ${dropped} player(s) no longer in the roster`:''}`);
+  }
+  _refreshSavedSquadUI(){
+    const saved=this._readSavedSquad();
+    const btn=document.getElementById('squad-load-btn');
+    btn.disabled=!saved;
+    btn.textContent=saved?`📂 Load saved (${(saved.slots||[]).filter(Boolean).length}/11)`:'📂 Load saved';
+  }
+  _flashSquadStatus(msg){
+    const el=document.getElementById('squad-save-status');
+    el.textContent=msg;
+    clearTimeout(this._squadStatusTimer);
+    this._squadStatusTimer=setTimeout(()=>{ el.textContent=''; },4000);
   }
 
   /** The pitch/bench ("formation") and the searchable player list ("players")
