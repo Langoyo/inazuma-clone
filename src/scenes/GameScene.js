@@ -83,6 +83,7 @@ const BENCH_MAX         = 5;
 const BENCH_COVER       = ['GK','DF','MF','FW','MF']; // positions the auto-picked bench covers
 const HALF_S            = 3 * 60;
 const HALFTIME_PAUSE_MS = 3000; // how long play freezes for the half-time break
+const GOAL_PAUSE_MS     = 2500; // how long play freezes to show the goal banner
 const STATE_HZ          = 20;
 const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 
@@ -361,6 +362,7 @@ export default class GameScene extends Phaser.Scene {
     this.matchClock={half:1,secondsRemaining:this.halfLengthS,ended:false};
     this._fullTimeShown=false; this._fullTimeTimer=null;
     this.possRole=null; this.currentPossession=null;
+    this.offsideFlag=null; // {role,ids} of a passer's teammates who were offside when the current pass was made
     this.duelLockUntil=0; this.confrontation=null;
     this.confrontResult=null;
     this._lastFxUntil=0;
@@ -655,6 +657,17 @@ export default class GameScene extends Phaser.Scene {
     const cam=this.cameras.main;
     cam.scrollX=Phaser.Math.Clamp(cam.scrollX,0,Math.max(0,this.FIELD_W-this.VP_W));
     cam.scrollY=Phaser.Math.Clamp(cam.scrollY,this.WORLD_Y_MIN,Math.max(this.WORLD_Y_MIN,this.WORLD_Y_MAX-this.VP_H));
+  }
+
+  /** Smoothly pans the camera back to the centre of the pitch — used after a
+   *  goal, since the ball (and wherever the camera had scrolled to follow
+   *  it) could be anywhere near either goal line when it goes in, well off
+   *  from the centre-spot restart everyone lines up for next. */
+  _centerCameraOnField(durationMs=700){
+    const cam=this.cameras.main;
+    const targetX=Phaser.Math.Clamp(this.FIELD_W/2-this.VP_W/2,0,Math.max(0,this.FIELD_W-this.VP_W));
+    const targetY=Phaser.Math.Clamp(this.FIELD_H/2-this.VP_H/2,this.WORLD_Y_MIN,Math.max(this.WORLD_Y_MIN,this.WORLD_Y_MAX-this.VP_H));
+    this.tweens.add({targets:cam,scrollX:targetX,scrollY:targetY,duration:durationMs,ease:'Cubic.Out'});
   }
 
   _tickScroll(delta){
@@ -1793,12 +1806,64 @@ export default class GameScene extends Phaser.Scene {
     const e=this._activeEntry(role); if(!e?.body) return;
     const dx=target.x-e.body.position.x, dy=target.y-e.body.position.y, dist=Math.hypot(dx,dy)||1;
     this.possRole=null;
+    // Offside is judged the instant the ball is played, not when it's
+    // received — snapshot which of the passer's teammates are already
+    // beyond the line right now. If the ball is next controlled by one of
+    // them before anyone else touches it, _collisions flags the pass.
+    this.offsideFlag=this._flagOffsideReceivers(role,e);
     // Weight the pass to the distance: friction eats speed/BALL_FRICTION_AIR
     // worth of travel, so aim for a touch beyond the target rather than
     // kicking every ball the same and leaving long ones short.
     const speed=Phaser.Math.Clamp(dist*BALL_FRICTION_AIR*PASS_REACH_BOOST,PASS_MIN_SPEED,PASS_MAX_SPEED);
     this.matter.body.setVelocity(this.ball,{x:(dx/dist)*speed,y:(dy/dist)*speed});
     this._startPassFlight({x:this.ball.position.x,y:this.ball.position.y},dist);
+  }
+
+  // ── Offside ────────────────────────────────────────────────────────────
+  /** Y-distance from `y` to the goal `attackingRole` is attacking — smaller
+   *  is more advanced. Lets every offside comparison stay role-agnostic. */
+  _distToGoal(y,attackingRole){ return attackingRole==='A'?y:(this.FIELD_H-y); }
+
+  /** The offside line for `attackingRole`, in _distToGoal units: nearer to
+   *  goal than this (and past halfway) is an offside position. Standard
+   *  rule — nearer to goal than both the ball and the second-last
+   *  defender — so it's whichever of the two is more advanced. Null if
+   *  there aren't at least two eligible outfield defenders to judge by
+   *  (e.g. after red cards), in which case offside just doesn't apply. */
+  _offsideLineDist(attackingRole,ballY){
+    const defendingRole=attackingRole==='A'?'B':'A';
+    const defTeam=defendingRole==='A'?this.teamA:this.teamB;
+    const dists=defTeam
+      .filter(e=>e.slot!==0&&e.body&&!this._isOut(defendingRole,e.id))
+      .map(e=>this._distToGoal(e.body.position.y,attackingRole))
+      .sort((a,b)=>a-b);
+    if(dists.length<2) return null;
+    return Math.min(dists[1],this._distToGoal(ballY,attackingRole));
+  }
+  _isOffsidePosition(y,attackingRole,lineDist){
+    const d=this._distToGoal(y,attackingRole);
+    return d<this.FIELD_H/2&&d<lineDist;
+  }
+  /** Every one of `passer`'s teammates (other than the passer) who's in an
+   *  offside position right as the pass is played. */
+  _flagOffsideReceivers(role,passer){
+    const lineDist=this._offsideLineDist(role,passer.body.position.y);
+    if(lineDist==null) return null;
+    const team=role==='A'?this.teamA:this.teamB;
+    const ids=new Set();
+    team.forEach(e=>{
+      if(e.id===passer.id||e.slot===0||!e.body||this._isOut(role,e.id)) return;
+      if(this._isOffsidePosition(e.body.position.y,role,lineDist)) ids.add(e.id);
+    });
+    return ids.size?{role,ids}:null;
+  }
+  /** Indirect free kick to the defending side from roughly where the
+   *  offside player picked the ball up. */
+  _commitOffside(offsideRole,now){
+    const defendingRole=offsideRole==='A'?'B':'A';
+    const spot={x:this.ball.position.x,y:this.ball.position.y};
+    this._placeBallAndAward(defendingRole,spot,now);
+    this.confrontResult={title:'🚩 Offside!',outcome:'',until:now+RESULT_MS,outcomeAt:now+RESULT_DELAY_MS};
   }
 
   /** Lifts the ball for the first PASS_LOFT_FRAC of a pass: while it's up
@@ -1813,6 +1878,12 @@ export default class GameScene extends Phaser.Scene {
     if(!this.ballFlight) return;
     this.ballFlight=null;
     this.ball.collisionFilter.mask=CAT_PLAYER|CAT_GOAL;
+    // The pass this flag was watching for is over, one way or another —
+    // if it fizzled out with nobody touching it (rolled to a stop, or was
+    // otherwise moved/reset outside the normal catch path), the flag would
+    // otherwise sit there and could wrongly fire on a much later, unrelated
+    // touch by the same player.
+    this.offsideFlag=null;
   }
   _updatePassFlight(){
     const f=this.ballFlight; if(!f) return;
@@ -1883,6 +1954,12 @@ export default class GameScene extends Phaser.Scene {
       const other=bodies.find(b=>b.label!=='ball');
       const owner=other&&this.bodyOwner.get(other);
       if(owner){
+        if(this.offsideFlag&&owner.role===this.offsideFlag.role&&this.offsideFlag.ids.has(owner.id)&&!this.confrontation){
+          this._commitOffside(owner.role,this.time.now);
+          this.offsideFlag=null;
+          continue; // don't also count this as a normal touch or a goal-sensor hit
+        }
+        this.offsideFlag=null; // any other touch means the danger window has passed
         this.lastTouch=owner;
         if(!this.possRole&&!this.confrontation) this.possRole=owner.role;
       }
@@ -2008,6 +2085,18 @@ export default class GameScene extends Phaser.Scene {
     stats.sp-=tech.cost;
     return tech;
   }
+  /** The label for choosing (or having chosen) no supertechnique, specific
+   *  to what kind of confrontation and which side of it this is — shared
+   *  between the live choice button and the after-the-fact VS reveal, so
+   *  the two never disagree on what "normal" meant here. */
+  _normalActionLabel(type,isAttacker){
+    if(type==='duel') return isAttacker?'Normal dribble':'Normal tackle';
+    // A block only stops anything with a supertechnique (see
+    // _prepareConfrontReveal) — "normal" there just means the defender
+    // deliberately does nothing, e.g. to save the PT for later.
+    if(type==='block') return isAttacker?'Shoot anyway':'Let it through';
+    return isAttacker?'Normal shot':'Normal save'; // type==='shot'
+  }
   _statsFor(role,id){ return (role==='A'?this.statsMapA:this.statsMapB).get(id); }
 
   _entryById(role,id){ const team=role==='A'?this.teamA:this.teamB; return team.find(t=>t.id===id)||null; }
@@ -2051,7 +2140,7 @@ export default class GameScene extends Phaser.Scene {
     };
     c.pending={aWins,aTN,dTN,fx,aName:as.name,dName:ds.name,aTech};
     c.reveal={
-      until:now+DUEL_REVEAL_MS, litAt:now+DUEL_REVEAL_LIT_MS,
+      until:now+DUEL_REVEAL_MS, litAt:now+DUEL_REVEAL_LIT_MS, type:c.type,
       a:{name:as.name,move:aTN,winner:aWins,element:as.element,edge:elEdge>0},
       d:{name:ds.name,move:dTN,winner:!aWins,element:ds.element,edge:elEdge<0}
     };
@@ -2112,7 +2201,9 @@ export default class GameScene extends Phaser.Scene {
       title=`${dName} blocks the shot!`;
     } else if(aWins){
       this._onGoal(c.attackerRole==='A'?'a':'b');
-      title=`⚽ GOAL! ${aName} scores!`;
+      // this.score was just updated by _onGoal, so it already reflects
+      // this goal — the banner shows the result, not just who scored.
+      title=`⚽ GOAL! ${aName} scores! (${this.score.a} - ${this.score.b})`;
     } else {
       // The keeper (defenderId here, not necessarily whoever was "active"
       // before the shot) made the save — the ball, and possession, are
@@ -2132,6 +2223,19 @@ export default class GameScene extends Phaser.Scene {
     // rather than leaving possession unclaimed for whoever's body happens
     // to reach the centre spot first.
     this._kickoff(scorer==='a'?'B':'A');
+    // Freeze the celebration for a beat — the goal banner (set by the
+    // caller right after this returns) would otherwise flash by while play
+    // has already moved on to the restart. Host-only: the client sees the
+    // same effect for free, since a paused host simply stops sending fresh
+    // state for its client to interpolate toward (see _hostUpdate).
+    this._setPaused(true);
+    this.time.delayedCall(GOAL_PAUSE_MS,()=>{
+      this._setPaused(false);
+      // Clear the banner right as play resumes, same reasoning as the
+      // half-time transition: left alone, _setPaused's own _shiftTimers
+      // would push its expiry back by the exact length of this pause.
+      this.confrontResult=null;
+    });
   }
 
   /** Centre-spot restart for `role`: possession is theirs, both sides line up
@@ -2224,6 +2328,7 @@ export default class GameScene extends Phaser.Scene {
    *  (their keeper if `preferGk`, otherwise whoever's nearest) to take it. */
   _placeBallAndAward(awardedRole,spot,now,{preferGk=false}={}){
     this._endPassFlight();
+    this.offsideFlag=null; // any dead-ball restart clears whatever pass was in flight
     this.matter.body.setPosition(this.ball,spot);
     this.matter.body.setVelocity(this.ball,{x:0,y:0});
     const team=awardedRole==='A'?this.teamA:this.teamB;
@@ -2580,6 +2685,11 @@ export default class GameScene extends Phaser.Scene {
       if(result.until!==this._lastFxUntil){
         this._lastFxUntil=result.until;
         if(result.fx){ this._playTechniqueFx(result.fx.a); this._playTechniqueFx(result.fx.d); }
+        // Bring the restart into view — the ball could've gone in near
+        // either goal line, off-screen from wherever the camera had
+        // scrolled to follow play. Runs identically on host and client
+        // since each has its own local camera to recentre.
+        if(result.title&&result.title.startsWith('⚽ GOAL!')) this._centerCameraOnField();
       }
       document.getElementById('result-title').textContent=result.title||'';
       const out=document.getElementById('result-outcome');
@@ -2611,7 +2721,7 @@ export default class GameScene extends Phaser.Scene {
       // rather than as a coin flip.
       const el=d.element?`<span class="duel-el${d.edge?' edge':''}">${ELEMENT_ICON[d.element]||''} ${d.element}${d.edge?' ▲':''}</span>`:'';
       card.querySelector('.duel-who').innerHTML=`${d.name}${el}`;
-      card.querySelector('.duel-move').textContent=d.move==='Normal'?'Normal action':d.move;
+      card.querySelector('.duel-move').textContent=d.move==='Normal'?this._normalActionLabel(rv.type,pre==='a'):d.move;
       card.classList.toggle('winner',lit&&d.winner);
       card.classList.toggle('loser',lit&&!d.winner);
     };
@@ -2653,9 +2763,7 @@ export default class GameScene extends Phaser.Scene {
     // deliberately does nothing, e.g. to save the PT for later.
     const normalBtn=document.getElementById('conf-normal');
     normalBtn.style.display='block';
-    normalBtn.textContent=isDuel?(amA?'Normal dribble':'Normal tackle')
-      :isBlock?(amA?'Shoot anyway':"Let it through")
-      :(amA?'Normal shot':'Normal save');
+    normalBtn.textContent=this._normalActionLabel(confrontation.type,amA);
     const myChoice=amA?confrontation.attackerChoice:confrontation.defenderChoice;
     const myChoiceIsTech=myChoice&&typeof myChoice==='object'&&typeof myChoice.tech==='number';
     normalBtn.classList.toggle('is-primary',myChoice==='normal');
