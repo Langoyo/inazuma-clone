@@ -925,3 +925,25 @@ Cuatro ajustes a partir de feedback directo viendo la interfaz en el móvil:
 - **El desplegable de dificultad de la IA** ya solo dice "Easy / Normal /
   Hard / Expert" — el detalle de cuánto sube cada estadística sigue en el
   párrafo de abajo, no hacía falta repetirlo en cada opción.
+
+## Marcador azul al pasar, y la investigación del "el trazo no se dibuja"
+
+**El toque para pasar ahora deja un marcador.** Un anillo azul que se
+desvanece en 400ms sobre el punto exacto donde tocaste — antes el balón
+salía disparado sin ninguna confirmación visual de dónde había registrado
+el toque.
+
+**Sobre "la línea de los jugadores no se dibuja, solo aparece el punto
+final":** lo investigué a fondo (arrastres reales simulados con Playwright,
+comprobando el array de puntos, la posición física del jugador y el estado
+de `confrontation` fotograma a fotograma) y el sistema de dibujar/seguir
+una línea en sí funciona bien. Lo que sí encontré, de forma muy repetida en
+las pruebas: **cualquier duelo en cualquier parte del campo congela el
+movimiento de los 22 jugadores hasta que se resuelve** (a propósito — así
+ha sido siempre, no es nuevo). Con jugadores moviéndose constantemente,
+sobre todo justo tras un saque, un duelo entre otros dos jugadores salta
+muy a menudo — y si arrastras justo entonces, tu línea se dibuja pero tu
+jugador no se mueve hasta que el duelo termine, lo cual puede leerse
+exactamente como "no hizo nada". Si te sigue pasando sin que aparezca el
+cartel de "¡Duelo!" en pantalla, seguramente sea otra cosa — avísame con
+ese detalle y sigo mirando.
