@@ -1053,3 +1053,53 @@ were even talking to each other. Covered by
 practical to drive from this sandbox, so it exercises the exact fixed
 codepath directly: role flips once a peer is detected, and freezes once
 `matchStarted` is true).
+
+## Fixed: empty bench spots weren't clickable
+
+Occupied bench pins had a click listener wired up; the empty placeholder
+pins never did, so tapping an empty bench slot before it had ever held a
+player did nothing — you had to fill a slot some other way first. All
+five bench spots now share a `{type:'bench', id:null}` selection (they're
+interchangeable, so there's no per-slot id to distinguish them by) and
+get the same click handler as occupied ones. Covered by a new
+`tests/squad-editor.spec.js` regression test.
+
+## Filled in ~3,400 missing team affiliations, added 161 new teams
+
+`roster.json` had 3,404 players (out of 4,948) with no `team` set at
+all — mostly characters who never made it into the
+`Inazuma_Eleven_Manager_2026.xlsx` sheets above. The
+[`AlejandroSuarezCampos/InazumaElevenAPI`](https://github.com/AlejandroSuarezCampos/InazumaElevenAPI)
+project's own source, `zukan.inazuma.jp` (the franchise's official
+character database), lists a team for essentially every character —
+but that domain is blocked by this sandbox's network egress policy, for
+both `curl` and `WebFetch` alike. So the scrape had to happen outside
+this environment: I wrote a small scraper (reading the site's own table
+header row to find the "Team" column by name, rather than hardcoding an
+index the way the API repo's own scraper does — which is why that repo's
+JSON has no team field despite the site having the data) and handed it
+back as a Colab notebook to run.
+
+Two data-quality issues turned up in what came back:
+- The site's team cell holds one badge per team a character has
+  played for across the series, and stripping the cell's text with no
+  separator ran them together (`"RaimonInazuma National"`,
+  `"ProminenceChaos"`, even three- and four-team runs for
+  long-running characters). Split back apart with a
+  camelCase/digit-boundary regex
+  (`(?<=[a-z0-9])(?=[A-Z])`) rather than re-scraping, since the
+  concatenation was a fixed, mechanical join and reversible as such.
+- Only intentionally scraped `{id, name, team}` — not the site's
+  "Description" column, which is the site's own written character
+  blurbs (creative text); bulk-copying thousands of those would be a
+  different matter entirely from copying team names, which are just
+  facts.
+
+The cleaned team names were matched against this project's existing
+49-team `teams.json` (exact and fuzzy name matching); 161 were
+genuinely new and got added, each with a deterministically-generated
+placeholder color (MD5 hash of the team name → HSL hue → hex) rather
+than a guessed "real" kit color, since no official color source was
+available for them. Result: 4,948/4,948 players now have a team.
+Verified against the full Playwright suite (42/42 passing, no
+regressions).
