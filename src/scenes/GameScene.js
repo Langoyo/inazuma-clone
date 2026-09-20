@@ -1507,6 +1507,15 @@ export default class GameScene extends Phaser.Scene {
       while(path.length&&Phaser.Math.Distance.Between(pos.x,pos.y,path[0].x,path[0].y)<WAYPOINT_RADIUS) path.shift();
       // Following a drawn line is a deliberate run — sprint for it.
       if(path.length){ targets.push({id:e.id,x:path[0].x,y:path[0].y,sprint:true}); continue; }
+      // A short, fast drag can add a point that's already within
+      // WAYPOINT_RADIUS of the player and gets consumed the very same tick
+      // it landed — if that happens while they're still being actively
+      // dragged (a quick flick continuing the same direction they were
+      // already running, easy to do since they haven't stopped moving),
+      // this used to fall straight into the auto-continue branch below,
+      // silently swapping the real drawn line for just a dot mid-gesture.
+      // Hold here instead and wait for the next point _pointerMove adds.
+      if(this.drawing&&this.selectedPlayerId===e.id) continue;
       // The drawn line ran out: keep making ground while we're attacking
       // rather than turning straight back into the formation.
       const runOn=this._runOnWaypoint(pos);
