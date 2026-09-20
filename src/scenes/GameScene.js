@@ -82,6 +82,7 @@ const TEAM_SIZE         = 11;
 const BENCH_MAX         = 5;
 const BENCH_COVER       = ['GK','DF','MF','FW','MF']; // positions the auto-picked bench covers
 const HALF_S            = 3 * 60;
+const HALFTIME_PAUSE_MS = 3000; // how long play freezes for the half-time break
 const STATE_HZ          = 20;
 const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 
@@ -153,7 +154,7 @@ const ELEMENT_ICON  = { Fire:'🔥', Wood:'🌿', Air:'💨', Earth:'⚡' };
 // hard opponent is stronger in a duel without simply outrunning you.
 const AI_LEVELS = {
   easy:   { techChance:0.70, shootRange:420, shootChance:0.70, passChance:0.022, statMul:1.00 },
-  normal: { techChance:0.80, shootRange:470, shootChance:0.80, passChance:0.027, statMul:1.08 },
+  normal: { techChance:0.75, shootRange:445, shootChance:0.75, passChance:0.024, statMul:1.04 },
   hard:   { techChance:0.90, shootRange:530, shootChance:0.90, passChance:0.034, statMul:1.18 },
   expert: { techChance:0.97, shootRange:620, shootChance:0.97, passChance:0.042, statMul:1.30 }
 };
@@ -1998,7 +1999,7 @@ export default class GameScene extends Phaser.Scene {
    *  in formation on their own half (the side without the ball dropping off
    *  further, see KICKOFF_DEFEND_GAP) and one of their players is stood over
    *  the ball to take it. Used for the start of each half and after a goal. */
-  _kickoff(role,title){
+  _kickoff(role,title,bannerMs=1800){
     const now=this.time.now;
     this.possRole=role;
     this.confrontation=null;
@@ -2008,7 +2009,7 @@ export default class GameScene extends Phaser.Scene {
     // spot, so the line-up has to be settled before it chooses the taker.
     this._resetFormPos();
     this._placeBallAndAward(role,{x:this.FIELD_W/2,y:this.FIELD_H/2},now);
-    if(title) this.confrontResult={title,outcome:'',until:now+1800,outcomeAt:now+1800};
+    if(title) this.confrontResult={title,outcome:'',until:now+bannerMs,outcomeAt:now+bannerMs};
   }
   _resetFormPos(){
     const bp={x:this.FIELD_W/2,y:this.FIELD_H/2};
@@ -2146,8 +2147,18 @@ export default class GameScene extends Phaser.Scene {
       if(this.matchClock.half===1){
         this.matchClock.half=2; this.matchClock.secondsRemaining=HALF_S;
         // Whoever didn't start the match gets the second half, as in a real
-        // one — it used to drop the ball at the centre for a free-for-all.
-        this._kickoff(this.kickoffRole==='A'?'B':'A','Second half');
+        // one. Line everyone up for it and show the break, then actually
+        // freeze play for a beat instead of snapping straight into the
+        // second half — the instant switch read as jarring.
+        this._kickoff(this.kickoffRole==='A'?'B':'A','Half time',HALFTIME_PAUSE_MS);
+        this._setPaused(true);
+        this.time.delayedCall(HALFTIME_PAUSE_MS,()=>{
+          this._setPaused(false);
+          // Clear the banner right as play resumes — left alone, _setPaused's
+          // own _shiftTimers would push its expiry back by the exact length
+          // of the pause it just caused, doubling how long it lingers.
+          this.confrontResult=null;
+        });
       }
       else { this.matchClock.ended=true; this.matchClock.secondsRemaining=0; }
     }

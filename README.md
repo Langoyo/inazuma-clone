@@ -992,3 +992,32 @@ resto del juego — el emparejamiento entre "puesto de la formación" y
 que el pivote del 4-1-4-1 y el mediapunta del 4-3-1-2 quedan como MF
 normales; lo que cambia de una formación a otra es la forma en el campo,
 no ese rol.
+
+## Descanso con pausa real, y Normal un poco más suave
+
+**El cambio de segunda parte ya no es instantáneo.** Al llegar a 0:00 de
+la primera parte, los dos equipos se colocan para el saque de la segunda
+(el que no empezó la primera, ahora saca), sale el cartel **"Half time"**
+y el partido **se congela de verdad** 3 segundos (física parada, reloj
+sin correr) antes de arrancar solo — antes el cambio de mitad pasaba de
+golpe, con el saque ya en marcha. El cartel desaparece justo cuando se
+reanuda, no un rato después: `_setPaused` alarga los plazos activos
+(temporizador de duelo, aturdimientos...) exactamente la duración de la
+pausa para que no expiren en silencio mientras el juego está parado, y
+sin arreglarlo aquí eso habría alargado el cartel del descanso otros 3
+segundos de propina, con el juego ya corriendo.
+
+**Dificultad Normal, relajada.** Solo se tocó ese nivel (Easy/Hard/Expert
+igual que antes):
+
+| | antes | ahora |
+|---|---|---|
+| usa supertécnica | 80% | 75% |
+| dispara desde | 470 | 445 |
+| probabilidad de tirar | 80% | 75% |
+| probabilidad de pasar | 2,7% | 2,4% |
+| inflado de estadísticas | +8% | +4% |
+
+Sigue estando por encima de Easy (que no infla nada) y bastante por
+debajo de Hard (+18%), solo que ahora el escalón desde Easy es más
+suave.
