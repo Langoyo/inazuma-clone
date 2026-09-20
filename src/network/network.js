@@ -29,15 +29,25 @@ export function connectToRoom(roomCode) {
 
   // Host = whichever peer's id sorts first alphabetically between the two.
   // This is deterministic: both browsers reach the same conclusion without
-  // needing to negotiate it explicitly.
+  // needing to negotiate it explicitly. Note this is only "provisional"
+  // while peerId is still null — see onPeerConnect below for why callers
+  // can't just read it once at page load and assume it's final.
   function isHost() {
     if (!peerId) return true; // alone in the room = provisional host
     return selfId < peerId;
   }
 
+  let externalJoinHandler = null;
   room.onPeerJoin((id) => {
     peerId = id;
     console.log('[net] opponent connected:', id, 'am I host?', isHost());
+    // The WebRTC handshake takes real time, so isHost() called right at
+    // page load (before either browser knows the other exists) always
+    // sees "alone in the room" and both sides provisionally become host —
+    // that's fine as a solo-vs-AI default, but wrong the instant a real
+    // peer shows up. Let the caller re-derive its role now that peerId is
+    // actually known, instead of running the whole match on a stale guess.
+    if (externalJoinHandler) externalJoinHandler(id);
   });
 
   room.onPeerLeave((id) => {
@@ -50,7 +60,12 @@ export function connectToRoom(roomCode) {
     return peerId !== null;
   }
 
-  return { room, selfId, isHost, hasPeer, sendInput, onInput, sendState, onState, sendSquad, onSquad };
+  /** Fires once, right after a peer's id is known (see isHost's note above). */
+  function onPeerConnect(fn) {
+    externalJoinHandler = fn;
+  }
+
+  return { room, selfId, isHost, hasPeer, onPeerConnect, sendInput, onInput, sendState, onState, sendSquad, onSquad };
 }
 
 /** Generates or reads a short room code from the URL (?room=XXXX). */

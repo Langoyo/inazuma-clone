@@ -1028,3 +1028,28 @@ call — round-tripping between two separate calls leaves a real-time gap
 where the match keeps simulating underneath you, which is long enough
 for the AI to have already reacted (thrown a pass, moved possession
 on) before your second call reads it.
+
+## Fixed: two real players saw completely different matches
+
+Root cause: which side you play (host/'A' vs client/'B') was decided
+**once**, synchronously, the instant the scene was created — by comparing
+your id against the opponent's. But at that exact moment the WebRTC
+handshake hasn't happened yet, so neither browser knows the other exists.
+Both independently conclude "I'm alone in the room" and both provisionally
+become host. That default is right for solo play (no opponent ever
+shows up), but when two people actually open the same room link, both
+sides silently keep the stale 'A' verdict for the rest of the session —
+so both simulate their own physics as the host, both think they're
+controlling the same team, and the two screens diverge into two separate
+games from the first kickoff.
+
+Fixed by re-running that comparison once a peer is actually known
+(`net.onPeerConnect`, fired right after the real handshake completes),
+via a new `_syncRoleFromNet()` that's a no-op once the match has already
+kicked off — role still has to stay fixed for a match's whole duration,
+it just can no longer be settled on a guess made before the two players
+were even talking to each other. Covered by
+`tests/networking.spec.js` (a real cross-browser WebRTC handshake isn't
+practical to drive from this sandbox, so it exercises the exact fixed
+codepath directly: role flips once a peer is detected, and freezes once
+`matchStarted` is true).
