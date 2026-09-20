@@ -391,7 +391,8 @@ export default class GameScene extends Phaser.Scene {
     this.selectedPlayerId=null;
     this.gestureStart=null; this.gestureMoved=false;
     this.pendingShoot=false; this.pendingPass=null;
-    this.pendingChoice=null; this.pendingSub=null; this.pendingReposition=null; this.subSel=null; this._squadSel=null;
+    this.pendingChoice=null; this.pendingSub=null; this.pendingReposition=null; this.pendingTeamPanelRequest=null; this.subSel=null; this._squadSel=null;
+    this.teamPanelOpen=false;
     this.lastStateSent=0;
 
     // Pointer handlers
@@ -480,7 +481,7 @@ export default class GameScene extends Phaser.Scene {
       if(this.mySquadConfirmed) this.net.sendSquad(this.mySquadPayload);
     });
     this.remoteState=null;
-    this.remoteInput={targets:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,repositionRequest:null,formationChange:null};
+    this.remoteInput={targets:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,repositionRequest:null,formationChange:null,teamPanelRequest:null};
     this.net.onInput(d=>{ this.remoteInput=d; });
     this.net.onState(d=>this._incomingState(d));
     this.net.onSquad(d=>{ this.remoteSquadPayload=d; if(this.role==='A'&&this.mySquadConfirmed&&!this.matchStarted) this._startMatch(this.mySquadPayload,d); });
@@ -1454,18 +1455,33 @@ export default class GameScene extends Phaser.Scene {
    *  (current XI) and bench together below — exactly like the pre-match
    *  squad editor. Tap a player on the pitch, then one on the bench (or
    *  vice versa), to sub them. */
+  /** Opening the team panel — either player's — pauses the match and forces
+   *  the panel open on both screens. The DOM is toggled optimistically here
+   *  for whoever clicked (instant feedback), but `teamPanelOpen` itself —
+   *  the authoritative, network-synced flag — is only ever set by
+   *  _setTeamPanelOpen, once the host actually processes the request (its
+   *  own, or the other side's via input). Setting it here too would make
+   *  that later call see "no change" and skip pausing entirely. */
   _openSubPanel(){
+    this.pendingTeamPanelRequest='open';
     this.subSel=null; this._subPanelSig=null; this._renderSubPanel();
     document.getElementById('sub-panel').style.display='flex';
-    // Solo vs the AI the match holds still while you sort the team out. With
-    // a real opponent connected it can't: freezing the simulation would
-    // freeze their match too, so there it keeps running and the panel says so.
-    this._setPaused(!this.net.hasPeer());
   }
   _closeSubPanel(){
+    this.pendingTeamPanelRequest='close';
     this.subSel=null;
     document.getElementById('sub-panel').style.display='none';
-    this._setPaused(false);
+  }
+  /** Host-authoritative: applies an open/close request from either side
+   *  (its own click, or the client's via input), pausing/resuming the
+   *  match and mirroring the panel's visibility onto the host's own
+   *  screen too, so a request from either player forces both. */
+  _setTeamPanelOpen(open){
+    if(!!this.teamPanelOpen===!!open) return;
+    this.teamPanelOpen=!!open;
+    this._setPaused(this.teamPanelOpen);
+    document.getElementById('sub-panel').style.display=this.teamPanelOpen?'flex':'none';
+    if(this.teamPanelOpen){ this.subSel=null; this._subPanelSig=null; this._renderSubPanel(); }
   }
 
   /** Holds the simulation still without stopping the scene: Matter stops
@@ -1513,9 +1529,10 @@ export default class GameScene extends Phaser.Scene {
     this._renderFormationPresets();
     const st=document.getElementById('sub-panel-state');
     if(st){
-      st.textContent=this.paused?'⏸ Match paused — make as many changes as you like, then close'
-        :'▶ Match still running — your opponent is connected, so it can\'t be paused';
-      st.className=this.paused?'paused':'running';
+      // Opening this panel always pauses the match now, for both players
+      // (see _setTeamPanelOpen) — so whenever it's showing, this is true.
+      st.textContent='⏸ Match paused — make as many changes as you like, then close';
+      st.className='paused';
     }
     const listEl=document.getElementById('sub-list-inner'); listEl.innerHTML='';
     const myTeam=this.role==='A'?this.teamA:this.teamB;
@@ -2153,6 +2170,10 @@ export default class GameScene extends Phaser.Scene {
   _applySquadRequests(myInput,inputB,aiActive){
     if(myInput.formationChange) this.formation.A=myInput.formationChange;
     if(!aiActive&&inputB.formationChange) this.formation.B=inputB.formationChange;
+    // Either side opening/closing their team panel forces the same on the
+    // other — see _setTeamPanelOpen.
+    if(myInput.teamPanelRequest) this._setTeamPanelOpen(myInput.teamPanelRequest==='open');
+    if(!aiActive&&inputB.teamPanelRequest) this._setTeamPanelOpen(inputB.teamPanelRequest==='open');
     if(this.matchClock.ended) return;
     if(myInput.subRequest) this._trySub('A',myInput.subRequest);
     if(!aiActive&&inputB.subRequest) this._trySub('B',inputB.subRequest);
@@ -2455,8 +2476,8 @@ export default class GameScene extends Phaser.Scene {
     if(this.matchStarted) this._tickScroll(delta);
 
     const targets=this.matchStarted?this._computeTargets():[];
-    const myInput={targets,shootRequest:this.pendingShoot,passTarget:this.pendingPass,confrontationChoice:this.pendingChoice,subRequest:this.pendingSub,repositionRequest:this.pendingReposition,formationChange:this.pendingFormChange};
-    this.pendingShoot=false; this.pendingPass=null; this.pendingChoice=null; this.pendingSub=null; this.pendingReposition=null; this.pendingFormChange=null;
+    const myInput={targets,shootRequest:this.pendingShoot,passTarget:this.pendingPass,confrontationChoice:this.pendingChoice,subRequest:this.pendingSub,repositionRequest:this.pendingReposition,formationChange:this.pendingFormChange,teamPanelRequest:this.pendingTeamPanelRequest};
+    this.pendingShoot=false; this.pendingPass=null; this.pendingChoice=null; this.pendingSub=null; this.pendingReposition=null; this.pendingFormChange=null; this.pendingTeamPanelRequest=null;
     this.net.sendInput(myInput);
 
     if(amHost){ if(this.matchStarted) this._hostUpdate(time,delta,myInput); else if(time-this.lastStateSent>1000/STATE_HZ){this.lastStateSent=time;this.net.sendState({matchStarted:false});} }
@@ -2471,9 +2492,6 @@ export default class GameScene extends Phaser.Scene {
    *  line-up actually changed, not every frame. */
   _subPanelTick(){
     if(document.getElementById('sub-panel').style.display!=='flex'){ this._subPanelSig=null; return; }
-    // With an opponent connected the match can't be frozen for them, so make
-    // sure a pause from a previous solo match isn't left hanging.
-    if(this.paused&&this.net.hasPeer()) this._setPaused(false);
     const team=this.role==='A'?this.teamA:this.teamB;
     const bench=this.role==='A'?(this.benchA||[]):(this.benchB||[]);
     const sig=`${team.map(e=>e.id).join(',')}|${[...bench].join(',')}|${this.formation[this.role]}`;
@@ -2540,7 +2558,7 @@ export default class GameScene extends Phaser.Scene {
         a:this.teamA.filter(e=>this._isOut('A',e.id)).map(e=>e.id),
         b:this.teamB.filter(e=>this._isOut('B',e.id)).map(e=>e.id)
       };
-      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},ballH:this.ballFlight?Math.round(this.ballFlight.h):0,teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},stamina:{a:as2?as2.stamina:0,b:bs?bs.stamina:0},maxStamina:{a:as2?as2.maxStamina:150,b:bs?bs.maxStamina:150},statsAll,sentOff,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline,reveal:this.confrontation.reveal||null,powerMul:this.confrontation.powerMul||1,attackerLocked:!!this.confrontation.attackerLocked}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry});
+      this.net.sendState({matchStarted:true,ball:{x:this.ball.position.x,y:this.ball.position.y},ballH:this.ballFlight?Math.round(this.ballFlight.h):0,teamA:this.teamA.map(e=>({x:e.body.position.x,y:e.body.position.y})),teamB:this.teamB.map(e=>({x:e.body.position.x,y:e.body.position.y})),activeIdA:this.activeIdA,activeIdB:this.activeIdB,score:this.score,sp:{a:as2?as2.sp:0,b:bs?bs.sp:0},maxSp:{a:as2?as2.maxSP:100,b:bs?bs.maxSP:100},stamina:{a:as2?as2.stamina:0,b:bs?bs.stamina:0},maxStamina:{a:as2?as2.maxStamina:150,b:bs?bs.maxStamina:150},statsAll,sentOff,possession:this.possRole,confrontation:this.confrontation?{type:this.confrontation.type,attackerRole:this.confrontation.attackerRole,defenderRole:this.confrontation.defenderRole,attackerId:this.confrontation.attackerId,defenderId:this.confrontation.defenderId,deadline:this.confrontation.deadline,reveal:this.confrontation.reveal||null,powerMul:this.confrontation.powerMul||1,attackerLocked:!!this.confrontation.attackerLocked}:null,confrontResult:(this.confrontResult&&now<this.confrontResult.until)?this.confrontResult:null,benchIds:{a:this.benchA,b:this.benchB},starterIds:{a:this.teamA.map(e=>e.id),b:this.teamB.map(e=>e.id)},clock:{half:this.matchClock.half,secondsRemaining:this.matchClock.secondsRemaining,ended:this.matchClock.ended},stuns:stunAry,teamPanelOpen:this.teamPanelOpen});
     }
   }
 
@@ -2620,6 +2638,14 @@ export default class GameScene extends Phaser.Scene {
   _incomingState(data){
     this.remoteState=data;
     if(data.matchStarted&&!this.matchStarted){ this.matchStarted=true; document.getElementById('squad-editor-panel').style.display='none'; }
+    // Mirrors the host's authoritative team-panel state: whichever side
+    // opened it (this one or the host's own), both screens show it —
+    // matches the local optimistic show/hide in _openSubPanel/_closeSubPanel.
+    if(!!data.teamPanelOpen!==!!this.teamPanelOpen){
+      this.teamPanelOpen=!!data.teamPanelOpen;
+      document.getElementById('sub-panel').style.display=this.teamPanelOpen?'flex':'none';
+      if(this.teamPanelOpen){ this.subSel=null; this._subPanelSig=null; this._renderSubPanel(); }
+    }
   }
 
   _clientUpdate(time){
