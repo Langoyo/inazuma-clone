@@ -91,6 +91,11 @@ test.describe('goal sensors', () => {
       const s = window.__scene;
       s.possRole = null;
       s.confrontation = null;
+      // A real pass mid-flight from the live match could still be flagged
+      // for offside — irrelevant to what this test is checking, and this
+      // manual teleport bypasses the normal paths that would otherwise
+      // clear it (see _placeBallAndAward/_updatePassFlight).
+      s.offsideFlag = null;
       s.matter.body.setPosition(s.ball, { x: s.FIELD_W / 2, y: 60 });
       s.matter.body.setVelocity(s.ball, { x: 0, y: -14 }); // rolling toward the top net
     });
