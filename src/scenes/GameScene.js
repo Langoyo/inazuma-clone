@@ -534,10 +534,12 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('randomize-squad-btn').addEventListener('click',()=>this._randomize());
     document.getElementById('randomize-club-btn').addEventListener('click',()=>this._randomize(true));
     document.getElementById('squad-whole-team-btn').addEventListener('click',()=>this._useWholeTeam());
-    document.getElementById('squad-search').addEventListener('input',()=>this._renderPickList());
-    document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickList());
-    document.getElementById('squad-team-filter').addEventListener('change',()=>this._renderPickList());
-    document.getElementById('squad-sort-select').addEventListener('change',()=>this._renderPickList());
+    document.getElementById('squad-search').addEventListener('input',()=>this._renderPickListReset());
+    document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickListReset());
+    document.getElementById('squad-team-filter').addEventListener('change',()=>this._renderPickListReset());
+    document.getElementById('squad-sort-select').addEventListener('change',()=>this._renderPickListReset());
+    document.getElementById('pick-prev-btn').addEventListener('click',()=>{ this._pickPage=Math.max(0,this._pickPage-1); this._renderPickList(); });
+    document.getElementById('pick-next-btn').addEventListener('click',()=>{ this._pickPage++; this._renderPickList(); });
     document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
     document.getElementById('squad-place-cancel-btn').addEventListener('click',()=>{ this._squadSel=null; this._renderPitch(); this._renderPickList(); });
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
@@ -621,7 +623,7 @@ export default class GameScene extends Phaser.Scene {
     const open=this.squadSectionOpen;
     document.getElementById('squad-editor').classList.toggle('hidden-section',!open.formation);
     document.getElementById('squad-players-view').classList.toggle('hidden-section',!open.players);
-    document.querySelectorAll('.view-tab').forEach(b=>b.classList.toggle('active',!!open[b.dataset.view]));
+    document.querySelectorAll('.view-tab').forEach(b=>b.classList.toggle('is-warning',!!open[b.dataset.view]));
   }
 
   // ---- which side ("me"/"rival") the pitch editor currently shows -------
@@ -635,7 +637,10 @@ export default class GameScene extends Phaser.Scene {
   _setEditSide(side){
     this.editSide=side;
     document.getElementById('formation-select').value=this._edFormation();
-    document.querySelectorAll('.squad-side-tab').forEach(b=>b.classList.toggle('active',b.dataset.side===side));
+    // Scoped to #squad-side-tabs — the view-tab buttons share the
+    // .squad-side-tab class but have no data-side, so an unscoped query
+    // would spuriously touch their own is-warning state too.
+    document.querySelectorAll('#squad-side-tabs .squad-side-tab').forEach(b=>b.classList.toggle('is-primary',b.dataset.side===side));
     document.getElementById('rival-tab-note').style.display=side==='rival'?'block':'none';
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
@@ -833,6 +838,7 @@ export default class GameScene extends Phaser.Scene {
   // from the search list who isn't in the squad yet — placing them onto a
   // slot/bench spot works whether or not that spot is already occupied.
   _squadSel=null;
+  _pickPage=0;
   _onSquadPinClick(sel){
     if(!this._squadSel){ this._squadSel=sel; this._renderPitch(); this._renderPickList(); return; }
     if(this._squadSel.type===sel.type&&(sel.type==='slot'?this._squadSel.slot===sel.slot:this._squadSel.id===sel.id)){
@@ -955,20 +961,29 @@ export default class GameScene extends Phaser.Scene {
       keeperPower: (a,b)=>b.stats.keeperPower-a.stats.keeperPower||byName(a,b),
     };
   }
+  /** Search/filter/sort changes invalidate whatever page you were on —
+   *  otherwise a narrowed search could leave you stranded on a page past
+   *  the end, looking at an empty list with no clue why. */
+  _renderPickListReset(){ this._pickPage=0; this._renderPickList(); }
   _renderPickList(){
     const list=document.getElementById('squad-pick-list');
     const q=(document.getElementById('squad-search').value||'').toLowerCase();
     const gf=document.getElementById('squad-game-filter').value;
     const {team:tfTeam,game:tfGame}=this._parseTeamFilter(document.getElementById('squad-team-filter').value);
     const sortKey=document.getElementById('squad-sort-select').value;
-    const inSquad=this._allInSquad(); const MAX=120;
+    const inSquad=this._allInSquad(); const PAGE_SIZE=30;
     const sel=this._squadSel;
     const matches=this.rosterAll.filter(p=>(!gf||p.game===gf)&&(!tfTeam||p.team===tfTeam)&&(!tfGame||p.game===tfGame)&&(!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q)));
     const sorters=this._pickListSorters();
     matches.sort(sorters[sortKey]||sorters.rating);
-    document.getElementById('pick-count').textContent=matches.length>MAX?`Showing ${MAX} of ${matches.length}`:`${matches.length} players`;
+    const pageCount=Math.max(1,Math.ceil(matches.length/PAGE_SIZE));
+    this._pickPage=Phaser.Math.Clamp(this._pickPage,0,pageCount-1);
+    document.getElementById('pick-count').textContent=`${matches.length} players`;
+    document.getElementById('pick-page-info').textContent=`Page ${this._pickPage+1}/${pageCount}`;
+    document.getElementById('pick-prev-btn').disabled=this._pickPage<=0;
+    document.getElementById('pick-next-btn').disabled=this._pickPage>=pageCount-1;
     list.innerHTML='';
-    matches.slice(0,MAX).forEach(p=>{
+    matches.slice(this._pickPage*PAGE_SIZE,(this._pickPage+1)*PAGE_SIZE).forEach(p=>{
       const card=document.createElement('div');
       const isSel=this._selMatchesPlayer(sel,p);
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'')+(isSel?' selected':'');
@@ -1291,7 +1306,7 @@ export default class GameScene extends Phaser.Scene {
     const current=this.formation[this.role];
     Object.keys(FORMATIONS).forEach(name=>{
       const btn=document.createElement('button'); btn.textContent=name;
-      if(name===current) btn.classList.add('active');
+      btn.className='nes-btn is-compact'+(name===current?' is-warning':'');
       btn.addEventListener('click',()=>{
         this.formation[this.role]=name; this.pendingFormChange=name;
         this._renderSubPanel();
@@ -2424,7 +2439,7 @@ export default class GameScene extends Phaser.Scene {
       :(amA?'Normal shot':'Normal save');
     const myChoice=amA?confrontation.attackerChoice:confrontation.defenderChoice;
     const myChoiceIsTech=myChoice&&typeof myChoice==='object'&&typeof myChoice.tech==='number';
-    normalBtn.classList.toggle('active',myChoice==='normal');
+    normalBtn.classList.toggle('is-primary',myChoice==='normal');
     // Show the elemental matchup before the choice, not just in the reveal —
     // it's the one thing you can actually plan around (e.g. save the PT when
     // you're at a disadvantage anyway).
@@ -2444,10 +2459,10 @@ export default class GameScene extends Phaser.Scene {
     const techs=stats?techniquesFor(stats,techId):[];
     techs.forEach((tech,idx)=>{
       const btn=document.createElement('button');
-      btn.className='conf-btn'; btn.dataset.idx=idx;
+      btn.className='conf-btn nes-btn'; btn.dataset.idx=idx;
       btn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`;
       btn.disabled=!stats||stats.sp<tech.cost;
-      if(myChoiceIsTech&&myChoice.tech===idx) btn.classList.add('active');
+      if(myChoiceIsTech&&myChoice.tech===idx) btn.classList.add('is-primary');
       techWrap.appendChild(btn);
     });
     const rem=Math.max(0,confrontation.deadline-now);

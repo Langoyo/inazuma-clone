@@ -895,3 +895,33 @@ ejecución), gana el empate de especificidad y se comía nuestra fuente base
 y el color de texto. Se corrigió fijando la fuente/color/fondo base con
 `!important` — un uso deliberado, no un parche, para plantar la línea
 base del proyecto por encima del reset global de una librería de terceros.
+
+## Botones reales de nes.css, coste legible, paginación y menos texto
+
+Cuatro ajustes a partir de feedback directo viendo la interfaz en el móvil:
+
+- **Los botones usan de verdad las clases `nes-btn`/`is-primary`/`is-success`/
+  `is-warning`/`is-error` de la librería**, en vez de la copia hecha a mano
+  que había antes. Esa copia se dejaba `border-image-outset` (lo tenía nes.css,
+  yo no), y en algunos renders eso dejaba asomar un borde sólido negro por
+  debajo de la esquina en píxel — la "línea negra dentro del botón" que se
+  veía mal. Usar las clases reales de la librería, en vez de reinventarlas,
+  quita el problema de raíz. Los botones nativos con el atributo `disabled`
+  (los del formulario, no los `is-disabled` de nes.css) tienen su propia
+  regla de compatibilidad para que se vean igual de apagados.
+
+- **El coste en PT de las técnicas** se veía en amarillo — el mismo amarillo
+  del acento — sobre botones que ahora son blancos por defecto (solo se
+  ponen azules al seleccionarlos), así que era invisible. Ahora es gris
+  oscuro sobre blanco y solo pasa a dorado cuando el botón está seleccionado
+  (fondo azul), donde sí contrasta.
+
+- **Paginación en la lista de jugadores.** Antes se cortaba en los primeros
+  120 resultados sin más — más allá de eso no había manera de llegar. Ahora
+  son páginas de 30 con botones Prev/Next; buscar, filtrar o cambiar el
+  orden te devuelve a la página 1 (si no, una búsqueda que estrecha los
+  resultados podía dejarte varado en una página vacía sin saber por qué).
+
+- **El desplegable de dificultad de la IA** ya solo dice "Easy / Normal /
+  Hard / Expert" — el detalle de cuánto sube cada estadística sigue en el
+  párrafo de abajo, no hacía falta repetirlo en cada opción.

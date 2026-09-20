@@ -38,55 +38,27 @@
     }
     h1, h2, h3 { font-family: 'Press Start 2P', 'Courier New', monospace !important; font-weight: normal; }
 
-    /* ------------------------------------------------------------------ Pixel-button/panel mixins
-       Every "button" and "chip" on the page — whether it's a static element
-       here or one GameScene.js builds at runtime (.conf-btn, .slot-pin's
-       badges, .pick-card, formation-preset buttons...) — shares this same
-       corner-cut border (the classic NES.css technique: a tiny repeating
-       SVG stamped onto the corners via border-image) and a coloured inset
-       shadow standing in for the missing bottom-right bevel, so the whole
-       page reads as one system instead of two styles bolted together. */
-    .pixel-btn, .conf-btn, .preset-btns button, .squad-side-tab, .squad-store-btn,
-    #sub-button, .panel-close, #squad-remove-btn, #squad-place-cancel-btn,
-    #confirm-squad-btn, #fulltime-menu-btn, #squad-whole-team-btn, #squad-search-row button {
-      position: relative; display: inline-block; font-family: inherit;
-      border-style: solid; border-width: 4px; border-radius: 0;
-      border-image-slice: 2; border-image-width: 2; border-image-repeat: stretch;
-      border-image-source: url('data:image/svg+xml;utf8,<?xml version="1.0" encoding="UTF-8" ?><svg version="1.1" width="5" height="5" xmlns="http://www.w3.org/2000/svg"><path d="M2 1 h1 v1 h-1 z M1 2 h1 v1 h-1 z M3 2 h1 v1 h-1 z M2 3 h1 v1 h-1 z" fill="rgb(27,27,27)" /></svg>');
-      padding: 8px 14px; margin: 0; text-align: center; vertical-align: middle;
-      cursor: pointer; user-select: none; touch-action: manipulation;
-      font-size: 15px; line-height: 1.3; color: #1b1b1b; background-color: var(--white);
-      transition: transform 60ms ease;
+    /* ------------------------------------------------------------------ Buttons
+       Every button on the page uses nes.css's own real `nes-btn` class (plus
+       its `is-primary`/`is-success`/`is-warning`/`is-error` colour variants)
+       instead of a hand-rolled copy — the hand-rolled version was missing
+       `border-image-outset`, which let a plain solid black edge show through
+       under the pixel corners on some renders. Native-`disabled` buttons get
+       the same look as nes.css's own class-based `.is-disabled`, since
+       nes.css doesn't hook the `:disabled` pseudo-class itself. */
+    .nes-btn:disabled, .nes-btn:disabled:hover, .nes-btn:disabled:focus {
+      color: #212529; cursor: not-allowed; background-color: #d3d3d3;
+      box-shadow: inset -4px -4px #adafbc; opacity: 0.6;
     }
-    .pixel-btn::after, .conf-btn::after, .preset-btns button::after, .squad-side-tab::after,
-    .squad-store-btn::after, #sub-button::after, .panel-close::after, #squad-remove-btn::after,
-    #squad-place-cancel-btn::after, #confirm-squad-btn::after, #fulltime-menu-btn::after,
-    #squad-whole-team-btn::after, #squad-search-row button::after {
-      content: ''; position: absolute; inset: -4px; box-shadow: inset -4px -4px var(--grey-shadow);
-    }
-    .pixel-btn:active, .conf-btn:active, .preset-btns button:active, .squad-side-tab:active,
-    .squad-store-btn:active, #sub-button:active, .panel-close:active, #squad-remove-btn:active,
-    #squad-place-cancel-btn:active, #confirm-squad-btn:active, #fulltime-menu-btn:active,
-    #squad-whole-team-btn:active, #squad-search-row button:active { transform: translate(2px,2px); }
-    .pixel-btn:disabled, .conf-btn:disabled, #squad-whole-team-btn:disabled,
-    .squad-store-btn:disabled, #confirm-squad-btn:disabled { opacity: 0.4; cursor: default; }
-    .pixel-btn:disabled:active, .conf-btn:disabled:active { transform: none; }
+    /* nes.css has no size variant of its own — layered on top of the real
+       button classes purely for spacing, never touching their look. */
+    .is-compact { font-size: 13px; padding: 4px 8px; margin: 2px; }
 
-    /* colour variants — background + matching shadow, reused across every
-       button-like element above via a shared modifier class or, where a
-       plain element already carries semantic state (.active, .winner…),
-       via that same class. */
-    .is-primary, .conf-btn.active, .squad-side-tab.active, #confirm-squad-btn,
-    #fulltime-menu-btn, #sub-button { color: var(--white); background-color: var(--blue); }
-    .is-primary::after, .conf-btn.active::after, .squad-side-tab.active::after,
-    #confirm-squad-btn::after, #fulltime-menu-btn::after, #sub-button::after { box-shadow: inset -4px -4px var(--blue-shadow); }
-    .is-warning, .preset-btns button.active, .view-tab.active { color: #1b1b1b; background-color: var(--gold); }
-    .is-warning::after, .preset-btns button.active::after, .view-tab.active::after { box-shadow: inset -4px -4px var(--gold-shadow); }
-    .is-success { color: #1b1b1b; background-color: var(--green); }
-    .is-success::after { box-shadow: inset -4px -4px var(--green-shadow); }
-    .is-error, #squad-remove-btn { color: var(--white); background-color: var(--red); }
-    .is-error::after, #squad-remove-btn::after { box-shadow: inset -4px -4px var(--red-shadow); }
-    .is-small { font-size: 12px; padding: 6px 10px; }
+    /* Technique cost inside a .conf-btn: nes.css buttons are white until
+       selected (is-primary/blue), so the cost text needs to read on both —
+       muted on white, gold once the button lights up. */
+    .conf-btn .cost { display: block; font-size: 12px; margin-top: 3px; color: #6c757d; }
+    .conf-btn.is-primary .cost { color: var(--gold); }
 
     /* pixel-bordered <select>/<input>, same corner technique but flat (no shadow) */
     .pixel-select, #squad-search-row input, #squad-search-row select {
@@ -171,7 +143,6 @@
     #confrontation-timer-fill { height: 100%; width: 100%; background: var(--gold); transition: none; }
     #confrontation-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
     .conf-btn { min-width: 130px; }
-    .conf-btn .cost { display: block; font-size: 12px; color: var(--gold); margin-top: 3px; }
 
     /* ------------------------------------------------------------------ Field buttons */
     #sub-button { position: fixed; bottom: 16px; right: 16px; z-index: 15; display: none; }
@@ -211,20 +182,16 @@
 
     /* ---- formation preset buttons (top of the team panel) */
     .preset-btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 16px; }
-    .preset-btns button { font-size: 14px; }
 
     /* ---- your team / rival team tabs, and formation / browse-players tabs (squad editor) */
     #squad-side-tabs, #squad-view-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
-    .squad-side-tab { font-size: 14px; font-weight: bold; }
     /* Formation/Browse are independent collapsible sections, not exclusive tabs —
        both default open so you can see the pitch and the player list at once;
-       each button just toggles its own section. */
-    .view-tab::after { content: ' \25B8'; box-shadow: none !important; position: static; inset: auto; }
-    .view-tab.active::after { content: ' \25BE'; box-shadow: none !important; position: static; }
+       each button just toggles its own section (colour change is the only
+       open/closed cue — nes-btn's own ::after runs the pixel shadow, so an
+       arrow glyph can't share that pseudo-element without fighting it). */
     #squad-players-view { width: 100%; }
     #squad-editor.hidden-section, #squad-players-view.hidden-section { display: none; }
-
-    .squad-store-btn { font-size: 13px; padding: 7px 12px; }
     #squad-save-status { font-size: 13px; opacity: 0.9; color: var(--green); }
 
     /* ---- topological squad editor */
@@ -384,7 +351,7 @@
     <div id="confrontation-player-info"></div>
     <div id="confrontation-timer-wrap"><div id="confrontation-timer-fill"></div></div>
     <div id="confrontation-buttons">
-      <button class="conf-btn" id="conf-normal">Normal action</button>
+      <button class="conf-btn nes-btn" id="conf-normal">Normal action</button>
       <!-- One button per technique the player has in this category is
            injected here — see GameScene._updateConfrontUI. -->
       <div id="conf-tech-list" style="display:contents;"></div>
@@ -392,7 +359,7 @@
   </div>
 
   <!-- In-match button: formation + substitutions live in the same panel -->
-  <button id="sub-button">Team</button>
+  <button id="sub-button" class="nes-btn is-primary">Team</button>
 
   <!-- Team panel: change formation, and tap a pitch player + a bench player to sub -->
   <div id="sub-panel" class="panel-overlay">
@@ -401,7 +368,7 @@
     <h2 id="sub-panel-title">Tap two pitch players to swap positions, or a pitch player then a bench one to substitute</h2>
     <div id="sub-panel-state"></div>
     <div id="sub-list-inner"></div>
-    <button class="panel-close" id="sub-cancel-btn">Close panel</button>
+    <button class="panel-close nes-btn" id="sub-cancel-btn">Close panel</button>
   </div>
 
   <!-- ===================== FULL TIME ===================== -->
@@ -409,7 +376,7 @@
     <h2 style="font-size:20px;">Full time</h2>
     <div id="fulltime-score">0 - 0</div>
     <div id="fulltime-verdict"></div>
-    <button id="fulltime-menu-btn">Back to the menu</button>
+    <button id="fulltime-menu-btn" class="nes-btn is-primary">Back to the menu</button>
     <div id="fulltime-countdown"></div>
   </div>
 
@@ -424,8 +391,8 @@
     <!-- Switch between editing your own squad and the rival's (solo vs AI only —
          a real connected opponent always picks their own team regardless). -->
     <div id="squad-side-tabs">
-      <button class="squad-side-tab active" data-side="me">Your Team</button>
-      <button class="squad-side-tab" data-side="rival">Rival Team</button>
+      <button class="squad-side-tab nes-btn is-primary" data-side="me">Your Team</button>
+      <button class="squad-side-tab nes-btn" data-side="rival">Rival Team</button>
     </div>
     <p id="rival-tab-note" style="display:none;font-size:11px;opacity:0.7;margin:-4px 0 10px;text-align:center;max-width:500px;">
       Only used if you end up playing solo against the AI — comes pre-filled at random, tweak it or leave it as is.
@@ -435,8 +402,8 @@
          by default so you can tap a player in the list, then tap straight onto
          a pitch spot; each button just collapses its own section for more room. -->
     <div id="squad-view-tabs">
-      <button class="squad-side-tab view-tab active" data-view="formation">📋 Formation</button>
-      <button class="squad-side-tab view-tab active" data-view="players">🔍 Browse Players</button>
+      <button class="squad-side-tab view-tab nes-btn is-warning" data-view="formation">📋 Formation</button>
+      <button class="squad-side-tab view-tab nes-btn is-warning" data-view="players">🔍 Browse Players</button>
     </div>
 
     <!-- Topological pitch editor -->
@@ -450,15 +417,15 @@
           <option value="4-2-3-1">4-2-3-1</option>
           <option value="3-5-2">3-5-2</option>
         </select>
-        <button id="randomize-squad-btn" class="pixel-btn is-primary is-small">🎲 Random</button>
-        <button id="randomize-club-btn" title="Only players who belong to a real team — a stronger, more recognisable XI" class="pixel-btn is-warning is-small">🎲 Random (club players)</button>
+        <button id="randomize-squad-btn" class="nes-btn is-primary is-compact">🎲 Random</button>
+        <button id="randomize-club-btn" title="Only players who belong to a real team — a stronger, more recognisable XI" class="nes-btn is-warning is-compact">🎲 Random (club players)</button>
         <span id="squad-fill-count" style="font-size:11px;opacity:0.75;">0/11 filled</span>
       </div>
 
       <!-- Keep the squad you built between sessions (this browser only) -->
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
-        <button id="squad-save-btn" class="squad-store-btn">💾 Save squad</button>
-        <button id="squad-load-btn" class="squad-store-btn" disabled>📂 Load saved</button>
+        <button id="squad-save-btn" class="nes-btn is-primary is-compact">💾 Save squad</button>
+        <button id="squad-load-btn" class="nes-btn is-compact" disabled>📂 Load saved</button>
         <span id="squad-save-status"></span>
       </div>
 
@@ -466,10 +433,10 @@
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <label style="font-size:12px;">AI difficulty:</label>
         <select id="ai-level-select" class="pixel-select">
-          <option value="easy">Easy — sharp, no stat boost</option>
-          <option value="normal" selected>Normal — AI stats +8%</option>
-          <option value="hard">Hard — AI stats +18%</option>
-          <option value="expert">Expert — AI stats +30%</option>
+          <option value="easy">Easy</option>
+          <option value="normal" selected>Normal</option>
+          <option value="hard">Hard</option>
+          <option value="expert">Expert</option>
         </select>
       </div>
       <p style="font-size:11px;opacity:0.7;margin:-4px 0 8px;max-width:500px;">
@@ -488,11 +455,11 @@
       </div>
 
       <!-- Appears while a player on the pitch or bench is selected -->
-      <div id="squad-remove-bar"><button id="squad-remove-btn">Remove</button></div>
+      <div id="squad-remove-bar"><button id="squad-remove-btn" class="nes-btn is-error">Remove</button></div>
       <!-- Appears while a player picked from the list is armed for placement -->
       <div id="squad-place-hint">
         Tap a pitch or bench spot for <b id="squad-place-hint-name"></b>
-        <button id="squad-place-cancel-btn">Cancel</button>
+        <button id="squad-place-cancel-btn" class="nes-btn is-compact">Cancel</button>
       </div>
     </div>
 
@@ -512,15 +479,20 @@
           <option value="defensePower">Sort: Defense</option>
           <option value="keeperPower">Sort: Keeper</option>
         </select>
-        <button id="squad-whole-team-btn" class="pixel-btn is-small" disabled>Use whole team</button>
+        <button id="squad-whole-team-btn" class="nes-btn is-compact" disabled>Use whole team</button>
       </div>
       <div id="pick-count"></div>
       <div id="squad-pick-list"></div>
+      <div id="pick-pager" style="display:flex;gap:10px;align-items:center;justify-content:center;margin-top:10px;">
+        <button id="pick-prev-btn" class="nes-btn is-compact">◂ Prev</button>
+        <span id="pick-page-info" style="font-size:13px;"></span>
+        <button id="pick-next-btn" class="nes-btn is-compact">Next ▸</button>
+      </div>
     </div>
 
     <!-- Fixed confirm bar -->
     <div id="confirm-bar">
-      <button id="confirm-squad-btn" disabled>Confirm squad (0/11)</button>
+      <button id="confirm-squad-btn" class="nes-btn is-primary" disabled>Confirm squad (0/11)</button>
       <div id="squad-status"></div>
     </div>
   </div>
