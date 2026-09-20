@@ -97,8 +97,16 @@ const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 // couldn't get there with any urgency.
 const STEER_FORCE           = 0.00034;
 const AUTO_STEER_FORCE      = 0.00032;
-const BASE_MAX_SPEED        = 0.684; // was 0.72, -5% per user feedback that speed was still too high
-const AUTO_MAX_SPEED        = 0.627; // was 0.66, same -5%
+// was 0.684/0.627, +5% — recomputing every player's stats straight from
+// InazumaElevenAPI (see the roster/CHANGELOG history) dropped the average
+// `speed` stat specifically by ~5% (0.956 -> 0.911), since it's a 1:1 map
+// of the raw Agility stat rather than an average of two like the others,
+// so it took the recompute's own noise more directly. That made the whole
+// match feel a notch slower without anyone having asked for that — this
+// nudges the general cap back up to compensate, same lever as the earlier
+// -5% tuning pass below.
+const BASE_MAX_SPEED        = 0.718;
+const AUTO_MAX_SPEED        = 0.658;
 // A player following a drawn line sprints: draw somewhere and it's a
 // deliberate run, so they push harder and cap out faster than everyone
 // else — but only as much as their legs currently allow. The bonus scales
@@ -1452,11 +1460,18 @@ export default class GameScene extends Phaser.Scene {
     if(iHaveBall){
       const carrier=this._activeEntry(role);
       if(carrier){
+        // Anchored on this player's OWN formation spot (`base`), not the
+        // carrier's — a fixed carrier-relative offset put every supporter
+        // on the same side at the exact same point (everyone right of the
+        // carrier heading to identically carrier.x+130, say), bunching the
+        // whole side of the pitch into one spot instead of offering a
+        // spread of passing options. Nudging each player's own spot toward
+        // the carrier's lane keeps their natural spacing intact.
         const attackDir=role==='A'?-1:1;
-        const side=(e.body.position.x>=carrier.body.position.x)?1:-1;
+        const side=(base.x>=carrier.body.position.x)?1:-1;
         const supportSpot={
-          x:carrier.body.position.x+side*130,
-          y:carrier.body.position.y+attackDir*130
+          x:base.x+side*70,
+          y:Phaser.Math.Linear(base.y,carrier.body.position.y+attackDir*130,0.5)
         };
         target={
           x:Phaser.Math.Linear(base.x,supportSpot.x,SUPPORT_BLEND),
@@ -1964,14 +1979,19 @@ export default class GameScene extends Phaser.Scene {
   /** The offside line for `attackingRole`, in _distToGoal units: nearer to
    *  goal than this (and past halfway) is an offside position. Standard
    *  rule — nearer to goal than both the ball and the second-last
-   *  defender — so it's whichever of the two is more advanced. Null if
-   *  there aren't at least two eligible outfield defenders to judge by
-   *  (e.g. after red cards), in which case offside just doesn't apply. */
+   *  defender — so it's whichever of the two is more advanced. The
+   *  keeper counts as one of the defenders here (normally the actual
+   *  last one) — leaving them out would make dists[1] the *third*-last
+   *  defender instead of the second whenever the keeper is, as usual,
+   *  the deepest player, drawing the line a player too far forward and
+   *  flagging receivers who are actually onside. Null if there aren't
+   *  at least two eligible defenders to judge by (e.g. after red
+   *  cards), in which case offside just doesn't apply. */
   _offsideLineDist(attackingRole,ballY){
     const defendingRole=attackingRole==='A'?'B':'A';
     const defTeam=defendingRole==='A'?this.teamA:this.teamB;
     const dists=defTeam
-      .filter(e=>e.slot!==0&&e.body&&!this._isOut(defendingRole,e.id))
+      .filter(e=>e.body&&!this._isOut(defendingRole,e.id))
       .map(e=>this._distToGoal(e.body.position.y,attackingRole))
       .sort((a,b)=>a-b);
     if(dists.length<2) return null;
