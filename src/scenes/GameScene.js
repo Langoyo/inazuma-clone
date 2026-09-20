@@ -83,6 +83,7 @@ const BENCH_MAX         = 5;
 const BENCH_COVER       = ['GK','DF','MF','FW','MF']; // positions the auto-picked bench covers
 const HALF_S            = 3 * 60;
 const HALFTIME_PAUSE_MS = 3000; // how long play freezes for the half-time break
+const GOAL_PAUSE_MS     = 2500; // how long play freezes to show the goal banner
 const STATE_HZ          = 20;
 const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 
@@ -311,15 +312,10 @@ export default class GameScene extends Phaser.Scene {
     this.VP_H    = this.scale.height || VIEWPORT_H;
     this.scale.on('resize', gameSize=>this._onResize(gameSize));
 
-    const roomCode=getOrCreateRoomCode();
-    document.getElementById('room-code').textContent=roomCode;
-    this.net=connectToRoom(roomCode);
-    this.role=this.net.isHost()?'A':'B';
-    // isHost() at this exact instant is only a guess: the WebRTC handshake
-    // hasn't happened yet, so both browsers loading the page at once see
-    // "nobody else here" and both provisionally become 'A'. Once a peer
-    // actually connects, redo the (now-real) comparison.
-    this.net.onPeerConnect(()=>this._syncRoleFromNet());
+    this.roomCode=getOrCreateRoomCode();
+    document.getElementById('room-code').textContent=this.roomCode;
+    this.uiMode='solo'; // finalized once the mode-select panel resolves — see _applyUiMode
+    this._connectNet(this.roomCode);
 
     this._drawField();
     this.pathGfx=this.add.graphics();
@@ -362,9 +358,11 @@ export default class GameScene extends Phaser.Scene {
     this.formation={A:DEFAULT_FORMATION,B:DEFAULT_FORMATION};
     this.pendingFormChange=null;
 
-    this.matchClock={half:1,secondsRemaining:HALF_S,ended:false};
+    this.halfLengthS=HALF_S; // overridable via the squad editor's half-length select
+    this.matchClock={half:1,secondsRemaining:this.halfLengthS,ended:false};
     this._fullTimeShown=false; this._fullTimeTimer=null;
     this.possRole=null; this.currentPossession=null;
+    this.offsideFlag=null; // {role,ids} of a passer's teammates who were offside when the current pass was made
     this.duelLockUntil=0; this.confrontation=null;
     this.confrontResult=null;
     this._lastFxUntil=0;
@@ -434,14 +432,116 @@ export default class GameScene extends Phaser.Scene {
     }).catch(err=>{ document.getElementById('squad-pick-list').innerHTML=`<p style="color:#f88">Couldn't load roster.<br>${err.message}</p>`; });
 
     document.getElementById('confirm-squad-btn').addEventListener('click',()=>this._confirmSquad());
+    this.matter.world.on('collisionstart',ev=>this._collisions(ev));
+    this._initLandingAndModeFlow();
+    this._initInfoIcons();
+  }
 
-    // Networking
+  /** Every "ⓘ" icon in the app (static HTML, or injected later like the
+   *  team panel's) shares one delegated listener and one popup, keyed off
+   *  its own data-info-title/-body — so an explanation lives once, next to
+   *  whatever it explains, instead of as permanent text cluttering the
+   *  interface. */
+  _initInfoIcons(){
+    document.getElementById('info-modal-close').addEventListener('click',()=>this._hideInfo());
+    document.getElementById('info-modal').addEventListener('click',e=>{ if(e.target.id==='info-modal') this._hideInfo(); });
+    document.body.addEventListener('click',e=>{
+      const icon=e.target.closest('.info-icon'); if(!icon) return;
+      e.stopPropagation();
+      this._showInfo(icon.dataset.infoTitle||'Info',icon.dataset.infoBody||'');
+    });
+  }
+  _showInfo(title,body){
+    document.getElementById('info-modal-title').textContent=title;
+    document.getElementById('info-modal-body').textContent=body;
+    document.getElementById('info-modal').style.display='flex';
+  }
+  _hideInfo(){ document.getElementById('info-modal').style.display='none'; }
+
+  /** Connects (or reconnects, via _switchRoom) to a P2P room and wires up
+   *  every handler that depends on `this.net` — extracted so a manual room
+   *  switch (joining a friend's code instead of your own) can redo this
+   *  without duplicating it. */
+  _connectNet(code){
+    this.net=connectToRoom(code);
+    this.role=this.net.isHost()?'A':'B';
+    // isHost() at this exact instant is only a guess: the WebRTC handshake
+    // hasn't happened yet, so both browsers loading the page at once see
+    // "nobody else here" and both provisionally become 'A'. Once a peer
+    // actually connects, redo the (now-real) comparison.
+    this.net.onPeerConnect(()=>{
+      this._syncRoleFromNet();
+      // A squad confirmed before this exact moment was sent to whatever
+      // peers existed at the time — if that was zero (confirmed faster than
+      // the handshake completed), the message just went nowhere and nothing
+      // ever retried it, leaving the other side waiting forever even though
+      // both players had actually confirmed. Resending now that a peer
+      // definitely exists costs nothing and fixes that silently-dropped case.
+      if(this.mySquadConfirmed) this.net.sendSquad(this.mySquadPayload);
+    });
     this.remoteState=null;
     this.remoteInput={targets:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,repositionRequest:null,formationChange:null};
     this.net.onInput(d=>{ this.remoteInput=d; });
     this.net.onState(d=>this._incomingState(d));
     this.net.onSquad(d=>{ this.remoteSquadPayload=d; if(this.role==='A'&&this.mySquadConfirmed&&!this.matchStarted) this._startMatch(this.mySquadPayload,d); });
-    this.matter.world.on('collisionstart',ev=>this._collisions(ev));
+  }
+
+  /** Leaves the current room and joins a different one — used when the
+   *  player types a friend's code into the multiplayer join field instead
+   *  of sharing their own. Only ever called pre-match, from the mode
+   *  panel, so there's no in-progress game state to worry about losing. */
+  async _switchRoom(newCode){
+    try{ await this.net.room.leave(); }catch{}
+    const params=new URLSearchParams(window.location.search);
+    params.set('room',newCode);
+    window.history.replaceState({},'',`${window.location.pathname}?${params}`);
+    this.roomCode=newCode;
+    document.getElementById('room-code').textContent=newCode;
+    this._connectNet(newCode);
+  }
+
+  /** The very first thing a player sees: a title screen, then a choice
+   *  between solo-vs-AI and multiplayer (with room-code sharing/joining)
+   *  before the squad editor itself appears. */
+  _initLandingAndModeFlow(){
+    document.getElementById('landing-play-btn').addEventListener('click',()=>{
+      document.getElementById('landing-panel').style.display='none';
+      document.getElementById('mode-select-panel').style.display='flex';
+      document.getElementById('mode-own-code').textContent=this.roomCode;
+    });
+    document.getElementById('mode-solo-btn').addEventListener('click',()=>{
+      this.uiMode='solo';
+      this._applyUiMode();
+      document.getElementById('mode-select-panel').style.display='none';
+      document.getElementById('squad-editor-panel').style.display='flex';
+    });
+    document.getElementById('mode-multi-btn').addEventListener('click',()=>{
+      document.getElementById('mode-multi-panel').style.display='block';
+      document.getElementById('mode-own-code').textContent=this.roomCode;
+    });
+    document.getElementById('mode-copy-code-btn').addEventListener('click',async()=>{
+      const btn=document.getElementById('mode-copy-code-btn');
+      try{ await navigator.clipboard.writeText(this.roomCode); btn.textContent='✅ Copied'; }
+      catch{ btn.textContent='Copy failed'; }
+      setTimeout(()=>{ btn.textContent='📋 Copy'; },1500);
+    });
+    document.getElementById('mode-multi-start-btn').addEventListener('click',async()=>{
+      const code=document.getElementById('mode-join-input').value.trim().toUpperCase();
+      if(code&&code!==this.roomCode) await this._switchRoom(code);
+      this.uiMode='multiplayer';
+      this._applyUiMode();
+      document.getElementById('mode-select-panel').style.display='none';
+      document.getElementById('squad-editor-panel').style.display='flex';
+    });
+  }
+
+  /** A real opponent always picks their own squad, so the "Rival Team" tab
+   *  (only ever meaningful for the solo-vs-AI matchup) has no purpose in
+   *  multiplayer and would just be confusing to leave visible. */
+  _applyUiMode(){
+    const multi=this.uiMode==='multiplayer';
+    document.getElementById('squad-side-tabs').style.display=multi?'none':'flex';
+    if(multi&&this.editSide==='rival') this._setEditSide('me');
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -526,6 +626,16 @@ export default class GameScene extends Phaser.Scene {
     base.addEventListener('pointercancel',end);
   }
 
+  /** Reflects solo-vs-AI vs. a real connected opponent in the top-right
+   *  badge — visible from the squad editor onward, not just in-match, so a
+   *  peer actually connecting (or dropping) is never silent. */
+  _updateModeBadge(){
+    const badge=document.getElementById('mode-badge');
+    const multi=this.net.hasPeer();
+    badge.textContent=multi?'👥 Multiplayer':'🤖 Solo (vs AI)';
+    badge.classList.toggle('is-multi',multi);
+  }
+
   /** Re-derives which side we are from the network layer's now-current
    *  view of who's connected. Only matters before kickoff — role has to
    *  stay fixed for the length of a match, and by kickoff a real peer has
@@ -547,6 +657,17 @@ export default class GameScene extends Phaser.Scene {
     const cam=this.cameras.main;
     cam.scrollX=Phaser.Math.Clamp(cam.scrollX,0,Math.max(0,this.FIELD_W-this.VP_W));
     cam.scrollY=Phaser.Math.Clamp(cam.scrollY,this.WORLD_Y_MIN,Math.max(this.WORLD_Y_MIN,this.WORLD_Y_MAX-this.VP_H));
+  }
+
+  /** Smoothly pans the camera back to the centre of the pitch — used after a
+   *  goal, since the ball (and wherever the camera had scrolled to follow
+   *  it) could be anywhere near either goal line when it goes in, well off
+   *  from the centre-spot restart everyone lines up for next. */
+  _centerCameraOnField(durationMs=700){
+    const cam=this.cameras.main;
+    const targetX=Phaser.Math.Clamp(this.FIELD_W/2-this.VP_W/2,0,Math.max(0,this.FIELD_W-this.VP_W));
+    const targetY=Phaser.Math.Clamp(this.FIELD_H/2-this.VP_H/2,this.WORLD_Y_MIN,Math.max(this.WORLD_Y_MIN,this.WORLD_Y_MAX-this.VP_H));
+    this.tweens.add({targets:cam,scrollX:targetX,scrollY:targetY,duration:durationMs,ease:'Cubic.Out'});
   }
 
   _tickScroll(delta){
@@ -599,6 +720,13 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
     document.getElementById('squad-place-cancel-btn').addEventListener('click',()=>{ this._squadSel=null; this._renderPitch(); this._renderPickList(); });
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
+    document.getElementById('half-length-select').addEventListener('change',e=>{
+      this.halfLengthS=parseInt(e.target.value,10)*60;
+      // Nothing's ticking yet at this point (still in the squad editor), so
+      // it's safe to just overwrite the clock the match will start with.
+      this.matchClock.secondsRemaining=this.halfLengthS;
+      this._renderClock(this.matchClock);
+    });
     document.querySelectorAll('#squad-side-tabs .squad-side-tab').forEach(btn=>btn.addEventListener('click',()=>this._setEditSide(btn.dataset.side)));
     document.querySelectorAll('.view-tab').forEach(btn=>btn.addEventListener('click',()=>this._toggleSquadSection(btn.dataset.view)));
     document.getElementById('squad-save-btn').addEventListener('click',()=>this._saveSquad());
@@ -697,7 +825,6 @@ export default class GameScene extends Phaser.Scene {
     // .squad-side-tab class but have no data-side, so an unscoped query
     // would spuriously touch their own is-warning state too.
     document.querySelectorAll('#squad-side-tabs .squad-side-tab').forEach(b=>b.classList.toggle('is-primary',b.dataset.side===side));
-    document.getElementById('rival-tab-note').style.display=side==='rival'?'block':'none';
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
@@ -766,16 +893,28 @@ export default class GameScene extends Phaser.Scene {
       pitch.appendChild(pin);
     });
     const strip=document.getElementById('bench-strip'); strip.innerHTML='';
-    [...this._edBench()].forEach(pid=>{
-      const p=getPlayerById(pid); if(!p) return;
-      const pin=document.createElement('div'); pin.className='bench-pin'; pin.dataset.benchId=pid;
-      const col=this._css3(this._rosterColor(p));
-      pin.innerHTML=`<div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>`
-        +this._posBadge(p.position)+this._ratingBadge(p)+`<div class="pin-name">${p.nickname||p.name}</div>`;
-      if(sel&&sel.type==='bench'&&sel.id===pid) pin.classList.add('selected');
-      pin.addEventListener('click',()=>this._onSquadPinClick({type:'bench',id:pid}));
+    const benchIds=[...this._edBench()];
+    // Always show all BENCH_MAX spots, empty ones included — otherwise the
+    // bench is just an empty label until you've already put someone on it,
+    // giving no hint there's a 5-spot bench to fill at all (unlike the
+    // pitch, whose empty slots always show up front).
+    for(let i=0;i<BENCH_MAX;i++){
+      const pid=benchIds[i];
+      const p=pid?getPlayerById(pid):null;
+      const pin=document.createElement('div'); pin.className='bench-pin';
+      if(p){
+        pin.dataset.benchId=pid;
+        const col=this._css3(this._rosterColor(p));
+        pin.innerHTML=`<div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>`
+          +this._posBadge(p.position)+this._ratingBadge(p)+`<div class="pin-name">${p.nickname||p.name}</div>`;
+        if(sel&&sel.type==='bench'&&sel.id===pid) pin.classList.add('selected');
+        pin.addEventListener('click',()=>this._onSquadPinClick({type:'bench',id:pid}));
+      } else {
+        pin.classList.add('empty');
+        pin.innerHTML=`<div style="font-size:9px;opacity:.55">Bench</div>`;
+      }
       strip.appendChild(pin);
-    });
+    }
     document.getElementById('bench-count').textContent=this._edBench().size;
     // The counter/button reflect the side on screen, but starting the match
     // only ever needs YOUR OWN squad complete — the rival tops itself off
@@ -1372,7 +1511,6 @@ export default class GameScene extends Phaser.Scene {
   }
   _renderSubPanel(){
     this._renderFormationPresets();
-    document.getElementById('sub-panel-title').textContent='Tap two pitch players to swap positions, or a pitch player then a bench one to substitute';
     const st=document.getElementById('sub-panel-state');
     if(st){
       st.textContent=this.paused?'⏸ Match paused — make as many changes as you like, then close'
@@ -1668,12 +1806,64 @@ export default class GameScene extends Phaser.Scene {
     const e=this._activeEntry(role); if(!e?.body) return;
     const dx=target.x-e.body.position.x, dy=target.y-e.body.position.y, dist=Math.hypot(dx,dy)||1;
     this.possRole=null;
+    // Offside is judged the instant the ball is played, not when it's
+    // received — snapshot which of the passer's teammates are already
+    // beyond the line right now. If the ball is next controlled by one of
+    // them before anyone else touches it, _collisions flags the pass.
+    this.offsideFlag=this._flagOffsideReceivers(role,e);
     // Weight the pass to the distance: friction eats speed/BALL_FRICTION_AIR
     // worth of travel, so aim for a touch beyond the target rather than
     // kicking every ball the same and leaving long ones short.
     const speed=Phaser.Math.Clamp(dist*BALL_FRICTION_AIR*PASS_REACH_BOOST,PASS_MIN_SPEED,PASS_MAX_SPEED);
     this.matter.body.setVelocity(this.ball,{x:(dx/dist)*speed,y:(dy/dist)*speed});
     this._startPassFlight({x:this.ball.position.x,y:this.ball.position.y},dist);
+  }
+
+  // ── Offside ────────────────────────────────────────────────────────────
+  /** Y-distance from `y` to the goal `attackingRole` is attacking — smaller
+   *  is more advanced. Lets every offside comparison stay role-agnostic. */
+  _distToGoal(y,attackingRole){ return attackingRole==='A'?y:(this.FIELD_H-y); }
+
+  /** The offside line for `attackingRole`, in _distToGoal units: nearer to
+   *  goal than this (and past halfway) is an offside position. Standard
+   *  rule — nearer to goal than both the ball and the second-last
+   *  defender — so it's whichever of the two is more advanced. Null if
+   *  there aren't at least two eligible outfield defenders to judge by
+   *  (e.g. after red cards), in which case offside just doesn't apply. */
+  _offsideLineDist(attackingRole,ballY){
+    const defendingRole=attackingRole==='A'?'B':'A';
+    const defTeam=defendingRole==='A'?this.teamA:this.teamB;
+    const dists=defTeam
+      .filter(e=>e.slot!==0&&e.body&&!this._isOut(defendingRole,e.id))
+      .map(e=>this._distToGoal(e.body.position.y,attackingRole))
+      .sort((a,b)=>a-b);
+    if(dists.length<2) return null;
+    return Math.min(dists[1],this._distToGoal(ballY,attackingRole));
+  }
+  _isOffsidePosition(y,attackingRole,lineDist){
+    const d=this._distToGoal(y,attackingRole);
+    return d<this.FIELD_H/2&&d<lineDist;
+  }
+  /** Every one of `passer`'s teammates (other than the passer) who's in an
+   *  offside position right as the pass is played. */
+  _flagOffsideReceivers(role,passer){
+    const lineDist=this._offsideLineDist(role,passer.body.position.y);
+    if(lineDist==null) return null;
+    const team=role==='A'?this.teamA:this.teamB;
+    const ids=new Set();
+    team.forEach(e=>{
+      if(e.id===passer.id||e.slot===0||!e.body||this._isOut(role,e.id)) return;
+      if(this._isOffsidePosition(e.body.position.y,role,lineDist)) ids.add(e.id);
+    });
+    return ids.size?{role,ids}:null;
+  }
+  /** Indirect free kick to the defending side from roughly where the
+   *  offside player picked the ball up. */
+  _commitOffside(offsideRole,now){
+    const defendingRole=offsideRole==='A'?'B':'A';
+    const spot={x:this.ball.position.x,y:this.ball.position.y};
+    this._placeBallAndAward(defendingRole,spot,now);
+    this.confrontResult={title:'🚩 Offside!',outcome:'',until:now+RESULT_MS,outcomeAt:now+RESULT_DELAY_MS};
   }
 
   /** Lifts the ball for the first PASS_LOFT_FRAC of a pass: while it's up
@@ -1688,6 +1878,12 @@ export default class GameScene extends Phaser.Scene {
     if(!this.ballFlight) return;
     this.ballFlight=null;
     this.ball.collisionFilter.mask=CAT_PLAYER|CAT_GOAL;
+    // The pass this flag was watching for is over, one way or another —
+    // if it fizzled out with nobody touching it (rolled to a stop, or was
+    // otherwise moved/reset outside the normal catch path), the flag would
+    // otherwise sit there and could wrongly fire on a much later, unrelated
+    // touch by the same player.
+    this.offsideFlag=null;
   }
   _updatePassFlight(){
     const f=this.ballFlight; if(!f) return;
@@ -1758,6 +1954,12 @@ export default class GameScene extends Phaser.Scene {
       const other=bodies.find(b=>b.label!=='ball');
       const owner=other&&this.bodyOwner.get(other);
       if(owner){
+        if(this.offsideFlag&&owner.role===this.offsideFlag.role&&this.offsideFlag.ids.has(owner.id)&&!this.confrontation){
+          this._commitOffside(owner.role,this.time.now);
+          this.offsideFlag=null;
+          continue; // don't also count this as a normal touch or a goal-sensor hit
+        }
+        this.offsideFlag=null; // any other touch means the danger window has passed
         this.lastTouch=owner;
         if(!this.possRole&&!this.confrontation) this.possRole=owner.role;
       }
@@ -1883,6 +2085,18 @@ export default class GameScene extends Phaser.Scene {
     stats.sp-=tech.cost;
     return tech;
   }
+  /** The label for choosing (or having chosen) no supertechnique, specific
+   *  to what kind of confrontation and which side of it this is — shared
+   *  between the live choice button and the after-the-fact VS reveal, so
+   *  the two never disagree on what "normal" meant here. */
+  _normalActionLabel(type,isAttacker){
+    if(type==='duel') return isAttacker?'Normal dribble':'Normal tackle';
+    // A block only stops anything with a supertechnique (see
+    // _prepareConfrontReveal) — "normal" there just means the defender
+    // deliberately does nothing, e.g. to save the PT for later.
+    if(type==='block') return isAttacker?'Shoot anyway':'Let it through';
+    return isAttacker?'Normal shot':'Normal save'; // type==='shot'
+  }
   _statsFor(role,id){ return (role==='A'?this.statsMapA:this.statsMapB).get(id); }
 
   _entryById(role,id){ const team=role==='A'?this.teamA:this.teamB; return team.find(t=>t.id===id)||null; }
@@ -1926,7 +2140,7 @@ export default class GameScene extends Phaser.Scene {
     };
     c.pending={aWins,aTN,dTN,fx,aName:as.name,dName:ds.name,aTech};
     c.reveal={
-      until:now+DUEL_REVEAL_MS, litAt:now+DUEL_REVEAL_LIT_MS,
+      until:now+DUEL_REVEAL_MS, litAt:now+DUEL_REVEAL_LIT_MS, type:c.type,
       a:{name:as.name,move:aTN,winner:aWins,element:as.element,edge:elEdge>0},
       d:{name:ds.name,move:dTN,winner:!aWins,element:ds.element,edge:elEdge<0}
     };
@@ -1987,7 +2201,9 @@ export default class GameScene extends Phaser.Scene {
       title=`${dName} blocks the shot!`;
     } else if(aWins){
       this._onGoal(c.attackerRole==='A'?'a':'b');
-      title=`⚽ GOAL! ${aName} scores!`;
+      // this.score was just updated by _onGoal, so it already reflects
+      // this goal — the banner shows the result, not just who scored.
+      title=`⚽ GOAL! ${aName} scores! (${this.score.a} - ${this.score.b})`;
     } else {
       // The keeper (defenderId here, not necessarily whoever was "active"
       // before the shot) made the save — the ball, and possession, are
@@ -2007,6 +2223,19 @@ export default class GameScene extends Phaser.Scene {
     // rather than leaving possession unclaimed for whoever's body happens
     // to reach the centre spot first.
     this._kickoff(scorer==='a'?'B':'A');
+    // Freeze the celebration for a beat — the goal banner (set by the
+    // caller right after this returns) would otherwise flash by while play
+    // has already moved on to the restart. Host-only: the client sees the
+    // same effect for free, since a paused host simply stops sending fresh
+    // state for its client to interpolate toward (see _hostUpdate).
+    this._setPaused(true);
+    this.time.delayedCall(GOAL_PAUSE_MS,()=>{
+      this._setPaused(false);
+      // Clear the banner right as play resumes, same reasoning as the
+      // half-time transition: left alone, _setPaused's own _shiftTimers
+      // would push its expiry back by the exact length of this pause.
+      this.confrontResult=null;
+    });
   }
 
   /** Centre-spot restart for `role`: possession is theirs, both sides line up
@@ -2099,6 +2328,7 @@ export default class GameScene extends Phaser.Scene {
    *  (their keeper if `preferGk`, otherwise whoever's nearest) to take it. */
   _placeBallAndAward(awardedRole,spot,now,{preferGk=false}={}){
     this._endPassFlight();
+    this.offsideFlag=null; // any dead-ball restart clears whatever pass was in flight
     this.matter.body.setPosition(this.ball,spot);
     this.matter.body.setVelocity(this.ball,{x:0,y:0});
     const team=awardedRole==='A'?this.teamA:this.teamB;
@@ -2159,7 +2389,7 @@ export default class GameScene extends Phaser.Scene {
     this.matchClock.secondsRemaining-=delta/1000;
     if(this.matchClock.secondsRemaining<=0){
       if(this.matchClock.half===1){
-        this.matchClock.half=2; this.matchClock.secondsRemaining=HALF_S;
+        this.matchClock.half=2; this.matchClock.secondsRemaining=this.halfLengthS;
         // Whoever didn't start the match gets the second half, as in a real
         // one. Line everyone up for it and show the break, then actually
         // freeze play for a beat instead of snapping straight into the
@@ -2219,6 +2449,7 @@ export default class GameScene extends Phaser.Scene {
   // Main loop
   // ════════════════════════════════════════════════════════════════════
   update(time,delta){
+    this._updateModeBadge();
     const amHost=this.role==='A';
     if(!amHost&&this.matchStarted&&!this.clientTeamsBuilt) this._buildClientTeams();
     if(this.matchStarted) this._tickScroll(delta);
@@ -2251,7 +2482,6 @@ export default class GameScene extends Phaser.Scene {
 
   _hostUpdate(now,delta,myInput){
     const aiActive=!this.net.hasPeer();
-    document.getElementById('ai-badge').style.display=aiActive?'block':'none';
     let inputB=this.remoteInput;
     if(aiActive){
       const eB=this._activeEntry('B');
@@ -2455,6 +2685,11 @@ export default class GameScene extends Phaser.Scene {
       if(result.until!==this._lastFxUntil){
         this._lastFxUntil=result.until;
         if(result.fx){ this._playTechniqueFx(result.fx.a); this._playTechniqueFx(result.fx.d); }
+        // Bring the restart into view — the ball could've gone in near
+        // either goal line, off-screen from wherever the camera had
+        // scrolled to follow play. Runs identically on host and client
+        // since each has its own local camera to recentre.
+        if(result.title&&result.title.startsWith('⚽ GOAL!')) this._centerCameraOnField();
       }
       document.getElementById('result-title').textContent=result.title||'';
       const out=document.getElementById('result-outcome');
@@ -2486,7 +2721,7 @@ export default class GameScene extends Phaser.Scene {
       // rather than as a coin flip.
       const el=d.element?`<span class="duel-el${d.edge?' edge':''}">${ELEMENT_ICON[d.element]||''} ${d.element}${d.edge?' ▲':''}</span>`:'';
       card.querySelector('.duel-who').innerHTML=`${d.name}${el}`;
-      card.querySelector('.duel-move').textContent=d.move==='Normal'?'Normal action':d.move;
+      card.querySelector('.duel-move').textContent=d.move==='Normal'?this._normalActionLabel(rv.type,pre==='a'):d.move;
       card.classList.toggle('winner',lit&&d.winner);
       card.classList.toggle('loser',lit&&!d.winner);
     };
@@ -2528,9 +2763,7 @@ export default class GameScene extends Phaser.Scene {
     // deliberately does nothing, e.g. to save the PT for later.
     const normalBtn=document.getElementById('conf-normal');
     normalBtn.style.display='block';
-    normalBtn.textContent=isDuel?(amA?'Normal dribble':'Normal tackle')
-      :isBlock?(amA?'Shoot anyway':"Let it through")
-      :(amA?'Normal shot':'Normal save');
+    normalBtn.textContent=this._normalActionLabel(confrontation.type,amA);
     const myChoice=amA?confrontation.attackerChoice:confrontation.defenderChoice;
     const myChoiceIsTech=myChoice&&typeof myChoice==='object'&&typeof myChoice.tech==='number';
     normalBtn.classList.toggle('is-primary',myChoice==='normal');
@@ -2554,7 +2787,8 @@ export default class GameScene extends Phaser.Scene {
     techs.forEach((tech,idx)=>{
       const btn=document.createElement('button');
       btn.className='conf-btn nes-btn'; btn.dataset.idx=idx;
-      btn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`;
+      const elBadge=stats?.element?this._elBadge(stats.element):'';
+      btn.innerHTML=`${elBadge}${tech.name}<span class="cost">${tech.cost} PT</span>`;
       btn.disabled=!stats||stats.sp<tech.cost;
       if(myChoiceIsTech&&myChoice.tech===idx) btn.classList.add('is-primary');
       techWrap.appendChild(btn);

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>Inazuma Clone</title>
+  <title>Inazuma Showdown</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Pixelify+Sans:wght@400..700&family=Jersey+10&display=swap">
   <style>
@@ -70,17 +70,18 @@
        let pointer events through — otherwise tapping to pass silently does
        nothing over the scoreboard, the PT bar or the result banner (and the
        scoreboard sits right in front of the goal you attack). */
-    #room-ui, #ai-badge, #scoreboard, #sp-bar-wrap, #confrontation-result,
+    #room-ui, #mode-badge, #scoreboard, #sp-bar-wrap, #confrontation-result,
     #confrontation-ui, #confrontation-title, #confrontation-player-info,
     #confrontation-timer-wrap { pointer-events: none; }
     .conf-btn { pointer-events: auto; }
 
-    #room-ui, #ai-badge {
+    #room-ui, #mode-badge {
       position: fixed; top: 8px; z-index: 10; font-size: 13px;
       background: var(--panel); padding: 5px 10px; border: 3px solid #000;
     }
     #room-ui { left: 8px; }
-    #ai-badge { right: 8px; display: none; background: var(--gold); color: #1b1b1b; font-weight: bold; }
+    #mode-badge { right: 8px; background: var(--gold); color: #1b1b1b; font-weight: bold; }
+    #mode-badge.is-multi { background: var(--blue); color: #fff; }
     #scoreboard {
       position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 10;
       background: var(--panel); padding: 6px 18px; border: 3px solid #000; text-align: center;
@@ -171,6 +172,27 @@
       overflow-y: auto; padding: 14px 14px 80px;
     }
     .panel-overlay h2 { font-size: 13px; line-height: 1.6; margin: 6px 0 14px; text-align: center; text-wrap: balance; }
+    #landing-logo { font-size: 64px; margin-bottom: 8px; line-height: 1; }
+
+    /* ---- info icons: a small "ⓘ" that pops an explanation instead of the
+       interface carrying the explanatory text inline all the time */
+    .info-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto;
+      background: var(--panel-2); border: 2px solid #000; font-size: 11px;
+      font-weight: bold; cursor: pointer; vertical-align: middle; margin-left: 4px;
+      color: var(--white);
+    }
+    #info-modal {
+      position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.65);
+      display: none; align-items: center; justify-content: center; padding: 16px;
+    }
+    #info-modal .info-card {
+      background: var(--panel); border: 4px solid #000; padding: 18px;
+      max-width: 380px; max-height: 80vh; overflow-y: auto;
+    }
+    #info-modal .info-card h2 { margin: 0 0 10px; font-size: 14px; text-align: left; }
+    #info-modal .info-card p { font-size: 12px; line-height: 1.6; margin: 0 0 14px; }
     .panel-close {
       position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
       z-index: 31; padding: 10px 28px; font-size: 15px;
@@ -329,7 +351,16 @@
 <body>
   <div id="room-ui">Room: <span id="room-code">-</span></div>
   <div id="scoreboard"><div class="score">0 - 0</div><div class="clock" id="match-clock">1st half — 3:00</div></div>
-  <div id="ai-badge">Playing vs AI</div>
+  <div id="mode-badge">🤖 Solo (vs AI)</div>
+
+  <!-- Explanation popup for every "ⓘ" icon in the app — see GameScene._initInfoIcons -->
+  <div id="info-modal">
+    <div class="info-card">
+      <h2 id="info-modal-title"></h2>
+      <p id="info-modal-body"></p>
+      <button id="info-modal-close" class="nes-btn is-primary" style="display:block;margin:0 auto;">Got it</button>
+    </div>
+  </div>
   <div id="game-container"></div>
   <div id="sp-bar-wrap">PT: <span id="sp-value">100/100</span> &nbsp;·&nbsp; STA: <span id="stamina-value">100%</span></div>
 
@@ -366,7 +397,7 @@
   <div id="sub-panel" class="panel-overlay">
     <h2 style="margin-bottom:8px;">Formation</h2>
     <div class="preset-btns" id="formation-preset-btns"></div>
-    <h2 id="sub-panel-title">Tap two pitch players to swap positions, or a pitch player then a bench one to substitute</h2>
+    <h2 id="sub-panel-title">Squad <span class="info-icon" data-info-title="Team panel" data-info-body="Tap two pitch players to swap positions, or a pitch player then a bench one to substitute them.">ⓘ</span></h2>
     <div id="sub-panel-state"></div>
     <div id="sub-list-inner"></div>
     <button class="panel-close nes-btn" id="sub-cancel-btn">Close panel</button>
@@ -381,23 +412,55 @@
     <div id="fulltime-countdown"></div>
   </div>
 
-  <!-- ===================== SQUAD EDITOR (team select) ===================== -->
-  <div id="squad-editor-panel" class="panel-overlay" style="display:flex;">
-
-    <h2 style="margin-bottom:4px;">Build your squad</h2>
-    <p style="font-size:11px; opacity:0.75; margin:0 0 10px; text-align:center; max-width:500px;">
-      Tap a player from the list, then tap a pitch or bench spot to place them there — works on an occupied spot too, and bumps whoever was there to the bench (or drops them if the bench is full). Tap two pitch/bench players to swap them instead. Tap the same player twice to see their stats. Bench (up to 5) shown below the pitch.
+  <!-- ===================== LANDING ===================== -->
+  <div id="landing-panel" class="panel-overlay" style="display:flex;justify-content:center;text-align:center;">
+    <!-- Text placeholder for now — swap for an <img> once there's a real logo. -->
+    <div id="landing-logo">🏆</div>
+    <h1 id="landing-title" style="font-size:22px;line-height:1.5;margin-bottom:10px;">Inazuma Showdown</h1>
+    <p style="font-size:12px;opacity:0.75;max-width:380px;margin-bottom:26px;">
+      A real-time football game, controlled with the pointer — play solo against the AI, or head-to-head with a friend over the internet.
     </p>
+    <button id="landing-play-btn" class="nes-btn is-primary" style="font-size:16px;padding:12px 34px;">▶ Play</button>
+  </div>
+
+  <!-- ===================== MODE SELECT ===================== -->
+  <div id="mode-select-panel" class="panel-overlay" style="justify-content:center;text-align:center;">
+    <h2 style="font-size:15px;">How do you want to play?</h2>
+    <div style="display:flex;gap:12px;margin-bottom:22px;flex-wrap:wrap;justify-content:center;">
+      <button id="mode-solo-btn" class="nes-btn is-primary">🤖 Solo (vs AI)</button>
+      <button id="mode-multi-btn" class="nes-btn is-warning">👥 Multiplayer</button>
+    </div>
+    <div id="mode-multi-panel" style="display:none;max-width:380px;">
+      <p style="font-size:11px;opacity:0.75;margin-bottom:14px;">
+        Share your code with the other player, or enter theirs below to join their room instead.
+      </p>
+      <div style="margin-bottom:16px;">
+        <div style="font-size:12px;margin-bottom:4px;">Your code:</div>
+        <div style="display:flex;gap:6px;justify-content:center;align-items:center;">
+          <span id="mode-own-code" style="font-family:'Jersey 10','Press Start 2P',monospace;font-size:20px;letter-spacing:3px;background:var(--panel-2);border:3px solid #000;padding:6px 14px;">-</span>
+          <button id="mode-copy-code-btn" class="nes-btn is-compact" type="button">📋 Copy</button>
+        </div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:12px;display:block;margin-bottom:4px;">Join a code:</label>
+        <input id="mode-join-input" class="pixel-select" style="text-transform:uppercase;width:140px;text-align:center;" maxlength="8" placeholder="e.g. AB12C">
+      </div>
+      <button id="mode-multi-start-btn" class="nes-btn is-primary">Continue ▶</button>
+    </div>
+  </div>
+
+  <!-- ===================== SQUAD EDITOR (team select) ===================== -->
+  <div id="squad-editor-panel" class="panel-overlay">
+
+    <h2 style="margin-bottom:10px;">Build your squad <span class="info-icon" data-info-title="Building your squad" data-info-body="Tap a player from the list, then tap a pitch or bench spot to place them there — works on an occupied spot too, and bumps whoever was there to the bench (or drops them if the bench is full). Tap two pitch/bench players to swap them instead. Tap the same player twice to see their stats. Bench holds up to 5.">ⓘ</span></h2>
 
     <!-- Switch between editing your own squad and the rival's (solo vs AI only —
          a real connected opponent always picks their own team regardless). -->
     <div id="squad-side-tabs">
       <button class="squad-side-tab nes-btn is-primary" data-side="me">Your Team</button>
       <button class="squad-side-tab nes-btn" data-side="rival">Rival Team</button>
+      <span class="info-icon" data-info-title="Rival team" data-info-body="Only used if you end up playing solo against the AI — comes pre-filled at random, tweak it or leave it as is. A real connected opponent always picks their own team instead.">ⓘ</span>
     </div>
-    <p id="rival-tab-note" style="display:none;font-size:11px;opacity:0.7;margin:-4px 0 10px;text-align:center;max-width:500px;">
-      Only used if you end up playing solo against the AI — comes pre-filled at random, tweak it or leave it as is.
-    </p>
 
     <!-- Formation pitch/bench and the searchable player list are shown together
          by default so you can tap a player in the list, then tap straight onto
@@ -434,6 +497,18 @@
         <span id="squad-save-status"></span>
       </div>
 
+      <!-- Half length (host's choice — the client mirrors whatever the host is running) -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+        <label style="font-size:12px;">Half length:</label>
+        <select id="half-length-select" class="pixel-select">
+          <option value="2">2 min</option>
+          <option value="3" selected>3 min</option>
+          <option value="5">5 min</option>
+          <option value="7">7 min</option>
+          <option value="10">10 min</option>
+        </select>
+      </div>
+
       <!-- AI difficulty (only applies when playing alone against the AI) -->
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <label style="font-size:12px;">AI difficulty:</label>
@@ -443,11 +518,8 @@
           <option value="hard">Hard</option>
           <option value="expert">Expert</option>
         </select>
+        <span class="info-icon" data-info-title="AI difficulty" data-info-body="Every level plays at least as sharply as the old &quot;Hard&quot; used to. Above Easy, the AI's side also gets its combat stats inflated (and half of that on movement).">ⓘ</span>
       </div>
-      <p style="font-size:11px;opacity:0.7;margin:-4px 0 8px;max-width:500px;">
-        Every level now plays at least as sharply as the old "Hard". Above Easy the AI's
-        side also gets its combat stats inflated (and half of that on movement).
-      </p>
 
       <div id="formation-pitch">
         <div class="pitch-line-h"></div>
