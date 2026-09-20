@@ -863,12 +863,21 @@ La interfaz (marcador, botones, paneles, chips) tenía ese aire genérico de
 tipografía por defecto. Ahora usa **nes.css** (la librería real, instalada
 por npm, no una imitación) con dos fuentes retro por encima:
 
-- **Press Start 2P** solo en titulares y marcador — es un tipo de letra de
-  8 bits que se vuelve ilegible por debajo de ~11px, así que reservarlo
-  para lo grande es lo que lo hace funcionar.
-- **VT323** para todo lo demás — botones, nombres de jugador, chips —
-  porque es una fuente de terminal retro que sigue leyéndose bien en
-  tamaños normales de interfaz, a diferencia de Press Start 2P.
+- **Press Start 2P** solo en titulares — es un tipo de letra de 8 bits que
+  se vuelve ilegible por debajo de ~11px, así que reservarlo para lo
+  grande es lo que lo hace funcionar.
+- **Pixelify Sans** para todo lo demás — botones, nombres de jugador,
+  chips — una fuente con carácter pixel-art pero pensada para seguir
+  leyéndose bien en tamaños normales de interfaz.
+- **Jersey 10** solo en el marcador (partido y pantalla de final) — un
+  tipo de letra de numerales de marcador deportivo, que le sienta mejor a
+  un "0 - 0" que cualquiera de las otras dos.
+
+(Al principio usé VT323 en vez de Pixelify Sans/Jersey 10 — una fuente de
+terminal retro, no de pixel-art de verdad. La [página de tendencias de
+daisyUI sobre estilo pixel-art](https://trends.daisyui.com/trend/pixel-art/)
+señala justo esas tres tipografías como las adecuadas para este estilo,
+así que se cambió.)
 
 Cada botón/panel comparte la misma técnica de esquina recortada en píxel
 (un `border-image` diminuto repetido, la misma que usa nes.css) y una

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Inazuma Clone</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Pixelify+Sans:wght@400..700&family=Jersey+10&display=swap">
   <style>
 
     *, *::before, *::after { box-sizing: border-box; }
@@ -29,7 +29,7 @@
        cascade) and win ties on plain-element selectors. !important here is
        deliberately pinning our base look against that, not a workaround. */
     html, body, code, kbd, pre, samp {
-      font-family: 'VT323', 'Courier New', monospace !important;
+      font-family: 'Pixelify Sans', 'Courier New', sans-serif !important;
       color: var(--white) !important;
     }
     html, body {
@@ -117,7 +117,7 @@
       position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 10;
       background: var(--panel); padding: 6px 18px; border: 3px solid #000; text-align: center;
     }
-    #scoreboard .score { font-family: 'Press Start 2P',monospace; font-size: 16px; letter-spacing: 1px; }
+    #scoreboard .score { font-family: 'Jersey 10','Press Start 2P',monospace; font-size: 26px; letter-spacing: 2px; }
     #scoreboard .clock  { font-size: 13px; opacity: 0.85; margin-top: 3px; }
     #sp-bar-wrap {
       position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
@@ -345,7 +345,7 @@
       padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 4px;
     }
     /* ---- full-time screen */
-    #fulltime-score    { font-family: 'Press Start 2P',monospace; font-size: 32px; margin: 10px 0 12px; }
+    #fulltime-score    { font-family: 'Jersey 10','Press Start 2P',monospace; font-size: 52px; margin: 10px 0 12px; }
     #fulltime-verdict  { font-size: 17px; color: var(--gold); margin-bottom: 20px; }
     #fulltime-menu-btn { padding: 12px 26px; font-size: 15px; }
     #fulltime-countdown { font-size: 13px; opacity: 0.8; margin-top: 12px; }
