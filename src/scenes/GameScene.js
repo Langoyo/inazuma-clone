@@ -19,7 +19,7 @@ const GOAL_CLICK_MARGIN = 80;
 // instead of jammed under the scoreboard or the PT bar. GOAL_DEPTH is how far
 // the goal box reaches back — a box is a far easier tap target than a line.
 const GOAL_RUNOFF       = 170;
-const GOAL_DEPTH        = 150;
+const GOAL_DEPTH        = 90;
 // How long the full-time screen stays up before it drops back to the menu.
 const FULLTIME_MENU_MS  = 9000;
 const WAYPOINT_RADIUS   = 20;
