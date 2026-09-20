@@ -1258,3 +1258,13 @@ Verified against the full Playwright suite (42/42 passing) — updated
 the existing "club players" regression test to check pool membership
 against `_topPercentileByPosition` instead of the now-meaningless
 "has a team" condition.
+
+## Supertechniques now show their category in the player-info panel
+
+The panel's "Supertechniques" list just showed names and PT cost
+("Gigaton Head — 24 PT"), with no way to tell from that list alone
+whether a move was a shot, dribble, defense or keeper technique. Each
+line now leads with the same icon the stat grid above it already uses
+for that category (⚡ shot, 💨 dribble, 🛡 defense, 🧤 keeper —
+`TECH_CAT_ICON`), so it reads at a glance instead of requiring you to
+already know the move by name.
