@@ -146,6 +146,9 @@ const KEEPER_CHASE_RANGE = 130;
 const ELEMENT_BEATS = { Fire:'Wood', Wood:'Air', Air:'Earth', Earth:'Fire' };
 const ELEMENT_EDGE  = 1.15; // power multiplier for the favourable side
 const ELEMENT_ICON  = { Fire:'🔥', Wood:'🌿', Air:'💨', Earth:'⚡' };
+// Same icons the stat grid uses for shotPower/dribblePower/defensePower/
+// keeperPower, reused here so a technique's category reads at a glance.
+const TECH_CAT_ICON = { shot:'⚡', dribble:'💨', defense:'🛡', keeper:'🧤' };
 
 // AI difficulty (solo-vs-AI only). The whole ladder used to top out about
 // where "easy" now starts — the old hard is this easy, and every level above
@@ -1040,8 +1043,10 @@ export default class GameScene extends Phaser.Scene {
     const col=this._css3(this._rosterColor(p));
     // All of a category's techniques, not just the one active in combat —
     // a player with two of the same kind can use either (see techniquesFor).
-    const techs=['shot','dribble','defense','keeper'].flatMap(cat=>techniquesFor(p,cat))
-      .map(t=>`<div style="display:flex;justify-content:space-between;gap:8px"><span>${t.name}</span><span style="opacity:.7">${t.cost} PT</span></div>`).join('');
+    // Tagged with the same icon as its stat above so it's clear at a
+    // glance whether a move is a shot, dribble, defense or keeper move.
+    const techs=['shot','dribble','defense','keeper'].flatMap(cat=>techniquesFor(p,cat).map(t=>({...t,cat})))
+      .map(t=>`<div style="display:flex;justify-content:space-between;gap:8px"><span>${TECH_CAT_ICON[t.cat]} ${t.name}</span><span style="opacity:.7">${t.cost} PT</span></div>`).join('');
     const st=p.stats;
     // Mid-match, whoever's actually on the pitch has live PT/stamina; show
     // current/total for them. Otherwise (pre-match, or still on the bench)
