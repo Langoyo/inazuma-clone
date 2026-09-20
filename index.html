@@ -11,9 +11,9 @@
     *, *::before, *::after { box-sizing: border-box; }
 
     :root{
-      --ink: #0a1f13;           /* page background, near-black pitch-green */
-      --panel: #14251a;         /* panel/card fill */
-      --panel-2: #0e1c13;       /* darker recess (progress tracks, wells) */
+      --ink: #1a1a1a;           /* page background — a neutral charcoal grey, not pure black */
+      --panel: #2a2a2a;         /* panel/card fill */
+      --panel-2: #202020;       /* darker recess (progress tracks, wells) */
       --pixel-border: #1b1b1b;  /* corner-cut border colour, same on every button */
       --white: #f2f2f2;
       --blue: #3399ff;   --blue-shadow: #1c6fc9;
@@ -54,11 +54,7 @@
        button classes purely for spacing, never touching their look. */
     .is-compact { font-size: 13px; padding: 4px 8px; margin: 2px; }
 
-    /* Technique cost inside a .conf-btn: nes.css buttons are white until
-       selected (is-primary/blue), so the cost text needs to read on both —
-       muted on white, gold once the button lights up. */
-    .conf-btn .cost { display: block; font-size: 12px; margin-top: 3px; color: #6c757d; }
-    .conf-btn.is-primary .cost { color: var(--gold); }
+    .conf-btn .cost { display: block; font-size: 12px; margin-top: 3px; color: #000; }
 
     /* pixel-bordered <select>/<input>, same corner technique but flat (no shadow) */
     .pixel-select, #squad-search-row input, #squad-search-row select {
