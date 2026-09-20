@@ -855,3 +855,34 @@ cálculo original, y se nota: el 10% mejor llega a **79 de media (contra
 mejor de cada uno pega más fuerte (**89,7 contra 85,8**). El botón actúa
 sobre la pestaña que tengas abierta, así que también puedes usarlo para
 armarle un rival decente a la IA. El aleatorio de siempre no cambia.
+
+## Nuevo estilo: pixel-art retro (nes.css)
+
+La interfaz (marcador, botones, paneles, chips) tenía ese aire genérico de
+"hecho con una IA" — cajas negras translúcidas, esquinas redondeadas,
+tipografía por defecto. Ahora usa **nes.css** (la librería real, instalada
+por npm, no una imitación) con dos fuentes retro por encima:
+
+- **Press Start 2P** solo en titulares y marcador — es un tipo de letra de
+  8 bits que se vuelve ilegible por debajo de ~11px, así que reservarlo
+  para lo grande es lo que lo hace funcionar.
+- **VT323** para todo lo demás — botones, nombres de jugador, chips —
+  porque es una fuente de terminal retro que sigue leyéndose bien en
+  tamaños normales de interfaz, a diferencia de Press Start 2P.
+
+Cada botón/panel comparte la misma técnica de esquina recortada en píxel
+(un `border-image` diminuto repetido, la misma que usa nes.css) y una
+sombra interior de color a modo de bisel, para que toda la página se lea
+como un único sistema — desde los botones estáticos del HTML hasta los que
+genera `GameScene.js` en tiempo real (fichas de jugador, chips de
+posición/rating, tarjetas de la lista de selección), sin tocar ni una
+línea de la lógica del juego: el cambio es enteramente de CSS.
+
+Un detalle real de nes.css que sorprende: la librería trae su propia regla
+global `body,pre,code,kbd,samp{font-family:"Press Start 2P"}` — asume que
+vas a cargar esa fuente para toda la página. Como se carga después del
+`<style>` propio del `index.html` (Vite la inyecta en tiempo de
+ejecución), gana el empate de especificidad y se comía nuestra fuente base
+y el color de texto. Se corrigió fijando la fuente/color/fondo base con
+`!important` — un uso deliberado, no un parche, para plantar la línea
+base del proyecto por encima del reset global de una librería de terceros.

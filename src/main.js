@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
 import GameScene from './scenes/GameScene.js';
+// Base pixel-UI components (buttons, panels) for the HUD/menus — see
+// index.html for the retro theme layered on top of it.
+import 'nes.css/css/nes.min.css';
 
 // The logical field is 960×1520 — a big vertical pitch the camera scrolls
 // over. The canvas itself always fills the whole browser viewport (RESIZE
