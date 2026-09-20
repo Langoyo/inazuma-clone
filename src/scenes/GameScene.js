@@ -1925,6 +1925,12 @@ export default class GameScene extends Phaser.Scene {
     if(!this.ballFlight) return;
     this.ballFlight=null;
     this.ball.collisionFilter.mask=CAT_PLAYER|CAT_GOAL;
+    // The pass this flag was watching for is over, one way or another —
+    // if it fizzled out with nobody touching it (rolled to a stop, or was
+    // otherwise moved/reset outside the normal catch path), the flag would
+    // otherwise sit there and could wrongly fire on a much later, unrelated
+    // touch by the same player.
+    this.offsideFlag=null;
   }
   _updatePassFlight(){
     const f=this.ballFlight; if(!f) return;
