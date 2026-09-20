@@ -315,6 +315,11 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('room-code').textContent=roomCode;
     this.net=connectToRoom(roomCode);
     this.role=this.net.isHost()?'A':'B';
+    // isHost() at this exact instant is only a guess: the WebRTC handshake
+    // hasn't happened yet, so both browsers loading the page at once see
+    // "nobody else here" and both provisionally become 'A'. Once a peer
+    // actually connects, redo the (now-real) comparison.
+    this.net.onPeerConnect(()=>this._syncRoleFromNet());
 
     this._drawField();
     this.pathGfx=this.add.graphics();
@@ -519,6 +524,15 @@ export default class GameScene extends Phaser.Scene {
     base.addEventListener('pointerup',end);
     base.addEventListener('pointerleave',end);
     base.addEventListener('pointercancel',end);
+  }
+
+  /** Re-derives which side we are from the network layer's now-current
+   *  view of who's connected. Only matters before kickoff — role has to
+   *  stay fixed for the length of a match, and by kickoff a real peer has
+   *  always long since been detected if one exists. */
+  _syncRoleFromNet(){
+    if(this.matchStarted) return;
+    this.role=this.net.isHost()?'A':'B';
   }
 
   _onResize(gameSize){
