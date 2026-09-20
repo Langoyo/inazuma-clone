@@ -4,11 +4,65 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Inazuma Clone</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Pixelify+Sans:wght@400..700&family=Jersey+10&display=swap">
   <style>
+
     *, *::before, *::after { box-sizing: border-box; }
+
+    :root{
+      --ink: #1a1a1a;           /* page background — a neutral charcoal grey, not pure black */
+      --panel: #2a2a2a;         /* panel/card fill */
+      --panel-2: #202020;       /* darker recess (progress tracks, wells) */
+      --pixel-border: #1b1b1b;  /* corner-cut border colour, same on every button */
+      --white: #f2f2f2;
+      --blue: #3399ff;   --blue-shadow: #1c6fc9;
+      --red: #ff4444;    --red-shadow: #b32e2e;
+      --gold: #ffd966;   --gold-shadow: #c9a13a;
+      --green: #7ed957;  --green-shadow: #4a9e2e;
+      --grey: #8b98a1;   --grey-shadow: #5c666d;
+    }
+    /* nes.css (imported in main.js) ships its own global
+       `body,pre,code,kbd,samp{font-family:"Press Start 2P"}` and a Bootstrap-
+       reboot `body{color:#212529}` — both load after this block (it's
+       injected by Vite at runtime, so it always lands later in the
+       cascade) and win ties on plain-element selectors. !important here is
+       deliberately pinning our base look against that, not a workaround. */
+    html, body, code, kbd, pre, samp {
+      font-family: 'Pixelify Sans', 'Courier New', sans-serif !important;
+      color: var(--white) !important;
+    }
     html, body {
-      margin: 0; padding: 0; background: #0b3d1f; overflow: hidden;
-      touch-action: none; font-family: sans-serif; color: white;
+      margin: 0; padding: 0; background: var(--ink) !important; overflow: hidden;
+      touch-action: none; font-size: 17px;
+    }
+    h1, h2, h3 { font-family: 'Press Start 2P', 'Courier New', monospace !important; font-weight: normal; }
+
+    /* ------------------------------------------------------------------ Buttons
+       Every button on the page uses nes.css's own real `nes-btn` class (plus
+       its `is-primary`/`is-success`/`is-warning`/`is-error` colour variants)
+       instead of a hand-rolled copy — the hand-rolled version was missing
+       `border-image-outset`, which let a plain solid black edge show through
+       under the pixel corners on some renders. Native-`disabled` buttons get
+       the same look as nes.css's own class-based `.is-disabled`, since
+       nes.css doesn't hook the `:disabled` pseudo-class itself. */
+    .nes-btn:disabled, .nes-btn:disabled:hover, .nes-btn:disabled:focus {
+      color: #212529; cursor: not-allowed; background-color: #d3d3d3;
+      box-shadow: inset -4px -4px #adafbc; opacity: 0.6;
+    }
+    /* nes.css has no size variant of its own — layered on top of the real
+       button classes purely for spacing, never touching their look. */
+    .is-compact { font-size: 13px; padding: 4px 8px; margin: 2px; }
+
+    .conf-btn .cost { display: block; font-size: 12px; margin-top: 3px; color: #000; }
+
+    /* pixel-bordered <select>/<input>, same corner technique but flat (no shadow) */
+    .pixel-select, #squad-search-row input, #squad-search-row select {
+      font-family: inherit; font-size: 14px; color: var(--white); background: var(--panel-2);
+      border-style: solid; border-width: 4px; border-radius: 0;
+      border-image-slice: 2; border-image-width: 2; border-image-repeat: stretch;
+      border-image-source: url('data:image/svg+xml;utf8,<?xml version="1.0" encoding="UTF-8" ?><svg version="1.1" width="5" height="5" xmlns="http://www.w3.org/2000/svg"><path d="M2 1 h1 v1 h-1 z M1 2 h1 v1 h-1 z M3 2 h1 v1 h-1 z M2 3 h1 v1 h-1 z" fill="rgb(27,27,27)" /></svg>');
+      padding: 7px 10px;
     }
 
     /* ------------------------------------------------------------------ HUD */
@@ -21,36 +75,34 @@
     #confrontation-timer-wrap { pointer-events: none; }
     .conf-btn { pointer-events: auto; }
 
-    #room-ui {
-      position: fixed; top: 8px; left: 8px; z-index: 10;
-      background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 6px; font-size: 12px;
+    #room-ui, #ai-badge {
+      position: fixed; top: 8px; z-index: 10; font-size: 13px;
+      background: var(--panel); padding: 5px 10px; border: 3px solid #000;
     }
-    #ai-badge {
-      position: fixed; top: 8px; right: 8px; z-index: 10;
-      background: rgba(200,60,60,0.7); padding: 4px 10px; border-radius: 6px; font-size: 12px; display: none;
-    }
+    #room-ui { left: 8px; }
+    #ai-badge { right: 8px; display: none; background: var(--gold); color: #1b1b1b; font-weight: bold; }
     #scoreboard {
       position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 10;
-      background: rgba(0,0,0,0.55); padding: 5px 16px; border-radius: 6px; text-align: center;
+      background: var(--panel); padding: 6px 18px; border: 3px solid #000; text-align: center;
     }
-    #scoreboard .score { font-size: 18px; font-weight: bold; }
-    #scoreboard .clock  { font-size: 11px; opacity: 0.85; margin-top: 1px; }
+    #scoreboard .score { font-family: 'Jersey 10','Press Start 2P',monospace; font-size: 26px; letter-spacing: 2px; }
+    #scoreboard .clock  { font-size: 13px; opacity: 0.85; margin-top: 3px; }
     #sp-bar-wrap {
       position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
-      background: rgba(0,0,0,0.6); padding: 6px 14px; border-radius: 8px;
-      font-size: 13px; font-weight: bold; border: 1px solid rgba(255,255,255,0.3);
+      background: var(--panel); padding: 7px 16px;
+      font-size: 15px; font-weight: bold; border: 3px solid #000;
     }
-    #stamina-value.low { color: #ff6b6b; }
+    #stamina-value.low { color: var(--red); }
     #game-container { width: 100vw; height: 100vh; }
 
     /* ------------------------------------------------------------------ Confrontation */
     #confrontation-result {
       position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 25;
-      background: rgba(0,0,20,0.9); border: 2px solid #ffd966; border-radius: 10px;
-      padding: 12px 22px; font-size: 15px; font-weight: bold; text-align: center;
+      background: var(--panel); border: 4px solid var(--gold);
+      padding: 12px 22px; font-size: 16px; font-weight: bold; text-align: center;
       display: none; max-width: 92vw;
     }
-    #confrontation-result .outcome { font-size: 13px; color: #ffd966; margin-top: 6px; }
+    #confrontation-result .outcome { font-size: 14px; color: var(--gold); margin-top: 6px; }
 
     /* Duel VS beat: both moves face off for a moment, then the winner's card
        lights up and the loser's dims. Purely a spectacle layer — never eats
@@ -61,45 +113,35 @@
       background: rgba(0,0,10,0.45);
     }
     .duel-card {
-      width: 38vw; max-width: 200px; padding: 12px 10px; border-radius: 12px;
-      border: 2px solid rgba(255,255,255,0.55); background: rgba(10,12,30,0.92);
+      width: 38vw; max-width: 200px; padding: 12px 10px;
+      border: 4px solid var(--grey); background: var(--panel);
       text-align: center; transition: transform 220ms ease, opacity 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
     }
-    .duel-card .duel-who  { font-size: 13px; font-weight: bold; }
-    .duel-card .duel-move { font-size: 12px; color: #ffd966; margin-top: 6px; }
+    .duel-card .duel-who  { font-size: 14px; font-weight: bold; }
+    .duel-card .duel-move { font-size: 13px; color: var(--gold); margin-top: 6px; }
     .duel-card.winner {
-      border-color: #ffd966; box-shadow: 0 0 22px 4px rgba(255,217,102,0.7);
-      background: rgba(60,50,0,0.95); transform: scale(1.1);
+      border-color: var(--gold); box-shadow: 0 0 0 4px rgba(255,217,102,0.4);
+      background: #2a2408; transform: scale(1.1);
     }
     .duel-card.loser { opacity: 0.35; filter: grayscale(1); transform: scale(0.92); }
     #duel-vs {
-      font-size: 22px; font-weight: bold; color: #ff6b6b;
-      text-shadow: 0 0 8px rgba(0,0,0,0.9); flex: 0 0 auto;
+      font-family: 'Press Start 2P',monospace; font-size: 18px; color: var(--red);
+      text-shadow: 2px 2px #000; flex: 0 0 auto;
     }
 
     #confrontation-ui {
       position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); z-index: 20;
       display: none; flex-direction: column; align-items: center; gap: 8px; max-width: 96vw;
     }
-    #confrontation-title   { background: rgba(0,0,0,0.65); padding: 4px 14px; border-radius: 6px; font-weight: bold; font-size: 14px; }
-    #confrontation-player-info { background: rgba(0,0,0,0.5); padding: 4px 12px; border-radius: 6px; font-size: 12px; }
-    #confrontation-timer-wrap { width: 220px; height: 6px; background: rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; }
-    #confrontation-timer-fill { height: 100%; width: 100%; background: #ffd966; transition: none; }
+    #confrontation-title { font-family: 'Press Start 2P',monospace; background: var(--panel); border: 3px solid #000; padding: 6px 14px; font-size: 13px; }
+    #confrontation-player-info { background: var(--panel); border: 3px solid #000; padding: 5px 12px; font-size: 14px; }
+    #confrontation-timer-wrap { width: 220px; height: 10px; background: var(--panel-2); border: 2px solid #000; overflow: hidden; }
+    #confrontation-timer-fill { height: 100%; width: 100%; background: var(--gold); transition: none; }
     #confrontation-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-    .conf-btn {
-      min-width: 130px; padding: 10px 12px; border-radius: 10px; border: 2px solid white;
-      background: rgba(20,20,20,0.88); color: white; font-size: 13px; text-align: center; touch-action: manipulation;
-    }
-    .conf-btn.active  { border-color: #ffd966; background: rgba(60,50,0,0.9); }
-    .conf-btn:disabled { opacity: 0.32; }
-    .conf-btn .cost   { display: block; font-size: 10px; color: #ffd966; margin-top: 2px; }
+    .conf-btn { min-width: 130px; }
 
     /* ------------------------------------------------------------------ Field buttons */
-    #sub-button {
-      position: fixed; bottom: 16px; right: 16px; z-index: 15;
-      padding: 10px 14px; border-radius: 10px; border: 2px solid white;
-      background: rgba(20,20,20,0.78); color: white; font-size: 13px; display: none;
-    }
+    #sub-button { position: fixed; bottom: 16px; right: 16px; z-index: 15; display: none; }
 
     /* Camera joystick (mobile) */
     #scroll-controls {
@@ -108,66 +150,56 @@
     }
     #joy-base {
       width: 90px; height: 90px; border-radius: 50%;
-      background: rgba(20,20,20,0.55); border: 2px solid rgba(255,255,255,0.4);
+      background: var(--panel); border: 3px solid #000;
       position: relative; touch-action: none; user-select: none;
     }
     #joy-stick {
-      width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.75);
-      position: absolute; left: 25px; top: 25px; pointer-events: none;
+      width: 40px; height: 40px; border-radius: 50%; background: var(--gold); border: 2px solid #000;
+      position: absolute; left: 23px; top: 23px; pointer-events: none;
     }
     /* Player stat popup */
     #player-stat-panel {
       position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 35;
-      background: rgba(4,18,30,0.96); border: 2px solid rgba(51,153,255,0.6); border-radius: 12px;
-      padding: 12px 14px; max-width: 340px; width: 94vw; display: none; font-size: 12px;
+      background: var(--panel); border: 4px solid var(--blue);
+      padding: 12px 14px; max-width: 340px; width: 94vw; display: none; font-size: 14px;
     }
 
     /* ------------------------------------------------------------------ Panels (overlays) */
     .panel-overlay {
-      position: fixed; inset: 0; z-index: 30; background: rgba(4,18,10,0.97);
+      position: fixed; inset: 0; z-index: 30; background: var(--ink);
       display: none; flex-direction: column; align-items: center;
       overflow-y: auto; padding: 14px 14px 80px;
     }
-    .panel-overlay h2 { font-size: 16px; margin: 6px 0 12px; }
+    .panel-overlay h2 { font-size: 13px; line-height: 1.6; margin: 6px 0 14px; text-align: center; text-wrap: balance; }
     .panel-close {
       position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
-      z-index: 31; padding: 10px 28px; border-radius: 10px; border: none;
-      background: #444; color: white; font-size: 14px;
+      z-index: 31; padding: 10px 28px; font-size: 15px;
     }
 
     /* ---- formation preset buttons (top of the team panel) */
-    .preset-btns {
-      display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 16px;
-    }
-    .preset-btns button {
-      padding: 10px 16px; border-radius: 8px; border: 2px solid white;
-      background: rgba(20,20,20,0.85); color: white; font-size: 14px;
-    }
-    .preset-btns button.active { border-color: #ffd966; background: rgba(60,50,0,0.9); }
+    .preset-btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 16px; }
 
-    /* ---- your team / rival team tabs, and formation / browse-players tabs (squad editor) */
-    #squad-side-tabs, #squad-view-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
-    .squad-side-tab {
-      padding: 8px 18px; border-radius: 8px; border: 2px solid white;
-      background: rgba(20,20,20,0.85); color: white; font-size: 13px; font-weight: bold;
+    /* ---- your team / rival team tabs (squad editor) */
+    #squad-side-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+
+    /* ---- Formation/Browse collapsible sections. Independent, not exclusive
+       tabs — both default open so you can see the pitch and the player list
+       at once. Each toggle button sits right above the container it opens
+       and closes, full-width so it reads as that section's own header
+       rather than a loose button somewhere above both. */
+    .section-toggle { display: block; width: 100%; max-width: 500px; margin: 0 0 8px; text-align: center; }
+    .section-container {
+      width: 100%; max-width: 500px; background: var(--panel); border: 3px solid #000;
+      padding: 14px; margin-bottom: 16px;
     }
-    .squad-side-tab.active { border-color: #3399ff; background: rgba(20,60,100,0.9); }
-    /* Formation/Browse are independent collapsible sections, not exclusive tabs —
-       both default open so you can see the pitch and the player list at once;
-       each button just toggles its own section. */
-    .view-tab.active { border-color: #ffd966; background: rgba(70,58,0,0.9); }
-    .view-tab::after { content: ' \25B8'; }
-    .view-tab.active::after { content: ' \25BE'; }
-    #squad-players-view { width: 100%; }
     #squad-editor.hidden-section, #squad-players-view.hidden-section { display: none; }
+    #squad-save-status { font-size: 13px; opacity: 0.9; color: var(--green); }
 
     /* ---- topological squad editor */
-    #squad-editor {
-      width: 100%; max-width: 500px;
-    }
+    #squad-editor { width: 100%; max-width: 500px; }
     #formation-pitch {
-      width: 100%; aspect-ratio: 2/3; background: #1e7a3c; border: 2px solid white;
-      border-radius: 8px; position: relative; margin-bottom: 12px; overflow: hidden;
+      width: 100%; aspect-ratio: 2/3; background: #1e7a3c; border: 4px solid #000;
+      position: relative; margin-bottom: 12px; overflow: hidden;
       touch-action: none; /* we handle all pointer events here */
     }
     .pitch-line-h {
@@ -179,115 +211,119 @@
       width: 44px; height: 44px; border-radius: 50%;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       cursor: pointer; touch-action: manipulation; user-select: none;
-      border: 2px solid rgba(255,255,255,0.7); transition: box-shadow 0.1s;
+      border: 2px solid rgba(255,255,255,0.8); transition: box-shadow 0.1s;
     }
     .slot-pin.empty   { background: rgba(255,255,255,0.12); border-style: dashed; }
-    .slot-pin.selected, .bench-pin.selected { box-shadow: 0 0 0 3px #ffd966; border-color: #ffd966; z-index: 5; }
+    .slot-pin.selected, .bench-pin.selected { box-shadow: 0 0 0 3px var(--gold); border-color: var(--gold); z-index: 5; }
     .slot-pin .pin-avatar {
       width: 28px; height: 28px; border-radius: 50%; display: flex;
       align-items: center; justify-content: center; font-size: 9px; font-weight: bold;
-      color: rgba(0,0,0,0.8);
+      color: rgba(0,0,0,0.8); border: 1px solid rgba(0,0,0,0.5);
     }
-    .slot-pin .pin-name { font-size: 7px; color: white; line-height: 1; margin-top: 1px; max-width: 42px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .slot-pin .pin-name { font-size: 9px; color: white; line-height: 1.1; margin-top: 1px; max-width: 42px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
     .bench-strip { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; }
     .bench-pin {
-      width: 54px; text-align: center; background: rgba(255,255,255,0.08);
-      border: 2px solid #888; border-radius: 8px; padding: 4px; cursor: pointer;
+      width: 54px; text-align: center; background: var(--panel);
+      border: 2px solid var(--grey); padding: 4px; cursor: pointer;
       touch-action: manipulation; user-select: none;
     }
-    .bench-pin .pin-avatar { width: 32px; height: 32px; border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: rgba(0,0,0,0.8); }
-    .bench-pin .pin-name   { font-size: 8px; color: rgba(255,255,255,0.9); margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .bench-pin .pin-avatar { width: 32px; height: 32px; border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: rgba(0,0,0,.8); border: 1px solid rgba(0,0,0,0.5); }
+    .bench-pin .pin-name   { font-size: 10px; color: rgba(255,255,255,0.95); margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
     /* ---- remove action, shown only while a squad player is selected */
     #squad-remove-bar { display: none; justify-content: center; margin-bottom: 10px; }
-    #squad-remove-btn {
-      padding: 8px 16px; border-radius: 8px; font-size: 12px;
-      border: 2px solid rgba(255,120,120,0.8); background: rgba(90,20,20,0.75); color: #ffdede;
-      max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-    }
+    #squad-remove-btn { font-size: 13px; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     /* ---- placement hint, shown only while a list pick is armed for placement */
     #squad-place-hint {
       display: none; align-items: center; justify-content: center; gap: 8px;
-      font-size: 12px; opacity: 0.9; margin-bottom: 10px; text-align: center;
+      font-size: 14px; opacity: 0.95; margin-bottom: 10px; text-align: center;
     }
-    #squad-place-cancel-btn {
-      padding: 4px 10px; border-radius: 6px; font-size: 11px;
-      border: 1px solid #888; background: rgba(255,255,255,0.08); color: white;
-    }
+    #squad-place-cancel-btn { font-size: 12px; padding: 5px 10px; }
 
     /* ---- search list that feeds the editor */
     #squad-search-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; width: 100%; max-width: 500px; }
-    #squad-search-row input, #squad-search-row select {
-      padding: 7px 10px; border-radius: 8px; border: 1px solid #555; background: rgba(255,255,255,0.08); color: white; flex: 1;
-    }
-    #squad-search-row button {
-      padding: 7px 12px; border-radius: 8px; border: 1px solid white; background: rgba(51,153,255,0.3); color: white;
-    }
+    #squad-search-row input, #squad-search-row select { flex: 1; }
+    #squad-search-row button { font-size: 13px; }
     #squad-pick-list {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(120px,1fr));
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(126px,1fr));
       gap: 8px; width: 100%; max-width: 500px; padding-bottom: 4px;
     }
     .pick-card {
-      background: rgba(255,255,255,0.06); border: 2px solid transparent;
-      border-radius: 8px; padding: 6px; font-size: 11px; cursor: pointer; touch-action: manipulation;
+      background: var(--panel); border: 2px solid transparent;
+      padding: 6px; font-size: 13px; cursor: pointer; touch-action: manipulation;
     }
     /* ---- position / element chips (cards, pitch pins, player sheet) */
     .pos-badge {
       display: inline-flex; align-items: center; justify-content: center;
-      min-width: 20px; padding: 0 3px; border-radius: 4px;
-      font-size: 9px; font-weight: bold; line-height: 13px; color: rgba(0,0,0,0.85);
+      min-width: 20px; padding: 0 3px; border: 1px solid rgba(0,0,0,0.6);
+      font-size: 10px; font-weight: bold; line-height: 14px; color: rgba(0,0,0,0.85);
       flex-shrink: 0;
     }
-    .pos-GK { background: #ffd966; }
+    .pos-GK { background: var(--gold); }
     .pos-DF { background: #7fb2ff; }
     .pos-MF { background: #86e08a; }
     .pos-FW { background: #ff9b7a; }
     /* a player standing in a slot that asks for a different role */
-    .pos-mismatch { box-shadow: 0 0 0 1.5px #ff5252; }
+    .pos-mismatch { box-shadow: 0 0 0 1.5px var(--red); }
     /* on a pitch pin the chip rides on the avatar's corner */
     .slot-pin .pos-badge, .bench-pin .pos-badge {
       position: absolute; top: -3px; right: -4px; z-index: 2;
-      border: 1px solid rgba(0,0,0,0.45);
     }
     .bench-pin { position: relative; }
+    /* overall rating, on the opposite corner from the position chip */
+    .rating-badge {
+      position: absolute; top: -3px; left: -4px; z-index: 2;
+      min-width: 17px; padding: 0 2px; border: 1px solid rgba(0,0,0,0.6);
+      font-size: 10px; font-weight: bold; line-height: 14px; text-align: center;
+      color: rgba(0,0,0,0.85);
+    }
+    .rating-hi  { background: var(--gold); }
+    .rating-mid { background: #d8d8d8; }
+    .rating-low { background: #b98a6a; }
     .el-badge { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
     .el-Fire  { color: #ff9b6a; }
     .el-Wood  { color: #8fe08a; }
     .el-Air   { color: #8fd6ff; }
-    .el-Earth { color: #ffd966; }
+    .el-Earth { color: var(--gold); }
     .duel-el {
-      display: inline-block; margin-left: 6px; font-size: 11px; font-weight: normal;
+      display: inline-block; margin-left: 6px; font-size: 12px; font-weight: normal;
       opacity: 0.85; vertical-align: middle;
     }
     .duel-el.edge { color: #7dff9b; opacity: 1; font-weight: bold; }
 
-    .pick-card.in-squad   { border-color: #ffd966; opacity: 0.85; }
-    .pick-card.selected   { border-color: #ffd966; box-shadow: 0 0 0 2px #ffd966; }
-    .pick-card .pick-name { font-weight: bold; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    #pick-count { font-size: 11px; opacity: 0.7; margin-bottom: 6px; }
+    .pick-card.in-squad   { border-color: var(--gold); opacity: 0.85; }
+    .pick-card.selected   { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
+    .pick-card .pick-name { font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #pick-count { font-size: 13px; opacity: 0.75; margin-bottom: 6px; }
 
     /* ---- sub panel: pitch + bench together, same look as the squad editor */
     #sub-list-inner { width: 100%; max-width: 500px; }
+    #sub-panel-state {
+      font-size: 13px; font-weight: bold; margin: -4px 0 10px; padding: 5px 12px;
+      text-align: center; border: 2px solid #000;
+    }
+    #sub-panel-state.paused  { background: rgba(255,217,102,0.18); color: var(--gold); }
+    #sub-panel-state.running { background: rgba(120,200,255,0.16); color: #8fd6ff; }
 
     /* ---- confirm bar */
     #confirm-bar {
       position: fixed; bottom: 0; left: 0; right: 0; z-index: 32;
-      background: rgba(4,18,10,0.97); border-top: 1px solid rgba(255,255,255,0.18);
+      background: var(--ink); border-top: 3px solid #000;
       padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 4px;
     }
     /* ---- full-time screen */
-    #fulltime-score    { font-size: 40px; font-weight: bold; margin: 4px 0 6px; }
-    #fulltime-verdict  { font-size: 15px; color: #ffd966; margin-bottom: 20px; }
-    #fulltime-menu-btn { padding: 12px 26px; border-radius: 10px; border: none; background: #3399ff; color: white; font-weight: bold; font-size: 15px; }
-    #fulltime-countdown { font-size: 12px; opacity: 0.8; margin-top: 12px; }
+    #fulltime-score    { font-family: 'Jersey 10','Press Start 2P',monospace; font-size: 52px; margin: 10px 0 12px; }
+    #fulltime-verdict  { font-size: 17px; color: var(--gold); margin-bottom: 20px; }
+    #fulltime-menu-btn { padding: 12px 26px; font-size: 15px; }
+    #fulltime-countdown { font-size: 13px; opacity: 0.8; margin-top: 12px; }
 
-    #confirm-squad-btn { padding: 10px 24px; border-radius: 10px; border: none; background: #3399ff; color: white; font-weight: bold; font-size: 14px; }
-    #confirm-squad-btn:disabled { opacity: 0.38; }
-    #squad-status { font-size: 12px; opacity: 0.85; }
+    #confirm-squad-btn { padding: 10px 24px; font-size: 14px; }
+    #squad-status { font-size: 13px; opacity: 0.9; }
 
     /* ---- avatar util */
     .av { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; font-weight: bold; color: rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.35); }
+
   </style>
 </head>
 <body>
@@ -316,7 +352,7 @@
     <div id="confrontation-player-info"></div>
     <div id="confrontation-timer-wrap"><div id="confrontation-timer-fill"></div></div>
     <div id="confrontation-buttons">
-      <button class="conf-btn" id="conf-normal">Normal action</button>
+      <button class="conf-btn nes-btn" id="conf-normal">Normal action</button>
       <!-- One button per technique the player has in this category is
            injected here — see GameScene._updateConfrontUI. -->
       <div id="conf-tech-list" style="display:contents;"></div>
@@ -324,15 +360,16 @@
   </div>
 
   <!-- In-match button: formation + substitutions live in the same panel -->
-  <button id="sub-button">Team</button>
+  <button id="sub-button" class="nes-btn is-primary">Team</button>
 
   <!-- Team panel: change formation, and tap a pitch player + a bench player to sub -->
   <div id="sub-panel" class="panel-overlay">
     <h2 style="margin-bottom:8px;">Formation</h2>
     <div class="preset-btns" id="formation-preset-btns"></div>
     <h2 id="sub-panel-title">Tap two pitch players to swap positions, or a pitch player then a bench one to substitute</h2>
+    <div id="sub-panel-state"></div>
     <div id="sub-list-inner"></div>
-    <button class="panel-close" id="sub-cancel-btn">Close</button>
+    <button class="panel-close nes-btn" id="sub-cancel-btn">Close panel</button>
   </div>
 
   <!-- ===================== FULL TIME ===================== -->
@@ -340,7 +377,7 @@
     <h2 style="font-size:20px;">Full time</h2>
     <div id="fulltime-score">0 - 0</div>
     <div id="fulltime-verdict"></div>
-    <button id="fulltime-menu-btn">Back to the menu</button>
+    <button id="fulltime-menu-btn" class="nes-btn is-primary">Back to the menu</button>
     <div id="fulltime-countdown"></div>
   </div>
 
@@ -355,8 +392,8 @@
     <!-- Switch between editing your own squad and the rival's (solo vs AI only —
          a real connected opponent always picks their own team regardless). -->
     <div id="squad-side-tabs">
-      <button class="squad-side-tab active" data-side="me">Your Team</button>
-      <button class="squad-side-tab" data-side="rival">Rival Team</button>
+      <button class="squad-side-tab nes-btn is-primary" data-side="me">Your Team</button>
+      <button class="squad-side-tab nes-btn" data-side="rival">Rival Team</button>
     </div>
     <p id="rival-tab-note" style="display:none;font-size:11px;opacity:0.7;margin:-4px 0 10px;text-align:center;max-width:500px;">
       Only used if you end up playing solo against the AI — comes pre-filled at random, tweak it or leave it as is.
@@ -364,37 +401,53 @@
 
     <!-- Formation pitch/bench and the searchable player list are shown together
          by default so you can tap a player in the list, then tap straight onto
-         a pitch spot; each button just collapses its own section for more room. -->
-    <div id="squad-view-tabs">
-      <button class="squad-side-tab view-tab active" data-view="formation">📋 Formation</button>
-      <button class="squad-side-tab view-tab active" data-view="players">🔍 Browse Players</button>
-    </div>
+         a pitch spot; each button sits right above the section it collapses,
+         so it stays obvious which one it belongs to. -->
+    <button class="view-tab nes-btn is-warning section-toggle" data-view="formation">📋 Formation</button>
 
     <!-- Topological pitch editor -->
-    <div id="squad-editor" style="width:100%;max-width:500px;">
+    <div id="squad-editor" class="section-container">
       <!-- Formation selector -->
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <label style="font-size:12px;">Formation:</label>
-        <select id="formation-select" style="padding:6px 10px;border-radius:8px;border:1px solid #555;background:rgba(255,255,255,0.08);color:white;">
+        <select id="formation-select" class="pixel-select">
           <option value="4-4-2">4-4-2</option>
           <option value="4-3-3">4-3-3</option>
           <option value="4-2-3-1">4-2-3-1</option>
           <option value="3-5-2">3-5-2</option>
+          <option value="4-5-1">4-5-1</option>
+          <option value="5-3-2">5-3-2</option>
+          <option value="3-4-3">3-4-3</option>
+          <option value="4-1-4-1">4-1-4-1</option>
+          <option value="5-4-1">5-4-1</option>
+          <option value="4-3-1-2">4-3-1-2</option>
         </select>
-        <button id="randomize-squad-btn" style="padding:6px 12px;border-radius:8px;border:1px solid white;background:rgba(51,153,255,0.3);color:white;">🎲 Random</button>
+        <button id="randomize-squad-btn" class="nes-btn is-primary is-compact">🎲 Random</button>
+        <button id="randomize-club-btn" title="Only players who belong to a real team — a stronger, more recognisable XI" class="nes-btn is-warning is-compact">🎲 Random (club players)</button>
         <span id="squad-fill-count" style="font-size:11px;opacity:0.75;">0/11 filled</span>
+      </div>
+
+      <!-- Keep the squad you built between sessions (this browser only) -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+        <button id="squad-save-btn" class="nes-btn is-primary is-compact">💾 Save squad</button>
+        <button id="squad-load-btn" class="nes-btn is-compact" disabled>📂 Load saved</button>
+        <span id="squad-save-status"></span>
       </div>
 
       <!-- AI difficulty (only applies when playing alone against the AI) -->
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <label style="font-size:12px;">AI difficulty:</label>
-        <select id="ai-level-select" style="padding:6px 10px;border-radius:8px;border:1px solid #555;background:rgba(255,255,255,0.08);color:white;">
+        <select id="ai-level-select" class="pixel-select">
           <option value="easy">Easy</option>
           <option value="normal" selected>Normal</option>
           <option value="hard">Hard</option>
           <option value="expert">Expert</option>
         </select>
       </div>
+      <p style="font-size:11px;opacity:0.7;margin:-4px 0 8px;max-width:500px;">
+        Every level now plays at least as sharply as the old "Hard". Above Easy the AI's
+        side also gets its combat stats inflated (and half of that on movement).
+      </p>
 
       <div id="formation-pitch">
         <div class="pitch-line-h"></div>
@@ -407,16 +460,17 @@
       </div>
 
       <!-- Appears while a player on the pitch or bench is selected -->
-      <div id="squad-remove-bar"><button id="squad-remove-btn">Remove</button></div>
+      <div id="squad-remove-bar"><button id="squad-remove-btn" class="nes-btn is-error">Remove</button></div>
       <!-- Appears while a player picked from the list is armed for placement -->
       <div id="squad-place-hint">
         Tap a pitch or bench spot for <b id="squad-place-hint-name"></b>
-        <button id="squad-place-cancel-btn">Cancel</button>
+        <button id="squad-place-cancel-btn" class="nes-btn is-compact">Cancel</button>
       </div>
     </div>
 
     <!-- Player search / list to pick from -->
-    <div id="squad-players-view">
+    <button class="view-tab nes-btn is-warning section-toggle" data-view="players" style="margin-top:16px;">🔍 Browse Players</button>
+    <div id="squad-players-view" class="section-container">
       <div id="squad-search-row">
         <input id="squad-search" type="text" placeholder="Search player..." />
         <select id="squad-game-filter"><option value="">All games</option></select>
@@ -431,15 +485,20 @@
           <option value="defensePower">Sort: Defense</option>
           <option value="keeperPower">Sort: Keeper</option>
         </select>
-        <button id="squad-whole-team-btn" disabled>Use whole team</button>
+        <button id="squad-whole-team-btn" class="nes-btn is-compact" disabled>Use whole team</button>
       </div>
       <div id="pick-count"></div>
       <div id="squad-pick-list"></div>
+      <div id="pick-pager" style="display:flex;gap:10px;align-items:center;justify-content:center;margin-top:10px;">
+        <button id="pick-prev-btn" class="nes-btn is-compact">◂ Prev</button>
+        <span id="pick-page-info" style="font-size:13px;"></span>
+        <button id="pick-next-btn" class="nes-btn is-compact">Next ▸</button>
+      </div>
     </div>
 
     <!-- Fixed confirm bar -->
     <div id="confirm-bar">
-      <button id="confirm-squad-btn" disabled>Confirm squad (0/11)</button>
+      <button id="confirm-squad-btn" class="nes-btn is-primary" disabled>Confirm squad (0/11)</button>
       <div id="squad-status"></div>
     </div>
   </div>

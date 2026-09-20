@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
 import GameScene from './scenes/GameScene.js';
+// Base pixel-UI components (buttons, panels) for the HUD/menus — see
+// index.html for the retro theme layered on top of it.
+import 'nes.css/css/nes.min.css';
 
 // The logical field is 960×1520 — a big vertical pitch the camera scrolls
 // over. The canvas itself always fills the whole browser viewport (RESIZE
@@ -24,4 +27,15 @@ const config = {
   scene: [GameScene]
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+// Dev-only hook so the Playwright suite (and manual debugging) can reach
+// into live scene state — Vite strips this whole block out of
+// `vite build`'s production output (import.meta.env.DEV is inlined to
+// `false`), so it never ships to players.
+if (import.meta.env.DEV) {
+  window.__game = game;
+  Object.defineProperty(window, '__scene', {
+    get: () => game.scene.keys.GameScene || game.scene.scenes[0]
+  });
+}
