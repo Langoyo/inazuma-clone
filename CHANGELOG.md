@@ -971,3 +971,11 @@ Expert stay the same):
 
 Still a clear step above Easy (which has no inflation at all) and well
 below Hard (+18%) — just a gentler step up from Easy now.
+
+## Shorter goals
+
+The net box drawn behind each goal line was 150px deep, which read as
+very tall relative to the rest of the pitch. Cut to 90px (about 40%
+shorter) — purely visual: the tap-to-shoot hitbox and the goal sensors
+are both sized independently of it, so shooting and scoring are
+unaffected.
