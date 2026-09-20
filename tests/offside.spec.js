@@ -48,6 +48,50 @@ test.describe('offside', () => {
     expect(result.scoreUnchanged).toBe(true);
   });
 
+  test('a real pass through the physics loop is still flagged once the ball actually reaches the receiver', async ({ page }) => {
+    // Regression test: the flagged-at-pass-time check above calls
+    // _collisions directly, which doesn't exercise the real path a pass
+    // actually takes — _updatePassFlight ticking every frame as the ball
+    // rolls toward the receiver. A prior fix that cleared offsideFlag
+    // whenever a pass's tracked "flight" ended broke this silently: that
+    // flight only covers the lofted arc (PASS_LOFT_FRAC of the distance),
+    // so it ends well before the ball actually reaches anyone, clearing
+    // the flag before the real collision could ever fire.
+    await waitForRosterLoaded(page);
+    await startMatch(page);
+
+    await page.evaluate(() => {
+      const s = window.__scene;
+      s.confrontation = null;
+      const bOutfield = s.teamB.filter((e) => e.slot !== 0);
+      bOutfield.forEach((e, i) => s.matter.body.setPosition(e.body, { x: 400 + i * 5, y: 300 }));
+      const passer = s.teamA.find((e) => e.slot !== 0);
+      const receiver = s.teamA.find((e) => e.slot !== 0 && e.id !== passer.id);
+      // Keep the receiver still and out of anyone else's way so the ball
+      // has a clear, short run to them — a real Matter collision, not a
+      // simulated one.
+      s.matter.body.setPosition(passer.body, { x: 400, y: 400 });
+      s.matter.body.setPosition(receiver.body, { x: 400, y: 60 }); // well past B's back line
+      s.matter.body.setVelocity(receiver.body, { x: 0, y: 0 });
+      // _doPass throws from wherever the ball actually is (normally kept
+      // at the passer's feet by _glueBall while they have it) — since we
+      // just teleported the passer, the ball has to be moved to match too,
+      // or the pass flies off in the right direction from the wrong spot.
+      s.matter.body.setPosition(s.ball, { x: 400, y: 400 });
+      s.matter.body.setVelocity(s.ball, { x: 0, y: 0 });
+
+      s.possRole = 'A';
+      s._setActive('A', passer.id);
+      s._doPass('A', { x: receiver.body.position.x, y: receiver.body.position.y });
+    });
+
+    await page.waitForFunction(
+      () => window.__scene.confrontResult?.title === '🚩 Offside!',
+      { timeout: 5000 }
+    );
+    expect(await page.evaluate(() => window.__scene.possRole)).toBe('B');
+  });
+
   test('the same pass to a teammate level with or behind the back line is not flagged', async ({ page }) => {
     await waitForRosterLoaded(page);
     await startMatch(page);

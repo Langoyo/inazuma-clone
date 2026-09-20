@@ -1895,18 +1895,20 @@ export default class GameScene extends Phaser.Scene {
     if(!this.ballFlight) return;
     this.ballFlight=null;
     this.ball.collisionFilter.mask=CAT_PLAYER|CAT_GOAL;
-    // The pass this flag was watching for is over, one way or another —
-    // if it fizzled out with nobody touching it (rolled to a stop, or was
-    // otherwise moved/reset outside the normal catch path), the flag would
-    // otherwise sit there and could wrongly fire on a much later, unrelated
-    // touch by the same player.
-    this.offsideFlag=null;
   }
   _updatePassFlight(){
     const f=this.ballFlight; if(!f) return;
     const b=this.ball.position;
     const d=Math.hypot(b.x-f.x0,b.y-f.y0);
     const sp=Math.hypot(this.ball.velocity.x,this.ball.velocity.y);
+    // The tracked "flight" is only the lofted arc (PASS_LOFT_FRAC of the
+    // total distance, see _startPassFlight) — a normal pass keeps rolling
+    // on the ground well past d>=f.range, so that condition alone must NOT
+    // clear offsideFlag, or it'd never survive long enough to catch the
+    // receiver it's watching for. Only a genuine stop with nobody having
+    // touched it (fizzled out — rolled dead, or reset some other way)
+    // means the danger window has actually closed.
+    if(!this.possRole&&sp<0.35) this.offsideFlag=null;
     // Down again once it has covered its arc, or early if the pass died or
     // the ball was handed to someone (a dead-ball restart, say).
     if(this.possRole||d>=f.range||sp<0.35){ this._endPassFlight(); return; }
