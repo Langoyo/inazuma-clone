@@ -981,6 +981,16 @@ export default class GameScene extends Phaser.Scene {
     return p.team?`${base} (${p.game})`:base;
   }
 
+  /** Stats are stored pre-scaled for the physics/AI code (they average
+   *  ~1.0, tuned to plug directly into speed multipliers, shot power,
+   *  etc.) — showing that raw multiplier to a player just reads as an
+   *  arbitrary decimal ("SHT 0.94"). Undoing the same ~0.0105 scale the
+   *  roster data was built with gets back a number in the games' own
+   *  stat range instead, for display only; nothing gameplay-facing
+   *  reads this. */
+  _displayStat(v){
+    return Math.round(v/0.0105);
+  }
   /** A single summary number from a player's 5 core stats — not a new
    *  gameplay stat, just something readable for the cards, on a rough
    *  0-99 scale (stats themselves average ~1.0, scaled up so a typical
@@ -1023,11 +1033,11 @@ export default class GameScene extends Phaser.Scene {
         <button onclick="document.getElementById('player-stat-panel').style.display='none'" style="margin-left:auto;background:none;border:none;color:white;font-size:20px;cursor:pointer">×</button>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px;">
-        <div>⚡ Shot <b>${st.shotPower.toFixed(2)}</b></div>
-        <div>💨 Dribble <b>${st.dribblePower.toFixed(2)}</b></div>
-        <div>🛡 Defense <b>${st.defensePower.toFixed(2)}</b></div>
-        <div>🧤 Keeper <b>${st.keeperPower.toFixed(2)}</b></div>
-        <div>🏃 Speed <b>${st.speed.toFixed(2)}</b></div>
+        <div>⚡ Shot <b>${this._displayStat(st.shotPower)}</b></div>
+        <div>💨 Dribble <b>${this._displayStat(st.dribblePower)}</b></div>
+        <div>🛡 Defense <b>${this._displayStat(st.defensePower)}</b></div>
+        <div>🧤 Keeper <b>${this._displayStat(st.keeperPower)}</b></div>
+        <div>🏃 Speed <b>${this._displayStat(st.speed)}</b></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px;">
         <div>🔋 PT <b>${ptLine}</b></div>
@@ -1195,7 +1205,7 @@ export default class GameScene extends Phaser.Scene {
       const isSel=this._selMatchesPlayer(sel,p);
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'')+(isSel?' selected':'');
       const col=this._css3(this._rosterColor(p));
-      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>`;
+      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">SPD ${this._displayStat(p.stats.speed)} SHT ${this._displayStat(p.stats.shotPower)}</div>`;
       // A list card is, for selection purposes, exactly the pin it maps to
       // (pitch slot / bench / pool) — tap to select, tap the same card again
       // to see its full stats, tap a different target to swap/place.

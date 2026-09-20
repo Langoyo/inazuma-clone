@@ -1197,3 +1197,18 @@ techniques, team, PT, stamina all untouched. Verified against the full
 Playwright suite (41/42 passing, the one failure being the same
 pre-existing `drag-and-pass.spec.js` flake noted above, unrelated to
 roster data and passing cleanly on its own).
+
+## Stat displays now show real numbers, not the internal multiplier
+
+The 5 combat stats are stored pre-scaled by that same ~0.0105 factor
+so they plug directly into the physics/AI code (a speed multiplier,
+a shot-power factor) without any conversion at match time — they're
+meant to average around 1.0. But the player-info panel and the
+squad-browsing pick cards were printing that raw stored value straight
+to the screen (`⚡ Shot 0.94`, `SPD 1.17`), which reads as an arbitrary
+decimal rather than a stat. Added `_displayStat()` — undoes the same
+scale factor (`v / 0.0105`) purely for these two display spots — so
+they now show numbers in the games' own stat range instead (`⚡ Shot
+90`, `SPD 111`). Nothing gameplay-facing changed: the stored data and
+the physics code that reads it are untouched, this only affects what
+gets printed on screen.
