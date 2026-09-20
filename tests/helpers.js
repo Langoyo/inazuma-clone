@@ -19,8 +19,8 @@ export async function waitForRosterLoaded(page) {
 }
 
 /** Randomizes a squad and confirms it, leaving a live match in progress. */
-export async function startMatch(page, { clubOnly = true } = {}) {
-  await page.click(clubOnly ? '#randomize-club-btn' : '#randomize-squad-btn');
+export async function startMatch(page, { topOnly = true } = {}) {
+  await page.click(topOnly ? '#randomize-top-btn' : '#randomize-squad-btn');
   await page.click('#confirm-squad-btn');
   await page.waitForFunction(() => window.__scene?.matchStarted === true, { timeout: 10000 });
 }

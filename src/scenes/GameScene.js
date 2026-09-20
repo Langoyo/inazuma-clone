@@ -714,7 +714,7 @@ export default class GameScene extends Phaser.Scene {
       this._edSetFormation(e.target.value); this._renderPitch();
     });
     document.getElementById('randomize-squad-btn').addEventListener('click',()=>this._randomize());
-    document.getElementById('randomize-club-btn').addEventListener('click',()=>this._randomize(true));
+    document.getElementById('randomize-top-btn').addEventListener('click',()=>this._randomize(true));
     document.getElementById('squad-whole-team-btn').addEventListener('click',()=>this._useWholeTeam());
     document.getElementById('squad-search').addEventListener('input',()=>this._renderPickListReset());
     document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickListReset());
@@ -964,10 +964,16 @@ export default class GameScene extends Phaser.Scene {
     return `<span class="el-badge el-${el}">${ELEMENT_ICON[el]||''}${withName?' '+el:''}</span>`;
   }
   /** Overall rating chip for a pitch/bench pin — banded by strength so a
-   *  squad's weak spots stand out without reading each number. */
+   *  squad's weak spots stand out without reading each number.
+   *  Thresholds are recalibrated to this roster's actual spread: the
+   *  official stat data conserves a near-fixed total per character (a
+   *  built-in game-balance choice), so ratings only really range ~68-73
+   *  rather than the wider spread a threshold like 85 assumed. 71+ is
+   *  the rare top ~6%, 70 the next ~20%, everything else (68-69) the
+   *  common ~74%. */
   _ratingBadge(p){
     const r=this._playerRating(p);
-    const band=r>=85?'hi':r>=70?'mid':'low';
+    const band=r>=71?'hi':r>=70?'mid':'low';
     return `<span class="rating-badge rating-${band}">${r}</span>`;
   }
 
@@ -996,9 +1002,29 @@ export default class GameScene extends Phaser.Scene {
    *  0-99 scale (stats themselves average ~1.0, scaled up so a typical
    *  player lands somewhere around 70 rather than reading as "1"). */
   _playerRating(p){
+    return Phaser.Math.Clamp(Math.round(this._ratingRaw(p)*70),30,99);
+  }
+  /** Unrounded, unclamped version of _playerRating — the displayed
+   *  rating collapses almost everyone to the same 68-73 integer (the
+   *  official stat data conserves a near-fixed total per character), so
+   *  picking "the better players" needs the finer-grained number
+   *  underneath that display rounding throws away. */
+  _ratingRaw(p){
     const st=p.stats;
-    const avg=(st.speed+st.shotPower+st.dribblePower+st.defensePower+st.keeperPower)/5;
-    return Phaser.Math.Clamp(Math.round(avg*70),30,99);
+    return (st.speed+st.shotPower+st.dribblePower+st.defensePower+st.keeperPower)/5;
+  }
+  /** The better half (or whatever `frac` says) of `pool`, kept separate
+   *  per position — so "top players" still gives a formation-fillable
+   *  spread of keepers/defenders/midfielders/forwards instead of, say,
+   *  skewing toward whichever position happens to rate marginally
+   *  higher on average. */
+  _topPercentileByPosition(pool,frac=0.2){
+    const byPos={};
+    for(const p of pool) (byPos[p.position]=byPos[p.position]||[]).push(p);
+    return Object.values(byPos).flatMap(list=>{
+      list.sort((a,b)=>this._ratingRaw(b)-this._ratingRaw(a));
+      return list.slice(0,Math.max(1,Math.ceil(list.length*frac)));
+    });
   }
   /** Average rating across a set of roster ids (a squad's XI, say) — null
    *  if there's nobody to average yet. */
@@ -1242,16 +1268,17 @@ export default class GameScene extends Phaser.Scene {
     this._renderPitch(); this._renderPickList();
   }
 
-  /** `clubOnly` narrows the pool to players who belong to a real team. Those
-   *  are the ones the source spreadsheet actually covers, so they come out
-   *  far stronger and more recognisable than a draw from the whole roster,
-   *  most of which is filler. */
-  _randomize(clubOnly=false){
+  /** `topOnly` narrows the pool to the top 20% rated players at each
+   *  position (see _topPercentileByPosition) instead of the whole
+   *  roster, for a stronger, more competitive XI. (Used to mean "on a
+   *  real team" instead — but every player has one now, so that filter
+   *  stopped meaning anything.) */
+  _randomize(topOnly=false){
     // Shape first, then fill it position by position — the slot roles depend
     // on the formation, so picking it afterwards would mismatch them.
     this._edSetFormation(Phaser.Utils.Array.GetRandom(Object.keys(FORMATIONS)));
     document.getElementById('formation-select').value=this._edFormation();
-    this._fillSquadByPosition(clubOnly?this.rosterAll.filter(p=>p.team):this.rosterAll);
+    this._fillSquadByPosition(topOnly?this._topPercentileByPosition(this.rosterAll):this.rosterAll);
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }

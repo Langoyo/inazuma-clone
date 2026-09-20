@@ -1212,3 +1212,49 @@ they now show numbers in the games' own stat range instead (`⚡ Shot
 90`, `SPD 111`). Nothing gameplay-facing changed: the stored data and
 the physics code that reads it are untouched, this only affects what
 gets printed on screen.
+
+## "Use whole team" → "Select from here", and a real top-players filter
+
+Two small squad-builder changes:
+- **"Use whole team" renamed to "Select from here"** — it never filled
+  from a whole *team* specifically, just whatever the current
+  team/game filter narrows the browse list down to, so the old name
+  was misleading about what it actually does.
+- **"Random (club players)" is now "Random (top players)"**, and
+  actually does something different. It used to draw only from players
+  with a `team` set — back when 3,404 players had none at all (see
+  "Filled in ~3,400 missing team affiliations" above), that was a
+  meaningful filter for "the recognisable ones". Now that every player
+  has a team, that filter matched the entire roster and did nothing.
+
+  Swapped it for an actual quality filter: each position (GK/DF/MF/FW)
+  is now ranked separately by rating and only its top 20% enter the
+  pool (`_topPercentileByPosition`), so the button draws a genuinely
+  stronger, more competitive XI while still guaranteeing a fillable
+  spread across every position — a global top-20% cut could easily
+  have skewed toward whichever position happens to rate marginally
+  higher on average instead.
+
+  One wrinkle surfaced building this: the *displayed*, rounded
+  `_playerRating` (30-99 scale) turned out to only really span **68-73**
+  across the entire 5,127-player roster, because the official stat data
+  recomputed a few commits back conserves a near-fixed total per
+  character (a built-in game-balance choice — see "Recomputed every
+  player's combat stats" above) — rounding to the nearest integer
+  collapses almost everyone into the same 2-3 values. The percentile
+  filter above sorts by the *unrounded* rating (`_ratingRaw`) instead,
+  which still orders players meaningfully even though most of them
+  would print identically if rounded.
+
+  That same rounding also broke the pitch pins' bronze/silver/gold
+  rating badge: its old thresholds (85+/70+/<70) assumed a much wider
+  spread than actually exists now, so gold had become unreachable and
+  nearly the entire roster landed in the same silver-or-bronze split.
+  Recalibrated against the real distribution — 71+ (the rare top ~6%)
+  is gold, 70 (~20%) silver, 68-69 (~74%, the common case) bronze — so
+  all three bands are reachable and meaningful again.
+
+Verified against the full Playwright suite (42/42 passing) — updated
+the existing "club players" regression test to check pool membership
+against `_topPercentileByPosition` instead of the now-meaningless
+"has a team" condition.

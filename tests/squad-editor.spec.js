@@ -2,25 +2,28 @@ import { test, expect } from '@playwright/test';
 import { waitForRosterLoaded } from './helpers.js';
 
 test.describe('random squad builders', () => {
-  test('"Random (club players)" only draws from players with a real team', async ({ page }) => {
+  test('"Random (top players)" only draws from the top-rated players at each position', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-club-btn');
+    await page.click('#randomize-top-btn');
 
     const result = await page.evaluate(() => {
       const s = window.__scene;
+      // Same call _randomize(true) itself makes — a pure function of the
+      // roster, so recomputing it here after the fact gives back the exact
+      // same pool to check membership against.
+      const topPool = new Set(s._topPercentileByPosition(s.rosterAll).map((p) => p.id));
       const ids = s.squadSlots.filter(Boolean);
-      const players = ids.map((id) => s.rosterAll.find((p) => p.id === id));
-      const benchPlayers = [...s.benchIds].map((id) => s.rosterAll.find((p) => p.id === id));
+      const benchIds = [...s.benchIds];
       return {
         count: ids.length,
-        allHaveTeam: players.every((p) => p && p.team),
-        benchAllHaveTeam: benchPlayers.every((p) => p && p.team),
+        allInTopPool: ids.every((id) => topPool.has(id)),
+        benchAllInTopPool: benchIds.every((id) => topPool.has(id)),
       };
     });
 
     expect(result.count).toBe(11);
-    expect(result.allHaveTeam).toBe(true);
-    expect(result.benchAllHaveTeam).toBe(true);
+    expect(result.allInTopPool).toBe(true);
+    expect(result.benchAllInTopPool).toBe(true);
   });
 
   test('the plain "Random" button draws from the whole roster, unaffected', async ({ page }) => {
@@ -72,7 +75,7 @@ test.describe('formations', () => {
 
   test('the Team panel picks up all ten as preset buttons', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-club-btn');
+    await page.click('#randomize-top-btn');
     await page.click('#confirm-squad-btn');
     await page.waitForTimeout(300);
     await page.click('#sub-button');
