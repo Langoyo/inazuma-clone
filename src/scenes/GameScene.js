@@ -26,6 +26,7 @@ const WAYPOINT_RADIUS   = 20;
 const MIN_PATH_PT_DIST  = 18;
 const PLAYER_SEL_RADIUS = 36;
 const DRAG_THRESHOLD    = 14;
+const PASS_MARKER_MS    = 400; // how long the tap-to-pass marker stays on screen
 const CONFRONT_MS       = 20000;
 // Shots lose steam with distance: full power up close, easing down to a
 // floor the farther out the shooter is. Values in px on the 1520-tall pitch.
@@ -1477,8 +1478,13 @@ export default class GameScene extends Phaser.Scene {
     if(!last||Phaser.Math.Distance.Between(last.x,last.y,w.x,w.y)>MIN_PATH_PT_DIST) path.push({x:w.x,y:w.y});
   }
   _pointerUp(){
-    if(this.drawing&&!this.gestureMoved&&this.gestureStart&&this.matchStarted&&!this.confrontation&&this._iHavePossession())
+    if(this.drawing&&!this.gestureMoved&&this.gestureStart&&this.matchStarted&&!this.confrontation&&this._iHavePossession()){
       this.pendingPass={x:this.gestureStart.x,y:this.gestureStart.y};
+      // Purely visual — a brief marker at the spot tapped, so a pass reads
+      // as a deliberate action instead of the ball just setting off with no
+      // feedback at all for where the tap landed.
+      this.passMarker={x:this.gestureStart.x,y:this.gestureStart.y,until:this.time.now+PASS_MARKER_MS};
+    }
     this.drawing=false; this.gestureStart=null;
   }
   _inGoalRegion(w){
@@ -1539,6 +1545,20 @@ export default class GameScene extends Phaser.Scene {
       path.forEach(pt=>this.pathGfx.lineTo(pt.x,pt.y)); this.pathGfx.strokePath();
       this.pathGfx.fillStyle(0xffe066,1); this.pathGfx.fillCircle(last.x,last.y,5);
     });
+    // Tap-to-pass feedback: a blue ring at the spot tapped, fading out over
+    // PASS_MARKER_MS rather than just vanishing — the ball's already on its
+    // way by the time this shows, so it's confirmation, not a target.
+    if(this.passMarker){
+      const remain=this.passMarker.until-this.time.now;
+      if(remain<=0) this.passMarker=null;
+      else {
+        const t=remain/PASS_MARKER_MS;
+        this.pathGfx.lineStyle(3,0x3399ff,t);
+        this.pathGfx.strokeCircle(this.passMarker.x,this.passMarker.y,10+(1-t)*10);
+        this.pathGfx.fillStyle(0x3399ff,t*0.5);
+        this.pathGfx.fillCircle(this.passMarker.x,this.passMarker.y,5);
+      }
+    }
   }
 
   // ════════════════════════════════════════════════════════════════════
