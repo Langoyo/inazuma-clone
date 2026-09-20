@@ -979,3 +979,52 @@ very tall relative to the rest of the pitch. Cut to 90px (about 40%
 shorter) — purely visual: the tap-to-shoot hitbox and the goal sensors
 are both sized independently of it, so shooting and scoring are
 unaffected.
+
+## An actual test suite
+
+All the manual verification done throughout this project — clicking
+through the game with Playwright to confirm each fix and feature — is
+now a permanent suite instead of throwaway scripts. Run it with `npm
+test`.
+
+- `playwright.config.js` boots the real dev server and runs everything
+  in a plain desktop-shaped Chromium window. Deliberately **not** one of
+  Playwright's mobile device presets (`devices['Pixel 7']` etc.) — those
+  set `isMobile`/`hasTouch`, which changes how Chromium dispatches
+  `page.mouse.*` calls into touch-style events instead of plain mouse
+  ones, breaking every drag-simulation test.
+- `src/main.js` exposes `window.__scene` (the live `GameScene`), but only
+  behind `import.meta.env.DEV` — Vite inlines that to `false` and
+  dead-code-eliminates the whole block for `vite build`, so none of it
+  ships to players.
+- `tests/kickoff.spec.js` — kickoff shape (defending side starts back,
+  the taker is never the keeper), the second half's kickoff swapping
+  sides, the half-time pause actually freezing physics and clearing its
+  own banner on resume, and the goal-sensor logic (a stray ball into the
+  net is the keeper collecting it, not a goal; a real shot confrontation
+  still scores).
+- `tests/drag-and-pass.spec.js` — a real mouse drag producing a
+  multi-point path that survives while still held; a direct regression
+  test for the auto-continue race condition described above (reproduces
+  the exact mid-drag race by manipulating scene state directly, since
+  it's a one-tick timing window no real drag can reliably hit); and the
+  tap-to-pass marker appearing and fading out on its own.
+- `tests/squad-editor.spec.js` — the club-only randomizer only drawing
+  players with a real team, the plain randomizer working over the whole
+  roster, player-list pagination (including the reset to page 1 on a new
+  search), all ten formations placing exactly 11 pins, and each
+  Formation/Browse Players collapse toggle only affecting its own
+  section.
+- `tests/difficulty.spec.js` — AI stat inflation only ever applying to
+  side B and only while nobody's connected to play it, the difficulty
+  ladder driving `aiLevel` correctly, and the dropdown showing just the
+  plain level names.
+
+A couple of these needed real care to make non-flaky under a loaded
+headless browser: reading two related bits of live state (a timer
+deadline and "now", or a banner's title and the possession it hands
+over) has to happen inside a *single* `page.evaluate`/`waitForFunction`
+call — round-tripping between two separate calls leaves a real-time gap
+where the match keeps simulating underneath you, which is long enough
+for the AI to have already reacted (thrown a pass, moved possession
+on) before your second call reads it.

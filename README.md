@@ -27,6 +27,17 @@ You can also try it solo by opening the URL in two tabs, or on your
 computer plus your phone (using the local IP, thanks to `host: true` in
 `vite.config.js`).
 
+## Running the tests
+
+```bash
+npm test
+```
+
+This runs the Playwright suite in `tests/` against a real browser (it
+starts the dev server for you). It covers kickoffs and goal sensors,
+drawing/dragging paths and tap-to-pass, the squad editor (formations,
+randomizers, pagination), and the AI difficulty ladder.
+
 ## How it's organized
 
 - `src/main.js` — boots Phaser and configures the physics engine
