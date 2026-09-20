@@ -1268,3 +1268,28 @@ line now leads with the same icon the stat grid above it already uses
 for that category (⚡ shot, 💨 dribble, 🛡 defense, 🧤 keeper —
 `TECH_CAT_ICON`), so it reads at a glance instead of requiring you to
 already know the move by name.
+
+## Mid-match team panel can now peek at the rival's formation, read-only
+
+The in-match "Team" panel only ever showed your own squad — no way to
+check what the rival was actually lined up as without guessing from
+their pitch positions. Added the same "Your Team" / "Rival Team" tab
+pattern the pre-match squad editor already uses (`_setSubPanelSide`),
+but view-only on the rival side, on purpose:
+- Formation preset buttons are hidden entirely rather than shown
+  disabled — they change *your* formation, which has no meaning (and
+  isn't yours to change) while looking at the rival's side.
+- Tapping a rival pin just opens their read-only stat card, instead of
+  arming the usual tap-to-select-then-swap flow — that flow builds a
+  cross-team pairing otherwise (a rival pin plus one of your own would
+  read as "sub my player for theirs"), which was never a real
+  substitution the game supports.
+- The panel's status line switches from "Match paused — make as many
+  changes..." to "Viewing the rival's formation — read-only" so it's
+  clear at a glance which mode you're in.
+
+Purely local UI state (`subPanelSide`, reset to "Your Team" every time
+the panel opens) — never networked, since a real opponent's team is
+already fully known to both clients locally (it has to be, to render
+their players on the pitch at all) and each side peeking at it doesn't
+need to affect the other player's screen.

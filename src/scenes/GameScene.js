@@ -400,6 +400,10 @@ export default class GameScene extends Phaser.Scene {
     this.pendingShoot=false; this.pendingPass=null;
     this.pendingChoice=null; this.pendingSub=null; this.pendingReposition=null; this.pendingTeamPanelRequest=null; this.subSel=null; this._squadSel=null;
     this.teamPanelOpen=false;
+    // Which side the mid-match team panel shows — purely local UI state,
+    // never networked, since each player can independently peek at the
+    // rival's read-only formation without affecting the other screen.
+    this.subPanelSide='me';
     this.lastStateSent=0;
 
     // Pointer handlers
@@ -420,6 +424,7 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('fulltime-menu-btn').addEventListener('click',()=>this._returnToMenu());
     document.getElementById('sub-button').addEventListener('click',()=>this._openSubPanel());
     document.getElementById('sub-cancel-btn').addEventListener('click',()=>this._closeSubPanel());
+    document.querySelectorAll('#sub-panel-side-tabs .sub-panel-side-tab').forEach(btn=>btn.addEventListener('click',()=>this._setSubPanelSide(btn.dataset.side)));
 
     // Roster load → squad editor
     this.rosterAll=[];
@@ -1517,7 +1522,8 @@ export default class GameScene extends Phaser.Scene {
    *  that later call see "no change" and skip pausing entirely. */
   _openSubPanel(){
     this.pendingTeamPanelRequest='open';
-    this.subSel=null; this._subPanelSig=null; this._renderSubPanel();
+    this.subSel=null; this._subPanelSig=null;
+    this._setSubPanelSide('me');
     document.getElementById('sub-panel').style.display='flex';
   }
   _closeSubPanel(){
@@ -1534,7 +1540,7 @@ export default class GameScene extends Phaser.Scene {
     this.teamPanelOpen=!!open;
     this._setPaused(this.teamPanelOpen);
     document.getElementById('sub-panel').style.display=this.teamPanelOpen?'flex':'none';
-    if(this.teamPanelOpen){ this.subSel=null; this._subPanelSig=null; this._renderSubPanel(); }
+    if(this.teamPanelOpen){ this.subSel=null; this._subPanelSig=null; this._setSubPanelSide('me'); }
   }
 
   /** Holds the simulation still without stopping the scene: Matter stops
@@ -1565,6 +1571,15 @@ export default class GameScene extends Phaser.Scene {
     this.stunMap.forEach((until,id)=>this.stunMap.set(id,until+dt));
     this.lastStateSent+=dt;
   }
+  /** Switches the team panel between your own (editable) squad and a
+   *  read-only peek at the rival's — local UI only, never networked (see
+   *  the `subPanelSide` field comment). */
+  _setSubPanelSide(side){
+    this.subPanelSide=side;
+    this.subSel=null;
+    document.querySelectorAll('#sub-panel-side-tabs .sub-panel-side-tab').forEach(b=>b.classList.toggle('is-primary',b.dataset.side===side));
+    this._renderSubPanel();
+  }
   _renderFormationPresets(){
     const wrap=document.getElementById('formation-preset-btns'); wrap.innerHTML='';
     const current=this.formation[this.role];
@@ -1579,23 +1594,38 @@ export default class GameScene extends Phaser.Scene {
     });
   }
   _renderSubPanel(){
-    this._renderFormationPresets();
+    const viewingRival=this.subPanelSide==='rival';
+    const oppRole=this.role==='A'?'B':'A';
+    const sideRole=viewingRival?oppRole:this.role;
+
+    // Presets change *your* formation — meaningless (and not yours to
+    // change) while looking at the rival's side, so they're hidden there
+    // rather than shown disabled.
+    document.getElementById('formation-preset-btns').style.display=viewingRival?'none':'flex';
+    if(!viewingRival) this._renderFormationPresets();
+
     const st=document.getElementById('sub-panel-state');
     if(st){
-      // Opening this panel always pauses the match now, for both players
-      // (see _setTeamPanelOpen) — so whenever it's showing, this is true.
-      st.textContent='⏸ Match paused — make as many changes as you like, then close';
-      st.className='paused';
+      if(viewingRival){
+        st.textContent="👁 Viewing the rival's formation — read-only";
+        st.className='';
+      } else {
+        // Opening this panel always pauses the match now, for both players
+        // (see _setTeamPanelOpen) — so whenever it's showing, this is true.
+        st.textContent='⏸ Match paused — make as many changes as you like, then close';
+        st.className='paused';
+      }
     }
     const listEl=document.getElementById('sub-list-inner'); listEl.innerHTML='';
-    const myTeam=this.role==='A'?this.teamA:this.teamB;
-    const myBench=this.role==='A'?(this.benchA||[]):(this.benchB||[]);
-    const pitchHtml=this._renderMiniPitch(myTeam,this.role,this.subSel);
+    const sideTeam=sideRole==='A'?this.teamA:this.teamB;
+    const sideBench=sideRole==='A'?(this.benchA||[]):(this.benchB||[]);
+    const sel=viewingRival?null:this.subSel;
+    const pitchHtml=this._renderMiniPitch(sideTeam,sideRole,sel);
     const benchHtml=`<div class="bench-strip" style="margin-top:12px;">${
-      myBench.map(id=>{
+      sideBench.map(id=>{
         const p=getPlayerById(id); if(!p) return '';
         const col=this._css3(this._rosterColor(p));
-        const selCls=(this.subSel&&this.subSel.type==='bench'&&this.subSel.id===id)?' selected':'';
+        const selCls=(!viewingRival&&this.subSel&&this.subSel.type==='bench'&&this.subSel.id===id)?' selected':'';
         return `<div class="bench-pin${selCls}" data-bench-id="${id}">
           <div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>
           ${this._posBadge(p.position)}${this._ratingBadge(p)}
@@ -1604,12 +1634,23 @@ export default class GameScene extends Phaser.Scene {
       }).join('')||'<p style="font-size:11px;opacity:.7;">No bench players.</p>'
     }</div>`;
     listEl.innerHTML=pitchHtml+benchHtml;
-    listEl.querySelectorAll('.slot-pin[data-roster-id]').forEach(pin=>{
-      pin.addEventListener('click',()=>this._onSubPinClick({type:'slot',id:pin.dataset.rosterId}));
-    });
-    listEl.querySelectorAll('.bench-pin[data-bench-id]').forEach(pin=>{
-      pin.addEventListener('click',()=>this._onSubPinClick({type:'bench',id:pin.dataset.benchId}));
-    });
+    if(viewingRival){
+      // Read-only: a tap just shows their stats, no sub/swap selection —
+      // arming a cross-team subSel would let it pair with your own pins.
+      listEl.querySelectorAll('.slot-pin[data-roster-id]').forEach(pin=>{
+        pin.addEventListener('click',()=>{ const p=getPlayerById(pin.dataset.rosterId); if(p) this._showPlayerStats(p); });
+      });
+      listEl.querySelectorAll('.bench-pin[data-bench-id]').forEach(pin=>{
+        pin.addEventListener('click',()=>{ const p=getPlayerById(pin.dataset.benchId); if(p) this._showPlayerStats(p); });
+      });
+    } else {
+      listEl.querySelectorAll('.slot-pin[data-roster-id]').forEach(pin=>{
+        pin.addEventListener('click',()=>this._onSubPinClick({type:'slot',id:pin.dataset.rosterId}));
+      });
+      listEl.querySelectorAll('.bench-pin[data-bench-id]').forEach(pin=>{
+        pin.addEventListener('click',()=>this._onSubPinClick({type:'bench',id:pin.dataset.benchId}));
+      });
+    }
   }
   _onSubPinClick(sel){
     if(!this.subSel){ this.subSel=sel; this._renderSubPanel(); return; }
@@ -2726,7 +2767,7 @@ export default class GameScene extends Phaser.Scene {
     if(!!data.teamPanelOpen!==!!this.teamPanelOpen){
       this.teamPanelOpen=!!data.teamPanelOpen;
       document.getElementById('sub-panel').style.display=this.teamPanelOpen?'flex':'none';
-      if(this.teamPanelOpen){ this.subSel=null; this._subPanelSig=null; this._renderSubPanel(); }
+      if(this.teamPanelOpen){ this.subSel=null; this._subPanelSig=null; this._setSubPanelSide('me'); }
     }
   }
 
