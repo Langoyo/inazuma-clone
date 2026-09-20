@@ -714,7 +714,7 @@ export default class GameScene extends Phaser.Scene {
       this._edSetFormation(e.target.value); this._renderPitch();
     });
     document.getElementById('randomize-squad-btn').addEventListener('click',()=>this._randomize());
-    document.getElementById('randomize-club-btn').addEventListener('click',()=>this._randomize(true));
+    document.getElementById('randomize-top-btn').addEventListener('click',()=>this._randomize(true));
     document.getElementById('squad-whole-team-btn').addEventListener('click',()=>this._useWholeTeam());
     document.getElementById('squad-search').addEventListener('input',()=>this._renderPickListReset());
     document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickListReset());
@@ -964,10 +964,16 @@ export default class GameScene extends Phaser.Scene {
     return `<span class="el-badge el-${el}">${ELEMENT_ICON[el]||''}${withName?' '+el:''}</span>`;
   }
   /** Overall rating chip for a pitch/bench pin — banded by strength so a
-   *  squad's weak spots stand out without reading each number. */
+   *  squad's weak spots stand out without reading each number.
+   *  Thresholds are recalibrated to this roster's actual spread: the
+   *  official stat data conserves a near-fixed total per character (a
+   *  built-in game-balance choice), so ratings only really range ~68-73
+   *  rather than the wider spread a threshold like 85 assumed. 71+ is
+   *  the rare top ~6%, 70 the next ~20%, everything else (68-69) the
+   *  common ~74%. */
   _ratingBadge(p){
     const r=this._playerRating(p);
-    const band=r>=85?'hi':r>=70?'mid':'low';
+    const band=r>=71?'hi':r>=70?'mid':'low';
     return `<span class="rating-badge rating-${band}">${r}</span>`;
   }
 
@@ -981,14 +987,44 @@ export default class GameScene extends Phaser.Scene {
     return p.team?`${base} (${p.game})`:base;
   }
 
+  /** Stats are stored pre-scaled for the physics/AI code (they average
+   *  ~1.0, tuned to plug directly into speed multipliers, shot power,
+   *  etc.) — showing that raw multiplier to a player just reads as an
+   *  arbitrary decimal ("SHT 0.94"). Undoing the same ~0.0105 scale the
+   *  roster data was built with gets back a number in the games' own
+   *  stat range instead, for display only; nothing gameplay-facing
+   *  reads this. */
+  _displayStat(v){
+    return Math.round(v/0.0105);
+  }
   /** A single summary number from a player's 5 core stats — not a new
    *  gameplay stat, just something readable for the cards, on a rough
    *  0-99 scale (stats themselves average ~1.0, scaled up so a typical
    *  player lands somewhere around 70 rather than reading as "1"). */
   _playerRating(p){
+    return Phaser.Math.Clamp(Math.round(this._ratingRaw(p)*70),30,99);
+  }
+  /** Unrounded, unclamped version of _playerRating — the displayed
+   *  rating collapses almost everyone to the same 68-73 integer (the
+   *  official stat data conserves a near-fixed total per character), so
+   *  picking "the better players" needs the finer-grained number
+   *  underneath that display rounding throws away. */
+  _ratingRaw(p){
     const st=p.stats;
-    const avg=(st.speed+st.shotPower+st.dribblePower+st.defensePower+st.keeperPower)/5;
-    return Phaser.Math.Clamp(Math.round(avg*70),30,99);
+    return (st.speed+st.shotPower+st.dribblePower+st.defensePower+st.keeperPower)/5;
+  }
+  /** The better half (or whatever `frac` says) of `pool`, kept separate
+   *  per position — so "top players" still gives a formation-fillable
+   *  spread of keepers/defenders/midfielders/forwards instead of, say,
+   *  skewing toward whichever position happens to rate marginally
+   *  higher on average. */
+  _topPercentileByPosition(pool,frac=0.2){
+    const byPos={};
+    for(const p of pool) (byPos[p.position]=byPos[p.position]||[]).push(p);
+    return Object.values(byPos).flatMap(list=>{
+      list.sort((a,b)=>this._ratingRaw(b)-this._ratingRaw(a));
+      return list.slice(0,Math.max(1,Math.ceil(list.length*frac)));
+    });
   }
   /** Average rating across a set of roster ids (a squad's XI, say) — null
    *  if there's nobody to average yet. */
@@ -1023,11 +1059,11 @@ export default class GameScene extends Phaser.Scene {
         <button onclick="document.getElementById('player-stat-panel').style.display='none'" style="margin-left:auto;background:none;border:none;color:white;font-size:20px;cursor:pointer">×</button>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px;">
-        <div>⚡ Shot <b>${st.shotPower.toFixed(2)}</b></div>
-        <div>💨 Dribble <b>${st.dribblePower.toFixed(2)}</b></div>
-        <div>🛡 Defense <b>${st.defensePower.toFixed(2)}</b></div>
-        <div>🧤 Keeper <b>${st.keeperPower.toFixed(2)}</b></div>
-        <div>🏃 Speed <b>${st.speed.toFixed(2)}</b></div>
+        <div>⚡ Shot <b>${this._displayStat(st.shotPower)}</b></div>
+        <div>💨 Dribble <b>${this._displayStat(st.dribblePower)}</b></div>
+        <div>🛡 Defense <b>${this._displayStat(st.defensePower)}</b></div>
+        <div>🧤 Keeper <b>${this._displayStat(st.keeperPower)}</b></div>
+        <div>🏃 Speed <b>${this._displayStat(st.speed)}</b></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px;">
         <div>🔋 PT <b>${ptLine}</b></div>
@@ -1195,7 +1231,7 @@ export default class GameScene extends Phaser.Scene {
       const isSel=this._selMatchesPlayer(sel,p);
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'')+(isSel?' selected':'');
       const col=this._css3(this._rosterColor(p));
-      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">SPD ${p.stats.speed} SHT ${p.stats.shotPower}</div>`;
+      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">SPD ${this._displayStat(p.stats.speed)} SHT ${this._displayStat(p.stats.shotPower)}</div>`;
       // A list card is, for selection purposes, exactly the pin it maps to
       // (pitch slot / bench / pool) — tap to select, tap the same card again
       // to see its full stats, tap a different target to swap/place.
@@ -1232,16 +1268,17 @@ export default class GameScene extends Phaser.Scene {
     this._renderPitch(); this._renderPickList();
   }
 
-  /** `clubOnly` narrows the pool to players who belong to a real team. Those
-   *  are the ones the source spreadsheet actually covers, so they come out
-   *  far stronger and more recognisable than a draw from the whole roster,
-   *  most of which is filler. */
-  _randomize(clubOnly=false){
+  /** `topOnly` narrows the pool to the top 20% rated players at each
+   *  position (see _topPercentileByPosition) instead of the whole
+   *  roster, for a stronger, more competitive XI. (Used to mean "on a
+   *  real team" instead — but every player has one now, so that filter
+   *  stopped meaning anything.) */
+  _randomize(topOnly=false){
     // Shape first, then fill it position by position — the slot roles depend
     // on the formation, so picking it afterwards would mismatch them.
     this._edSetFormation(Phaser.Utils.Array.GetRandom(Object.keys(FORMATIONS)));
     document.getElementById('formation-select').value=this._edFormation();
-    this._fillSquadByPosition(clubOnly?this.rosterAll.filter(p=>p.team):this.rosterAll);
+    this._fillSquadByPosition(topOnly?this._topPercentileByPosition(this.rosterAll):this.rosterAll);
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
