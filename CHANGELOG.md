@@ -1139,3 +1139,61 @@ Verified against the full Playwright suite (40/42 passing — the 2
 failures are pre-existing timing-sensitive flakes in
 `drag-and-pass.spec.js`/`kickoff.spec.js`, unrelated to roster data,
 and pass cleanly in isolation).
+
+## Recomputed every player's combat stats straight from the official source
+
+This project's combat stats were originally derived from
+`Inazuma_Eleven_Manager_2026.xlsx`, a fan-made spreadsheet compilation
+that needed a fair amount of heuristic reconstruction to use (see
+"Real teams — finally" and "Real roster: 4986 players" above:
+structural-anchor row detection, a trained classifier for glued-together
+technique names, and so on). `InazumaElevenAPI`'s numbers, by contrast,
+come straight from `zukan.inazuma.jp` — the games' own official
+character database — with no reconstruction step in between. Since
+both sources ultimately trace back to the same in-game stats, and the
+API's path to them is shorter and cleaner, recomputed every player's 5
+combat stats directly from the API's raw 7-stat numbers instead of
+keeping the Excel-derived ones.
+
+First re-verified the conversion formula itself, more rigorously than
+the original check: restricting to the 5,020 roster players whose name
+matches exactly one stats entry in the API (no ambiguity possible),
+the actual ratio between our stored stat and the matching raw stat has
+a **median of precisely 0.0105 independently for all 5 stats**, with
+the spread (std. dev. ~0.0012-0.0016) fully explained by this
+project's own 2-3 decimal rounding — not by the two sources
+disagreeing. So the formula documented above (`speed ← Agility`,
+`shotPower ← Kick`, `dribblePower ← avg(Control,Technique)`,
+`defensePower ← avg(Pressure,Physical)`, `keeperPower ←
+avg(Physical,Intelligence)`, × 0.0105) was already exactly right —
+this is a re-derivation from a cleaner source, not a formula change.
+
+The one real wrinkle: 199 character names have more than one roster
+entry (one per game/era they appeared in — Mark Evans in `IE1` and
+`Ares`, for instance), and the API can likewise list several stat
+blocks under the same name. For 147 of those names every API entry
+under that name has identical stats, so which one gets used doesn't
+matter. For the other 52 (`Mark Evans`, `Axel Blaze`, `David Samford`,
+...) the stat blocks genuinely differ between entries, so each roster
+entry needed pairing with the *right* one:
+- First tried matching by team: cross-referencing each API entry's
+  scraped team list (from the earlier team-affiliation merge) against
+  the specific game-version's already-assigned `team` — 66 entries
+  resolved this way.
+- The rest (41 entries) had no team overlap to go on, so were paired
+  by rank instead: sorting that name's roster entries by their
+  existing stat average and the API's stat blocks by their raw stat
+  average, and matching lowest-to-lowest, highest-to-highest — keeping
+  each era's relative characterization (weaker/stronger version) even
+  without a definitive source for which numeric block belongs to which
+  game.
+
+Net effect: precision improved (3 decimal places throughout, versus a
+mix of 2 and 3 before) and a good number of previously-identical
+across-game duplicates (like `David Samford`'s stats being byte-for-byte
+the same in `IE1`/`IE2`/`Ares`) are now properly differentiated using
+each era's real numbers. Nothing else on any player record changed —
+techniques, team, PT, stamina all untouched. Verified against the full
+Playwright suite (41/42 passing, the one failure being the same
+pre-existing `drag-and-pass.spec.js` flake noted above, unrelated to
+roster data and passing cleanly on its own).
