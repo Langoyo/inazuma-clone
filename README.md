@@ -947,3 +947,30 @@ jugador no se mueve hasta que el duelo termine, lo cual puede leerse
 exactamente como "no hizo nada". Si te sigue pasando sin que aparezca el
 cartel de "¡Duelo!" en pantalla, seguramente sea otra cosa — avísame con
 ese detalle y sigo mirando.
+
+## El bug de "la línea no se dibuja" — encontrado de verdad
+
+Con más detalle tuyo ("pasa al terminar una línea, sobre todo hacia
+delante, y hacia atrás no falla") di con la causa real, un fallo de
+carrera en `_computeTargets`:
+
+Un arrastre corto y rápido que empieza justo donde el jugador ya está
+(típico al continuar en la misma dirección justo después de acabar la
+línea anterior, porque todavía se está moviendo hacia allí) puede añadir
+un punto que cae dentro de `WAYPOINT_RADIUS` de su posición actual. Ese
+punto se consumía en el mismo fotograma en que se dibujaba — y como el
+jugador seguía teniendo el balón, el juego lo interpretaba al instante
+como "la línea se acabó, sigue corriendo solo", que es justo el marcador
+de un solo punto sin línea. Es decir: tu nueva línea se sustituía en
+silencio por el punto de "seguir corriendo" mientras todavía la estabas
+dibujando. Al ir hacia atrás rara vez pasaba porque supone un arrastre
+más largo, que no cabe entero dentro de ese radio.
+
+Arreglado: mientras el jugador que se está arrastrando sigue siendo el
+mismo (`this.drawing && this.selectedPlayerId===e.id`), una línea que se
+queda a cero puntos ya no se asciende automáticamente a "seguir
+corriendo" — se queda esperando el siguiente punto que añada el arrastre
+en curso. El "seguir corriendo" de verdad (cuando sueltas y el jugador
+llega solo al final de una línea con balón) sigue funcionando igual que
+antes; lo comprobé forzando la carrera exacta paso a paso y por separado
+verificando que ese caso normal no se rompe.
