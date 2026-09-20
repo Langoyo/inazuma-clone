@@ -319,7 +319,16 @@ export default class GameScene extends Phaser.Scene {
     // hasn't happened yet, so both browsers loading the page at once see
     // "nobody else here" and both provisionally become 'A'. Once a peer
     // actually connects, redo the (now-real) comparison.
-    this.net.onPeerConnect(()=>this._syncRoleFromNet());
+    this.net.onPeerConnect(()=>{
+      this._syncRoleFromNet();
+      // A squad confirmed before this exact moment was sent to whatever
+      // peers existed at the time — if that was zero (confirmed faster than
+      // the handshake completed), the message just went nowhere and nothing
+      // ever retried it, leaving the other side waiting forever even though
+      // both players had actually confirmed. Resending now that a peer
+      // definitely exists costs nothing and fixes that silently-dropped case.
+      if(this.mySquadConfirmed) this.net.sendSquad(this.mySquadPayload);
+    });
 
     this._drawField();
     this.pathGfx=this.add.graphics();
@@ -524,6 +533,16 @@ export default class GameScene extends Phaser.Scene {
     base.addEventListener('pointerup',end);
     base.addEventListener('pointerleave',end);
     base.addEventListener('pointercancel',end);
+  }
+
+  /** Reflects solo-vs-AI vs. a real connected opponent in the top-right
+   *  badge — visible from the squad editor onward, not just in-match, so a
+   *  peer actually connecting (or dropping) is never silent. */
+  _updateModeBadge(){
+    const badge=document.getElementById('mode-badge');
+    const multi=this.net.hasPeer();
+    badge.textContent=multi?'👥 Multiplayer':'🤖 Solo (vs AI)';
+    badge.classList.toggle('is-multi',multi);
   }
 
   /** Re-derives which side we are from the network layer's now-current
@@ -766,16 +785,28 @@ export default class GameScene extends Phaser.Scene {
       pitch.appendChild(pin);
     });
     const strip=document.getElementById('bench-strip'); strip.innerHTML='';
-    [...this._edBench()].forEach(pid=>{
-      const p=getPlayerById(pid); if(!p) return;
-      const pin=document.createElement('div'); pin.className='bench-pin'; pin.dataset.benchId=pid;
-      const col=this._css3(this._rosterColor(p));
-      pin.innerHTML=`<div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>`
-        +this._posBadge(p.position)+this._ratingBadge(p)+`<div class="pin-name">${p.nickname||p.name}</div>`;
-      if(sel&&sel.type==='bench'&&sel.id===pid) pin.classList.add('selected');
-      pin.addEventListener('click',()=>this._onSquadPinClick({type:'bench',id:pid}));
+    const benchIds=[...this._edBench()];
+    // Always show all BENCH_MAX spots, empty ones included — otherwise the
+    // bench is just an empty label until you've already put someone on it,
+    // giving no hint there's a 5-spot bench to fill at all (unlike the
+    // pitch, whose empty slots always show up front).
+    for(let i=0;i<BENCH_MAX;i++){
+      const pid=benchIds[i];
+      const p=pid?getPlayerById(pid):null;
+      const pin=document.createElement('div'); pin.className='bench-pin';
+      if(p){
+        pin.dataset.benchId=pid;
+        const col=this._css3(this._rosterColor(p));
+        pin.innerHTML=`<div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>`
+          +this._posBadge(p.position)+this._ratingBadge(p)+`<div class="pin-name">${p.nickname||p.name}</div>`;
+        if(sel&&sel.type==='bench'&&sel.id===pid) pin.classList.add('selected');
+        pin.addEventListener('click',()=>this._onSquadPinClick({type:'bench',id:pid}));
+      } else {
+        pin.classList.add('empty');
+        pin.innerHTML=`<div style="font-size:9px;opacity:.55">Bench</div>`;
+      }
       strip.appendChild(pin);
-    });
+    }
     document.getElementById('bench-count').textContent=this._edBench().size;
     // The counter/button reflect the side on screen, but starting the match
     // only ever needs YOUR OWN squad complete — the rival tops itself off
@@ -2219,6 +2250,7 @@ export default class GameScene extends Phaser.Scene {
   // Main loop
   // ════════════════════════════════════════════════════════════════════
   update(time,delta){
+    this._updateModeBadge();
     const amHost=this.role==='A';
     if(!amHost&&this.matchStarted&&!this.clientTeamsBuilt) this._buildClientTeams();
     if(this.matchStarted) this._tickScroll(delta);
@@ -2251,7 +2283,6 @@ export default class GameScene extends Phaser.Scene {
 
   _hostUpdate(now,delta,myInput){
     const aiActive=!this.net.hasPeer();
-    document.getElementById('ai-badge').style.display=aiActive?'block':'none';
     let inputB=this.remoteInput;
     if(aiActive){
       const eB=this._activeEntry('B');

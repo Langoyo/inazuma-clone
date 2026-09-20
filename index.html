@@ -70,17 +70,18 @@
        let pointer events through — otherwise tapping to pass silently does
        nothing over the scoreboard, the PT bar or the result banner (and the
        scoreboard sits right in front of the goal you attack). */
-    #room-ui, #ai-badge, #scoreboard, #sp-bar-wrap, #confrontation-result,
+    #room-ui, #mode-badge, #scoreboard, #sp-bar-wrap, #confrontation-result,
     #confrontation-ui, #confrontation-title, #confrontation-player-info,
     #confrontation-timer-wrap { pointer-events: none; }
     .conf-btn { pointer-events: auto; }
 
-    #room-ui, #ai-badge {
+    #room-ui, #mode-badge {
       position: fixed; top: 8px; z-index: 10; font-size: 13px;
       background: var(--panel); padding: 5px 10px; border: 3px solid #000;
     }
     #room-ui { left: 8px; }
-    #ai-badge { right: 8px; display: none; background: var(--gold); color: #1b1b1b; font-weight: bold; }
+    #mode-badge { right: 8px; background: var(--gold); color: #1b1b1b; font-weight: bold; }
+    #mode-badge.is-multi { background: var(--blue); color: #fff; }
     #scoreboard {
       position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 10;
       background: var(--panel); padding: 6px 18px; border: 3px solid #000; text-align: center;
@@ -329,7 +330,7 @@
 <body>
   <div id="room-ui">Room: <span id="room-code">-</span></div>
   <div id="scoreboard"><div class="score">0 - 0</div><div class="clock" id="match-clock">1st half — 3:00</div></div>
-  <div id="ai-badge">Playing vs AI</div>
+  <div id="mode-badge">🤖 Solo (vs AI)</div>
   <div id="game-container"></div>
   <div id="sp-bar-wrap">PT: <span id="sp-value">100/100</span> &nbsp;·&nbsp; STA: <span id="stamina-value">100%</span></div>
 
