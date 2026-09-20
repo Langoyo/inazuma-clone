@@ -917,6 +917,13 @@ export default class GameScene extends Phaser.Scene {
       } else {
         pin.classList.add('empty');
         pin.innerHTML=`<div style="font-size:9px;opacity:.55">Bench</div>`;
+        // Empty bench spots are interchangeable — there's no per-slot id to
+        // distinguish them by, so they all share the same {id:null}
+        // selection (a pool player tapped after arming one just adds to the
+        // bench; see _swapSquadSelections' bench.delete(null) being a
+        // harmless no-op).
+        if(sel&&sel.type==='bench'&&sel.id==null) pin.classList.add('selected');
+        pin.addEventListener('click',()=>this._onSquadPinClick({type:'bench',id:null}));
       }
       strip.appendChild(pin);
     }

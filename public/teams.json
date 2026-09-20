@@ -384,5 +384,1463 @@
       "Away": "#e5d5c5",
       "Away GK": "#50667c"
     }
+  },
+  "AI Academy": {
+    "kitColors": {
+      "Home": "#cbc34d",
+      "Home GK": "#cbc34d",
+      "Away": "#cbc34d",
+      "Away GK": "#cbc34d",
+      "Third": "#cbc34d"
+    }
+  },
+  "Ace Invaders": {
+    "kitColors": {
+      "Home": "#6dcb4d",
+      "Home GK": "#6dcb4d",
+      "Away": "#6dcb4d",
+      "Away GK": "#6dcb4d",
+      "Third": "#6dcb4d"
+    }
+  },
+  "Alia Academy": {
+    "kitColors": {
+      "Home": "#cb4d77",
+      "Home GK": "#cb4d77",
+      "Away": "#cb4d77",
+      "Away GK": "#cb4d77",
+      "Third": "#cb4d77"
+    }
+  },
+  "Almighty Faith": {
+    "kitColors": {
+      "Home": "#4dc7cb",
+      "Home GK": "#4dc7cb",
+      "Away": "#4dc7cb",
+      "Away GK": "#4dc7cb",
+      "Third": "#4dc7cb"
+    }
+  },
+  "Ancient Darkness": {
+    "kitColors": {
+      "Home": "#bd4dcb",
+      "Home GK": "#bd4dcb",
+      "Away": "#bd4dcb",
+      "Away GK": "#bd4dcb",
+      "Third": "#bd4dcb"
+    }
+  },
+  "Apostles from the Sky": {
+    "kitColors": {
+      "Home": "#4fcb4d",
+      "Home GK": "#4fcb4d",
+      "Away": "#4fcb4d",
+      "Away GK": "#4fcb4d",
+      "Third": "#4fcb4d"
+    }
+  },
+  "Arabian Firebirds": {
+    "kitColors": {
+      "Home": "#4dcb5e",
+      "Home GK": "#4dcb5e",
+      "Away": "#4dcb5e",
+      "Away GK": "#4dcb5e",
+      "Third": "#4dcb5e"
+    }
+  },
+  "Art Club": {
+    "kitColors": {
+      "Home": "#b64dcb",
+      "Home GK": "#b64dcb",
+      "Away": "#b64dcb",
+      "Away GK": "#b64dcb",
+      "Third": "#b64dcb"
+    }
+  },
+  "Avenging Acrobats": {
+    "kitColors": {
+      "Home": "#cb584d",
+      "Home GK": "#cb584d",
+      "Away": "#cb584d",
+      "Away GK": "#cb584d",
+      "Third": "#cb584d"
+    }
+  },
+  "Back Alley Kickers": {
+    "kitColors": {
+      "Home": "#cb4d6d",
+      "Home GK": "#cb4d6d",
+      "Away": "#cb4d6d",
+      "Away GK": "#cb4d6d",
+      "Third": "#cb4d6d"
+    }
+  },
+  "Backwater Island": {
+    "kitColors": {
+      "Home": "#4dcb62",
+      "Home GK": "#4dcb62",
+      "Away": "#4dcb62",
+      "Away GK": "#4dcb62",
+      "Third": "#4dcb62"
+    }
+  },
+  "Badminton Club": {
+    "kitColors": {
+      "Home": "#cb4d51",
+      "Home GK": "#cb4d51",
+      "Away": "#cb4d51",
+      "Away GK": "#cb4d51",
+      "Third": "#cb4d51"
+    }
+  },
+  "Barcelona Orb": {
+    "kitColors": {
+      "Home": "#4dbdcb",
+      "Home GK": "#4dbdcb",
+      "Away": "#4dbdcb",
+      "Away GK": "#4dbdcb",
+      "Third": "#4dbdcb"
+    }
+  },
+  "Baseball Club Team": {
+    "kitColors": {
+      "Home": "#cba14d",
+      "Home GK": "#cba14d",
+      "Away": "#cba14d",
+      "Away GK": "#cba14d",
+      "Third": "#cba14d"
+    }
+  },
+  "Basketball Club": {
+    "kitColors": {
+      "Home": "#51cb4d",
+      "Home GK": "#51cb4d",
+      "Away": "#51cb4d",
+      "Away GK": "#51cb4d",
+      "Third": "#51cb4d"
+    }
+  },
+  "Big Bang": {
+    "kitColors": {
+      "Home": "#cb5e4d",
+      "Home GK": "#cb5e4d",
+      "Away": "#cb5e4d",
+      "Away GK": "#cb5e4d",
+      "Third": "#cb5e4d"
+    }
+  },
+  "Black Templars": {
+    "kitColors": {
+      "Home": "#cb774d",
+      "Home GK": "#cb774d",
+      "Away": "#cb774d",
+      "Away GK": "#cb774d",
+      "Third": "#cb774d"
+    }
+  },
+  "Bodybuilding Club": {
+    "kitColors": {
+      "Home": "#cba84d",
+      "Home GK": "#cba84d",
+      "Away": "#cba84d",
+      "Away GK": "#cba84d",
+      "Third": "#cba84d"
+    }
+  },
+  "Cheerleading Squad": {
+    "kitColors": {
+      "Home": "#4dcb8c",
+      "Home GK": "#4dcb8c",
+      "Away": "#4dcb8c",
+      "Away GK": "#4dcb8c",
+      "Third": "#4dcb8c"
+    }
+  },
+  "Children of the Night": {
+    "kitColors": {
+      "Home": "#cb4d99",
+      "Home GK": "#cb4d99",
+      "Away": "#cb4d99",
+      "Away GK": "#cb4d99",
+      "Third": "#cb4d99"
+    }
+  },
+  "Choir Club": {
+    "kitColors": {
+      "Home": "#cb6f4d",
+      "Home GK": "#cb6f4d",
+      "Away": "#cb6f4d",
+      "Away GK": "#cb6f4d",
+      "Third": "#cb6f4d"
+    }
+  },
+  "Chrono Storm": {
+    "kitColors": {
+      "Home": "#8c4dcb",
+      "Home GK": "#8c4dcb",
+      "Away": "#8c4dcb",
+      "Away GK": "#8c4dcb",
+      "Third": "#8c4dcb"
+    }
+  },
+  "Cleanup Committee Member": {
+    "kitColors": {
+      "Home": "#cb4d4f",
+      "Home GK": "#cb4d4f",
+      "Away": "#cb4d4f",
+      "Away GK": "#cb4d4f",
+      "Third": "#cb4d4f"
+    }
+  },
+  "Computer Club": {
+    "kitColors": {
+      "Home": "#cb4d84",
+      "Home GK": "#cb4d84",
+      "Away": "#cb4d84",
+      "Away GK": "#cb4d84",
+      "Third": "#cb4d84"
+    }
+  },
+  "Dance Club": {
+    "kitColors": {
+      "Home": "#4dcba1",
+      "Home GK": "#4dcba1",
+      "Away": "#4dcba1",
+      "Away GK": "#4dcba1",
+      "Third": "#4dcba1"
+    }
+  },
+  "Dark Emperors": {
+    "kitColors": {
+      "Home": "#cbbd4d",
+      "Home GK": "#cbbd4d",
+      "Away": "#cbbd4d",
+      "Away GK": "#cbbd4d",
+      "Third": "#cbbd4d"
+    }
+  },
+  "Demon's Horn": {
+    "kitColors": {
+      "Home": "#cb5a4d",
+      "Home GK": "#cb5a4d",
+      "Away": "#cb5a4d",
+      "Away GK": "#cb5a4d",
+      "Third": "#cb5a4d"
+    }
+  },
+  "Destroyers": {
+    "kitColors": {
+      "Home": "#cb4d7e",
+      "Home GK": "#cb4d7e",
+      "Away": "#cb4d7e",
+      "Away GK": "#cb4d7e",
+      "Third": "#cb4d7e"
+    }
+  },
+  "Devil Army Z": {
+    "kitColors": {
+      "Home": "#4dcb4f",
+      "Home GK": "#4dcb4f",
+      "Away": "#4dcb4f",
+      "Away GK": "#4dcb4f",
+      "Third": "#4dcb4f"
+    }
+  },
+  "Diamond Dust": {
+    "kitColors": {
+      "Home": "#4d95cb",
+      "Home GK": "#4d95cb",
+      "Away": "#4d95cb",
+      "Away GK": "#4d95cb",
+      "Third": "#4d95cb"
+    }
+  },
+  "Dragon Link": {
+    "kitColors": {
+      "Home": "#4d62cb",
+      "Home GK": "#4d62cb",
+      "Away": "#4d62cb",
+      "Away GK": "#4d62cb",
+      "Third": "#4d62cb"
+    }
+  },
+  "Drama Club": {
+    "kitColors": {
+      "Home": "#8acb4d",
+      "Home GK": "#8acb4d",
+      "Away": "#8acb4d",
+      "Away GK": "#8acb4d",
+      "Third": "#8acb4d"
+    }
+  },
+  "Earth Eleven": {
+    "kitColors": {
+      "Home": "#4dcbc3",
+      "Home GK": "#4dcbc3",
+      "Away": "#4dcbc3",
+      "Away GK": "#4dcbc3",
+      "Third": "#4dcbc3"
+    }
+  },
+  "Eastwind": {
+    "kitColors": {
+      "Home": "#cbbf4d",
+      "Home GK": "#cbbf4d",
+      "Away": "#cbbf4d",
+      "Away GK": "#cbbf4d",
+      "Third": "#cbbf4d"
+    }
+  },
+  "El Dorado 01": {
+    "kitColors": {
+      "Home": "#cb604d",
+      "Home GK": "#cb604d",
+      "Away": "#cb604d",
+      "Away GK": "#cb604d",
+      "Third": "#cb604d"
+    }
+  },
+  "El Dorado 02": {
+    "kitColors": {
+      "Home": "#cb664d",
+      "Home GK": "#cb664d",
+      "Away": "#cb664d",
+      "Away GK": "#cb664d",
+      "Third": "#cb664d"
+    }
+  },
+  "El Dorado 03": {
+    "kitColors": {
+      "Home": "#6f4dcb",
+      "Home GK": "#6f4dcb",
+      "Away": "#6f4dcb",
+      "Away GK": "#6f4dcb",
+      "Third": "#6f4dcb"
+    }
+  },
+  "Epsilon": {
+    "kitColors": {
+      "Home": "#cb4d77",
+      "Home GK": "#cb4d77",
+      "Away": "#cb4d77",
+      "Away GK": "#cb4d77",
+      "Third": "#cb4d77"
+    }
+  },
+  "Esports Club": {
+    "kitColors": {
+      "Home": "#6dcb4d",
+      "Home GK": "#6dcb4d",
+      "Away": "#6dcb4d",
+      "Away GK": "#6dcb4d",
+      "Third": "#6dcb4d"
+    }
+  },
+  "Eternal Dancers": {
+    "kitColors": {
+      "Home": "#4d75cb",
+      "Home GK": "#4d75cb",
+      "Away": "#4d75cb",
+      "Away GK": "#4d75cb",
+      "Third": "#4d75cb"
+    }
+  },
+  "Eternal Light": {
+    "kitColors": {
+      "Home": "#cb4d4f",
+      "Home GK": "#cb4d4f",
+      "Away": "#cb4d4f",
+      "Away GK": "#cb4d4f",
+      "Third": "#cb4d4f"
+    }
+  },
+  "Everytown": {
+    "kitColors": {
+      "Home": "#cb7b4d",
+      "Home GK": "#cb7b4d",
+      "Away": "#cb7b4d",
+      "Away GK": "#cb7b4d",
+      "Third": "#cb7b4d"
+    }
+  },
+  "Falam Medius": {
+    "kitColors": {
+      "Home": "#4d82cb",
+      "Home GK": "#4d82cb",
+      "Away": "#4d82cb",
+      "Away GK": "#4d82cb",
+      "Third": "#4d82cb"
+    }
+  },
+  "Fallen Angels": {
+    "kitColors": {
+      "Home": "#cb4d6d",
+      "Home GK": "#cb4d6d",
+      "Away": "#cb4d6d",
+      "Away GK": "#cb4d6d",
+      "Third": "#cb4d6d"
+    }
+  },
+  "Fertilia Eleven": {
+    "kitColors": {
+      "Home": "#774dcb",
+      "Home GK": "#774dcb",
+      "Away": "#774dcb",
+      "Away GK": "#774dcb",
+      "Third": "#774dcb"
+    }
+  },
+  "Folk Dance Club": {
+    "kitColors": {
+      "Home": "#cbaa4d",
+      "Home GK": "#cbaa4d",
+      "Away": "#cbaa4d",
+      "Away GK": "#cbaa4d",
+      "Third": "#cbaa4d"
+    }
+  },
+  "Forest Team": {
+    "kitColors": {
+      "Home": "#cbb84d",
+      "Home GK": "#cbb84d",
+      "Away": "#cbb84d",
+      "Away GK": "#cbb84d",
+      "Third": "#cbb84d"
+    }
+  },
+  "Gahl": {
+    "kitColors": {
+      "Home": "#8e4dcb",
+      "Home GK": "#8e4dcb",
+      "Away": "#8e4dcb",
+      "Away GK": "#8e4dcb",
+      "Third": "#8e4dcb"
+    }
+  },
+  "Gatekeepers": {
+    "kitColors": {
+      "Home": "#4dcbac",
+      "Home GK": "#4dcbac",
+      "Away": "#4dcbac",
+      "Away GK": "#4dcbac",
+      "Third": "#4dcbac"
+    }
+  },
+  "Gemini Storm": {
+    "kitColors": {
+      "Home": "#4d8acb",
+      "Home GK": "#4d8acb",
+      "Away": "#4d8acb",
+      "Away GK": "#4d8acb",
+      "Third": "#4d8acb"
+    }
+  },
+  "Genesis": {
+    "kitColors": {
+      "Home": "#b0cb4d",
+      "Home GK": "#b0cb4d",
+      "Away": "#b0cb4d",
+      "Away GK": "#b0cb4d",
+      "Third": "#b0cb4d"
+    }
+  },
+  "Gihl": {
+    "kitColors": {
+      "Home": "#4dcb77",
+      "Home GK": "#4dcb77",
+      "Away": "#4dcb77",
+      "Away GK": "#4dcb77",
+      "Third": "#4dcb77"
+    }
+  },
+  "Go & Shogi Club": {
+    "kitColors": {
+      "Home": "#4daccb",
+      "Home GK": "#4daccb",
+      "Away": "#4daccb",
+      "Away GK": "#4daccb",
+      "Third": "#4daccb"
+    }
+  },
+  "Golden Oldies": {
+    "kitColors": {
+      "Home": "#cbac4d",
+      "Home GK": "#cbac4d",
+      "Away": "#cbac4d",
+      "Away GK": "#cbac4d",
+      "Third": "#cbac4d"
+    }
+  },
+  "Green Hill": {
+    "kitColors": {
+      "Home": "#cb6b4d",
+      "Home GK": "#cb6b4d",
+      "Away": "#cb6b4d",
+      "Away GK": "#cb6b4d",
+      "Third": "#cb6b4d"
+    }
+  },
+  "Guardians of the Queen": {
+    "kitColors": {
+      "Home": "#cba84d",
+      "Home GK": "#cba84d",
+      "Away": "#cba84d",
+      "Away GK": "#cba84d",
+      "Third": "#cba84d"
+    }
+  },
+  "Handball Club": {
+    "kitColors": {
+      "Home": "#cb4dae",
+      "Home GK": "#cb4dae",
+      "Away": "#cb4dae",
+      "Away GK": "#cb4dae",
+      "Third": "#cb4dae"
+    }
+  },
+  "Idol-Lovers Club": {
+    "kitColors": {
+      "Home": "#4dcb5a",
+      "Home GK": "#4dcb5a",
+      "Away": "#4dcb5a",
+      "Away GK": "#4dcb5a",
+      "Third": "#4dcb5a"
+    }
+  },
+  "Inazuma Kids FC": {
+    "kitColors": {
+      "Home": "#cbbb4d",
+      "Home GK": "#cbbb4d",
+      "Away": "#cbbb4d",
+      "Away GK": "#cbbb4d",
+      "Third": "#cbbb4d"
+    }
+  },
+  "Inazuma Legend National": {
+    "kitColors": {
+      "Home": "#cb4d77",
+      "Home GK": "#cb4d77",
+      "Away": "#cb4d77",
+      "Away GK": "#cb4d77",
+      "Third": "#cb4d77"
+    }
+  },
+  "Inazuma National": {
+    "kitColors": {
+      "Home": "#60cb4d",
+      "Home GK": "#60cb4d",
+      "Away": "#60cb4d",
+      "Away GK": "#60cb4d",
+      "Third": "#60cb4d"
+    }
+  },
+  "Ivy Selective": {
+    "kitColors": {
+      "Home": "#4dcb6b",
+      "Home GK": "#4dcb6b",
+      "Away": "#4dcb6b",
+      "Away GK": "#4dcb6b",
+      "Third": "#4dcb6b"
+    }
+  },
+  "Ixar Fleet": {
+    "kitColors": {
+      "Home": "#b6cb4d",
+      "Home GK": "#b6cb4d",
+      "Away": "#b6cb4d",
+      "Away GK": "#b6cb4d",
+      "Third": "#b6cb4d"
+    }
+  },
+  "Japanese Resistance": {
+    "kitColors": {
+      "Home": "#4dcb6b",
+      "Home GK": "#4dcb6b",
+      "Away": "#4dcb6b",
+      "Away GK": "#4dcb6b",
+      "Third": "#4dcb6b"
+    }
+  },
+  "Judo Club": {
+    "kitColors": {
+      "Home": "#cb5e4d",
+      "Home GK": "#cb5e4d",
+      "Away": "#cb5e4d",
+      "Away GK": "#cb5e4d",
+      "Third": "#cb5e4d"
+    }
+  },
+  "Karuta Club": {
+    "kitColors": {
+      "Home": "#cb774d",
+      "Home GK": "#cb774d",
+      "Away": "#cb774d",
+      "Away GK": "#cb774d",
+      "Third": "#cb774d"
+    }
+  },
+  "Kendo Club": {
+    "kitColors": {
+      "Home": "#b44dcb",
+      "Home GK": "#b44dcb",
+      "Away": "#b44dcb",
+      "Away GK": "#b44dcb",
+      "Third": "#b44dcb"
+    }
+  },
+  "Lawcrest": {
+    "kitColors": {
+      "Home": "#4d51cb",
+      "Home GK": "#4d51cb",
+      "Away": "#4d51cb",
+      "Away GK": "#4d51cb",
+      "Third": "#4d51cb"
+    }
+  },
+  "Los Invencibles": {
+    "kitColors": {
+      "Home": "#7b4dcb",
+      "Home GK": "#7b4dcb",
+      "Away": "#7b4dcb",
+      "Away GK": "#7b4dcb",
+      "Third": "#7b4dcb"
+    }
+  },
+  "Lunar Howl": {
+    "kitColors": {
+      "Home": "#844dcb",
+      "Home GK": "#844dcb",
+      "Away": "#844dcb",
+      "Away GK": "#844dcb",
+      "Third": "#844dcb"
+    }
+  },
+  "Lunar Prime Academy": {
+    "kitColors": {
+      "Home": "#9b4dcb",
+      "Home GK": "#9b4dcb",
+      "Away": "#9b4dcb",
+      "Away GK": "#9b4dcb",
+      "Third": "#9b4dcb"
+    }
+  },
+  "Lunar Sea": {
+    "kitColors": {
+      "Home": "#b6cb4d",
+      "Home GK": "#b6cb4d",
+      "Away": "#b6cb4d",
+      "Away GK": "#b6cb4d",
+      "Third": "#b6cb4d"
+    }
+  },
+  "Magic Society": {
+    "kitColors": {
+      "Home": "#cb4d79",
+      "Home GK": "#cb4d79",
+      "Away": "#cb4d79",
+      "Away GK": "#cb4d79",
+      "Third": "#cb4d79"
+    }
+  },
+  "Magmavia Eleven": {
+    "kitColors": {
+      "Home": "#cba54d",
+      "Home GK": "#cba54d",
+      "Away": "#cba54d",
+      "Away GK": "#cba54d",
+      "Third": "#cba54d"
+    }
+  },
+  "Manga Club": {
+    "kitColors": {
+      "Home": "#974dcb",
+      "Home GK": "#974dcb",
+      "Away": "#974dcb",
+      "Away GK": "#974dcb",
+      "Third": "#974dcb"
+    }
+  },
+  "Marine Biology Club": {
+    "kitColors": {
+      "Home": "#95cb4d",
+      "Home GK": "#95cb4d",
+      "Away": "#95cb4d",
+      "Away GK": "#95cb4d",
+      "Third": "#95cb4d"
+    }
+  },
+  "Martial Arts Club": {
+    "kitColors": {
+      "Home": "#b44dcb",
+      "Home GK": "#b44dcb",
+      "Away": "#b44dcb",
+      "Away GK": "#b44dcb",
+      "Third": "#b44dcb"
+    }
+  },
+  "Metal Club": {
+    "kitColors": {
+      "Home": "#6b4dcb",
+      "Home GK": "#6b4dcb",
+      "Away": "#6b4dcb",
+      "Away GK": "#6b4dcb",
+      "Third": "#6b4dcb"
+    }
+  },
+  "Milky Way Charter": {
+    "kitColors": {
+      "Home": "#9d4dcb",
+      "Home GK": "#9d4dcb",
+      "Away": "#9d4dcb",
+      "Away GK": "#9d4dcb",
+      "Third": "#9d4dcb"
+    }
+  },
+  "Mirage": {
+    "kitColors": {
+      "Home": "#4dbbcb",
+      "Home GK": "#4dbbcb",
+      "Away": "#4dbbcb",
+      "Away GK": "#4dbbcb",
+      "Third": "#4dbbcb"
+    }
+  },
+  "Modern Music Club": {
+    "kitColors": {
+      "Home": "#cb4d99",
+      "Home GK": "#cb4d99",
+      "Away": "#cb4d99",
+      "Away GK": "#cb4d99",
+      "Third": "#cb4d99"
+    }
+  },
+  "Mount Olympus": {
+    "kitColors": {
+      "Home": "#53cb4d",
+      "Home GK": "#53cb4d",
+      "Away": "#53cb4d",
+      "Away GK": "#53cb4d",
+      "Third": "#53cb4d"
+    }
+  },
+  "Muay Tigers": {
+    "kitColors": {
+      "Home": "#4d60cb",
+      "Home GK": "#4d60cb",
+      "Away": "#4d60cb",
+      "Away GK": "#4d60cb",
+      "Third": "#4d60cb"
+    }
+  },
+  "Naiadi Eleven": {
+    "kitColors": {
+      "Home": "#9fcb4d",
+      "Home GK": "#9fcb4d",
+      "Away": "#9fcb4d",
+      "Away GK": "#9fcb4d",
+      "Third": "#9fcb4d"
+    }
+  },
+  "Neo National": {
+    "kitColors": {
+      "Home": "#cb4dc7",
+      "Home GK": "#cb4dc7",
+      "Away": "#cb4dc7",
+      "Away GK": "#cb4dc7",
+      "Third": "#cb4dc7"
+    }
+  },
+  "Newspaper Club": {
+    "kitColors": {
+      "Home": "#4d7bcb",
+      "Home GK": "#4d7bcb",
+      "Away": "#4d7bcb",
+      "Away GK": "#4d7bcb",
+      "Third": "#4d7bcb"
+    }
+  },
+  "Noble Insight": {
+    "kitColors": {
+      "Home": "#c5cb4d",
+      "Home GK": "#c5cb4d",
+      "Away": "#c5cb4d",
+      "Away GK": "#c5cb4d",
+      "Third": "#c5cb4d"
+    }
+  },
+  "Northbright": {
+    "kitColors": {
+      "Home": "#4dcb79",
+      "Home GK": "#4dcb79",
+      "Away": "#4dcb79",
+      "Away GK": "#4dcb79",
+      "Third": "#4dcb79"
+    }
+  },
+  "Northern Fang": {
+    "kitColors": {
+      "Home": "#cbb64d",
+      "Home GK": "#cbb64d",
+      "Away": "#cbb64d",
+      "Away GK": "#cbb64d",
+      "Third": "#cbb64d"
+    }
+  },
+  "Nosfanatica": {
+    "kitColors": {
+      "Home": "#62cb4d",
+      "Home GK": "#62cb4d",
+      "Away": "#62cb4d",
+      "Away GK": "#62cb4d",
+      "Third": "#62cb4d"
+    }
+  },
+  "Orchid Academy": {
+    "kitColors": {
+      "Home": "#4d6dcb",
+      "Home GK": "#4d6dcb",
+      "Away": "#4d6dcb",
+      "Away GK": "#4d6dcb",
+      "Third": "#4d6dcb"
+    }
+  },
+  "Orion Eclipse": {
+    "kitColors": {
+      "Home": "#cb4d53",
+      "Home GK": "#cb4d53",
+      "Away": "#cb4d53",
+      "Away GK": "#cb4d53",
+      "Third": "#cb4d53"
+    }
+  },
+  "Perfect Cascade": {
+    "kitColors": {
+      "Home": "#4d6dcb",
+      "Home GK": "#4d6dcb",
+      "Away": "#4d6dcb",
+      "Away GK": "#4d6dcb",
+      "Third": "#4d6dcb"
+    }
+  },
+  "Pirates Cove": {
+    "kitColors": {
+      "Home": "#4dcb66",
+      "Home GK": "#4dcb66",
+      "Away": "#4dcb66",
+      "Away GK": "#4dcb66",
+      "Third": "#4dcb66"
+    }
+  },
+  "Pitch Perfectionists": {
+    "kitColors": {
+      "Home": "#4d99cb",
+      "Home GK": "#4d99cb",
+      "Away": "#4d99cb",
+      "Away GK": "#4d99cb",
+      "Third": "#4d99cb"
+    }
+  },
+  "Platos": {
+    "kitColors": {
+      "Home": "#4d4fcb",
+      "Home GK": "#4d4fcb",
+      "Away": "#4d4fcb",
+      "Away GK": "#4d4fcb",
+      "Third": "#4d4fcb"
+    }
+  },
+  "Polestar Academy": {
+    "kitColors": {
+      "Home": "#cb5e4d",
+      "Home GK": "#cb5e4d",
+      "Away": "#cb5e4d",
+      "Away GK": "#cb5e4d",
+      "Third": "#cb5e4d"
+    }
+  },
+  "Prodigy Grammar": {
+    "kitColors": {
+      "Home": "#cb684d",
+      "Home GK": "#cb684d",
+      "Away": "#cb684d",
+      "Away GK": "#cb684d",
+      "Third": "#cb684d"
+    }
+  },
+  "Prominence": {
+    "kitColors": {
+      "Home": "#68cb4d",
+      "Home GK": "#68cb4d",
+      "Away": "#68cb4d",
+      "Away GK": "#68cb4d",
+      "Third": "#68cb4d"
+    }
+  },
+  "Protocol Omega": {
+    "kitColors": {
+      "Home": "#cb4d80",
+      "Home GK": "#cb4d80",
+      "Away": "#cb4d80",
+      "Away GK": "#cb4d80",
+      "Third": "#cb4d80"
+    }
+  },
+  "Protocol Omega 2.0": {
+    "kitColors": {
+      "Home": "#aa4dcb",
+      "Home GK": "#aa4dcb",
+      "Away": "#aa4dcb",
+      "Away GK": "#aa4dcb",
+      "Third": "#aa4dcb"
+    }
+  },
+  "Protocol Omega 3.0": {
+    "kitColors": {
+      "Home": "#cb5a4d",
+      "Home GK": "#cb5a4d",
+      "Away": "#cb5a4d",
+      "Away GK": "#cb5a4d",
+      "Third": "#cb5a4d"
+    }
+  },
+  "Queen's Knights": {
+    "kitColors": {
+      "Home": "#cbae4d",
+      "Home GK": "#cbae4d",
+      "Away": "#cbae4d",
+      "Away GK": "#cbae4d",
+      "Third": "#cbae4d"
+    }
+  },
+  "Queens": {
+    "kitColors": {
+      "Home": "#714dcb",
+      "Home GK": "#714dcb",
+      "Away": "#714dcb",
+      "Away GK": "#714dcb",
+      "Third": "#714dcb"
+    }
+  },
+  "Quiz Society": {
+    "kitColors": {
+      "Home": "#cb4d88",
+      "Home GK": "#cb4d88",
+      "Away": "#cb4d88",
+      "Away GK": "#cb4d88",
+      "Third": "#cb4d88"
+    }
+  },
+  "Raging Bulls": {
+    "kitColors": {
+      "Home": "#cb4dcb",
+      "Home GK": "#cb4dcb",
+      "Away": "#cb4dcb",
+      "Away GK": "#cb4dcb",
+      "Third": "#cb4dcb"
+    }
+  },
+  "Ragnah": {
+    "kitColors": {
+      "Home": "#cb4daa",
+      "Home GK": "#cb4daa",
+      "Away": "#cb4daa",
+      "Away GK": "#cb4daa",
+      "Third": "#cb4daa"
+    }
+  },
+  "Rampart Junior High": {
+    "kitColors": {
+      "Home": "#4dcba8",
+      "Home GK": "#4dcba8",
+      "Away": "#4dcba8",
+      "Away GK": "#4dcba8",
+      "Third": "#4dcba8"
+    }
+  },
+  "Revolutionaries": {
+    "kitColors": {
+      "Home": "#b24dcb",
+      "Home GK": "#b24dcb",
+      "Away": "#b24dcb",
+      "Away GK": "#b24dcb",
+      "Third": "#b24dcb"
+    }
+  },
+  "Rugby Club": {
+    "kitColors": {
+      "Home": "#cb774d",
+      "Home GK": "#cb774d",
+      "Away": "#cb774d",
+      "Away GK": "#cb774d",
+      "Third": "#cb774d"
+    }
+  },
+  "School Committee": {
+    "kitColors": {
+      "Home": "#4dcb66",
+      "Home GK": "#4dcb66",
+      "Away": "#4dcb66",
+      "Away GK": "#4dcb66",
+      "Third": "#4dcb66"
+    }
+  },
+  "Seagull FC": {
+    "kitColors": {
+      "Home": "#cb7b4d",
+      "Home GK": "#cb7b4d",
+      "Away": "#cb7b4d",
+      "Away GK": "#cb7b4d",
+      "Third": "#cb7b4d"
+    }
+  },
+  "Secret Service": {
+    "kitColors": {
+      "Home": "#cb4dbd",
+      "Home GK": "#cb4dbd",
+      "Away": "#cb4dbd",
+      "Away GK": "#cb4dbd",
+      "Third": "#cb4dbd"
+    }
+  },
+  "Shamshir": {
+    "kitColors": {
+      "Home": "#4d90cb",
+      "Home GK": "#4d90cb",
+      "Away": "#4d90cb",
+      "Away GK": "#4d90cb",
+      "Third": "#4d90cb"
+    }
+  },
+  "Silica Eleven": {
+    "kitColors": {
+      "Home": "#bb4dcb",
+      "Home GK": "#bb4dcb",
+      "Away": "#bb4dcb",
+      "Away GK": "#bb4dcb",
+      "Third": "#bb4dcb"
+    }
+  },
+  "South Cirrus Junior High": {
+    "kitColors": {
+      "Home": "#5ccb4d",
+      "Home GK": "#5ccb4d",
+      "Away": "#5ccb4d",
+      "Away GK": "#5ccb4d",
+      "Third": "#5ccb4d"
+    }
+  },
+  "South Cirrus Shopkeepers": {
+    "kitColors": {
+      "Home": "#b84dcb",
+      "Home GK": "#b84dcb",
+      "Away": "#b84dcb",
+      "Away GK": "#b84dcb",
+      "Third": "#b84dcb"
+    }
+  },
+  "Southern Claw": {
+    "kitColors": {
+      "Home": "#cb4d6b",
+      "Home GK": "#cb4d6b",
+      "Away": "#cb4d6b",
+      "Away GK": "#cb4d6b",
+      "Third": "#cb4d6b"
+    }
+  },
+  "Space Laboratory": {
+    "kitColors": {
+      "Home": "#cb4d58",
+      "Home GK": "#cb4d58",
+      "Away": "#cb4d58",
+      "Away GK": "#cb4d58",
+      "Third": "#cb4d58"
+    }
+  },
+  "Space Rankers": {
+    "kitColors": {
+      "Home": "#5c4dcb",
+      "Home GK": "#5c4dcb",
+      "Away": "#5c4dcb",
+      "Away GK": "#5c4dcb",
+      "Third": "#5c4dcb"
+    }
+  },
+  "Storm Wolves": {
+    "kitColors": {
+      "Home": "#cbc74d",
+      "Home GK": "#cbc74d",
+      "Away": "#cbc74d",
+      "Away GK": "#cbc74d",
+      "Third": "#cbc74d"
+    }
+  },
+  "Stormridge": {
+    "kitColors": {
+      "Home": "#4d64cb",
+      "Home GK": "#4d64cb",
+      "Away": "#4d64cb",
+      "Away GK": "#4d64cb",
+      "Third": "#4d64cb"
+    }
+  },
+  "Street Howlers": {
+    "kitColors": {
+      "Home": "#cb4d99",
+      "Home GK": "#cb4d99",
+      "Away": "#cb4d99",
+      "Away GK": "#cb4d99",
+      "Third": "#cb4d99"
+    }
+  },
+  "Street Sally's": {
+    "kitColors": {
+      "Home": "#ae4dcb",
+      "Home GK": "#ae4dcb",
+      "Away": "#ae4dcb",
+      "Away GK": "#ae4dcb",
+      "Third": "#ae4dcb"
+    }
+  },
+  "Student Council": {
+    "kitColors": {
+      "Home": "#cb4d4d",
+      "Home GK": "#cb4d4d",
+      "Away": "#cb4d4d",
+      "Away GK": "#cb4d4d",
+      "Third": "#cb4d4d"
+    }
+  },
+  "Sub Character": {
+    "kitColors": {
+      "Home": "#4dcb82",
+      "Home GK": "#4dcb82",
+      "Away": "#4dcb82",
+      "Away GK": "#4dcb82",
+      "Third": "#4dcb82"
+    }
+  },
+  "Sumo Club": {
+    "kitColors": {
+      "Home": "#cbbd4d",
+      "Home GK": "#cbbd4d",
+      "Away": "#cbbd4d",
+      "Away GK": "#cbbd4d",
+      "Third": "#cbbd4d"
+    }
+  },
+  "Super Triple C": {
+    "kitColors": {
+      "Home": "#9b4dcb",
+      "Home GK": "#9b4dcb",
+      "Away": "#9b4dcb",
+      "Away GK": "#9b4dcb",
+      "Third": "#9b4dcb"
+    }
+  },
+  "Supernova": {
+    "kitColors": {
+      "Home": "#cb4d4f",
+      "Home GK": "#cb4d4f",
+      "Away": "#cb4d4f",
+      "Away GK": "#cb4d4f",
+      "Third": "#cb4d4f"
+    }
+  },
+  "Surf Club": {
+    "kitColors": {
+      "Home": "#cb4da5",
+      "Home GK": "#cb4da5",
+      "Away": "#cb4da5",
+      "Away GK": "#cb4da5",
+      "Third": "#cb4da5"
+    }
+  },
+  "Swimming Club": {
+    "kitColors": {
+      "Home": "#cb8e4d",
+      "Home GK": "#cb8e4d",
+      "Away": "#cb8e4d",
+      "Away GK": "#cb8e4d",
+      "Third": "#cb8e4d"
+    }
+  },
+  "Table Tennis Club": {
+    "kitColors": {
+      "Home": "#4dcb62",
+      "Home GK": "#4dcb62",
+      "Away": "#4dcb62",
+      "Away GK": "#4dcb62",
+      "Third": "#4dcb62"
+    }
+  },
+  "Tea Ceremony Club": {
+    "kitColors": {
+      "Home": "#4dcbb6",
+      "Home GK": "#4dcbb6",
+      "Away": "#4dcbb6",
+      "Away GK": "#4dcbb6",
+      "Third": "#4dcbb6"
+    }
+  },
+  "Team D": {
+    "kitColors": {
+      "Home": "#cbb04d",
+      "Home GK": "#cbb04d",
+      "Away": "#cbb04d",
+      "Away GK": "#cbb04d",
+      "Third": "#cbb04d"
+    }
+  },
+  "Team Sharp": {
+    "kitColors": {
+      "Home": "#4dcb97",
+      "Home GK": "#4dcb97",
+      "Away": "#4dcb97",
+      "Away GK": "#4dcb97",
+      "Third": "#4dcb97"
+    }
+  },
+  "Team Zero": {
+    "kitColors": {
+      "Home": "#564dcb",
+      "Home GK": "#564dcb",
+      "Away": "#564dcb",
+      "Away GK": "#564dcb",
+      "Third": "#564dcb"
+    }
+  },
+  "Team Zoolan": {
+    "kitColors": {
+      "Home": "#4dc3cb",
+      "Home GK": "#4dc3cb",
+      "Away": "#4dc3cb",
+      "Away GK": "#4dc3cb",
+      "Third": "#4dc3cb"
+    }
+  },
+  "Tennis Club": {
+    "kitColors": {
+      "Home": "#974dcb",
+      "Home GK": "#974dcb",
+      "Away": "#974dcb",
+      "Away GK": "#974dcb",
+      "Third": "#974dcb"
+    }
+  },
+  "The Aquatic Wings": {
+    "kitColors": {
+      "Home": "#4dcb66",
+      "Home GK": "#4dcb66",
+      "Away": "#4dcb66",
+      "Away GK": "#4dcb66",
+      "Third": "#4dcb66"
+    }
+  },
+  "The Cape Crusaders": {
+    "kitColors": {
+      "Home": "#844dcb",
+      "Home GK": "#844dcb",
+      "Away": "#844dcb",
+      "Away GK": "#844dcb",
+      "Third": "#844dcb"
+    }
+  },
+  "The Crimson Hounds": {
+    "kitColors": {
+      "Home": "#cb4d8c",
+      "Home GK": "#cb4d8c",
+      "Away": "#cb4d8c",
+      "Away GK": "#cb4d8c",
+      "Third": "#cb4d8c"
+    }
+  },
+  "The Despairadoes": {
+    "kitColors": {
+      "Home": "#4dcbb2",
+      "Home GK": "#4dcbb2",
+      "Away": "#4dcbb2",
+      "Away GK": "#4dcbb2",
+      "Third": "#4dcbb2"
+    }
+  },
+  "The Golden Bears": {
+    "kitColors": {
+      "Home": "#cbb24d",
+      "Home GK": "#cbb24d",
+      "Away": "#cbb24d",
+      "Away GK": "#cbb24d",
+      "Third": "#cbb24d"
+    }
+  },
+  "The Night Vipers": {
+    "kitColors": {
+      "Home": "#cb4da5",
+      "Home GK": "#cb4da5",
+      "Away": "#cb4da5",
+      "Away GK": "#cb4da5",
+      "Third": "#cb4da5"
+    }
+  },
+  "The Sambassadors": {
+    "kitColors": {
+      "Home": "#cb864d",
+      "Home GK": "#cb864d",
+      "Away": "#cb864d",
+      "Away GK": "#cb864d",
+      "Third": "#cb864d"
+    }
+  },
+  "The Sherwinds": {
+    "kitColors": {
+      "Home": "#4dcb9d",
+      "Home GK": "#4dcb9d",
+      "Away": "#4dcb9d",
+      "Away GK": "#4dcb9d",
+      "Third": "#4dcb9d"
+    }
+  },
+  "The Snow Weasels": {
+    "kitColors": {
+      "Home": "#884dcb",
+      "Home GK": "#884dcb",
+      "Away": "#884dcb",
+      "Away GK": "#884dcb",
+      "Third": "#884dcb"
+    }
+  },
+  "The Terracotta Army": {
+    "kitColors": {
+      "Home": "#4dcb58",
+      "Home GK": "#4dcb58",
+      "Away": "#4dcb58",
+      "Away GK": "#4dcb58",
+      "Third": "#4dcb58"
+    }
+  },
+  "Track and Field Club": {
+    "kitColors": {
+      "Home": "#c74dcb",
+      "Home GK": "#c74dcb",
+      "Away": "#c74dcb",
+      "Away GK": "#c74dcb",
+      "Third": "#c74dcb"
+    }
+  },
+  "Twinford": {
+    "kitColors": {
+      "Home": "#4d8ccb",
+      "Home GK": "#4d8ccb",
+      "Away": "#4d8ccb",
+      "Away GK": "#4d8ccb",
+      "Third": "#4d8ccb"
+    }
+  },
+  "Unaffiliated": {
+    "kitColors": {
+      "Home": "#53cb4d",
+      "Home GK": "#53cb4d",
+      "Away": "#53cb4d",
+      "Away GK": "#53cb4d",
+      "Third": "#53cb4d"
+    }
+  },
+  "Universal": {
+    "kitColors": {
+      "Home": "#4dcb4d",
+      "Home GK": "#4dcb4d",
+      "Away": "#4dcb4d",
+      "Away GK": "#4dcb4d",
+      "Third": "#4dcb4d"
+    }
+  },
+  "Volleyball Club": {
+    "kitColors": {
+      "Home": "#664dcb",
+      "Home GK": "#664dcb",
+      "Away": "#664dcb",
+      "Away GK": "#664dcb",
+      "Third": "#664dcb"
+    }
+  },
+  "Water Polo Club": {
+    "kitColors": {
+      "Home": "#904dcb",
+      "Home GK": "#904dcb",
+      "Away": "#904dcb",
+      "Away GK": "#904dcb",
+      "Third": "#904dcb"
+    }
+  },
+  "West Manor": {
+    "kitColors": {
+      "Home": "#7bcb4d",
+      "Home GK": "#7bcb4d",
+      "Away": "#7bcb4d",
+      "Away GK": "#7bcb4d",
+      "Third": "#7bcb4d"
+    }
+  },
+  "White Deer": {
+    "kitColors": {
+      "Home": "#4d97cb",
+      "Home GK": "#4d97cb",
+      "Away": "#4d97cb",
+      "Away GK": "#4d97cb",
+      "Third": "#4d97cb"
+    }
+  },
+  "Wind Orchestra Club": {
+    "kitColors": {
+      "Home": "#9d4dcb",
+      "Home GK": "#9d4dcb",
+      "Away": "#9d4dcb",
+      "Away GK": "#9d4dcb",
+      "Third": "#9d4dcb"
+    }
+  },
+  "Young Inazuma": {
+    "kitColors": {
+      "Home": "#cbb64d",
+      "Home GK": "#cbb64d",
+      "Away": "#cbb64d",
+      "Away GK": "#cbb64d",
+      "Third": "#cbb64d"
+    }
+  },
+  "Zan": {
+    "kitColors": {
+      "Home": "#b8cb4d",
+      "Home GK": "#b8cb4d",
+      "Away": "#b8cb4d",
+      "Away GK": "#b8cb4d",
+      "Third": "#b8cb4d"
+    }
+  },
+  "Zanark's Domain": {
+    "kitColors": {
+      "Home": "#994dcb",
+      "Home GK": "#994dcb",
+      "Away": "#994dcb",
+      "Away GK": "#994dcb",
+      "Third": "#994dcb"
+    }
+  },
+  "Zanark's Outsiders": {
+    "kitColors": {
+      "Home": "#4d4fcb",
+      "Home GK": "#4d4fcb",
+      "Away": "#4d4fcb",
+      "Away GK": "#4d4fcb",
+      "Third": "#4d4fcb"
+    }
+  },
+  "Star-Spangled Unicorns": {
+    "kitColors": {
+      "Home": "#b2346f",
+      "Home GK": "#b2346f",
+      "Away": "#b2346f",
+      "Away GK": "#b2346f",
+      "Third": "#b2346f"
+    }
   }
 }

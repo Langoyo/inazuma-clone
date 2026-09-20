@@ -82,6 +82,34 @@ test.describe('formations', () => {
   });
 });
 
+test.describe('bench slots', () => {
+  test('empty bench spots are selectable from the start, not just after one is filled', async ({ page }) => {
+    // Regression test: the bench renders all 5 spots from the start (empty
+    // ones included, so there's a visible hint there's a bench to fill at
+    // all), but the empty placeholders never got a click handler wired up —
+    // only occupied ones did — so tapping one to place a player did nothing.
+    await waitForRosterLoaded(page);
+
+    const emptyPins = page.locator('#bench-strip .bench-pin.empty');
+    await expect(emptyPins).toHaveCount(5);
+
+    await emptyPins.first().click();
+    const firstCard = page.locator('#squad-pick-list .pick-card').first();
+    const playerName = await firstCard.locator('.pick-name').textContent();
+    await firstCard.click();
+
+    const benchNames = await page.evaluate(() => {
+      const s = window.__scene;
+      return [...s.benchIds].map((id) => {
+        const p = s.rosterAll.find((r) => r.id === id);
+        return p?.nickname || p?.name;
+      });
+    });
+    expect(benchNames).toContain(playerName);
+    await expect(page.locator('#bench-strip .bench-pin.empty')).toHaveCount(4);
+  });
+});
+
 test.describe('collapsible Formation / Browse Players sections', () => {
   test('each toggle button only collapses its own section', async ({ page }) => {
     await waitForRosterLoaded(page);
