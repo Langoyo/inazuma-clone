@@ -1103,3 +1103,39 @@ than a guessed "real" kit color, since no official color source was
 available for them. Result: 4,948/4,948 players now have a team.
 Verified against the full Playwright suite (42/42 passing, no
 regressions).
+
+## Added 179 players the roster was missing entirely
+
+Comparing our roster's names against `InazumaElevenAPI`'s character
+list (see above) turned up 179 real, playable characters — not staff,
+coordinators or managers — that never made it into this project at
+all (`Zak Wallside`, `Gregory Smith`, `Stewart Vanguard`, and 176
+others). Added them using the same stat-conversion formula this
+project already uses everywhere else (documented further up this
+file): `speed ← Agility`, `shotPower ← Kick`, `dribblePower ←
+avg(Control, Technique)`, `defensePower ← avg(Pressure, Physical)`,
+`keeperPower ← avg(Physical, Intelligence)`, each scaled by the same
+~0.0105 factor — verified against the 4,948 players already in the
+roster (matching every one of them to the API by name gives a median
+ratio of 0.0105 for all five stats independently, so this isn't a
+guessed constant).
+
+Team assignment reused the team-affiliation data already scraped for
+the previous entry: 162 of the 179 matched by character id directly,
+the other 17 (accented names, a couple of romanization mismatches) by
+normalized-name lookup. One genuinely new team turned up in the
+process (`Star-Spangled Unicorns`) and got the same
+deterministically-generated placeholder color as the 161 added
+earlier.
+
+What these 179 don't have, because the API simply doesn't carry it:
+real Hissatsu techniques, or a per-player PT/physical-condition
+figure. Rather than fabricate technique names or invent numbers,
+`techniques` is left all-`null` (same as a handful of other entries
+already in the roster) and `maxSP`/`maxStamina` default to 100/150 —
+this project's existing fallback for players outside the core
+game-by-game data (`game: "VR"`, used already by ~850 other entries).
+Verified against the full Playwright suite (40/42 passing — the 2
+failures are pre-existing timing-sensitive flakes in
+`drag-and-pass.spec.js`/`kickoff.spec.js`, unrelated to roster data,
+and pass cleanly in isolation).

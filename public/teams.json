@@ -1833,5 +1833,14 @@
       "Away GK": "#4d4fcb",
       "Third": "#4d4fcb"
     }
+  },
+  "Star-Spangled Unicorns": {
+    "kitColors": {
+      "Home": "#b2346f",
+      "Home GK": "#b2346f",
+      "Away": "#b2346f",
+      "Away GK": "#b2346f",
+      "Third": "#b2346f"
+    }
   }
 }
