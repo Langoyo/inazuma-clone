@@ -149,4 +149,41 @@ test.describe('offside', () => {
 
     expect(flagged).toBe(false);
   });
+
+  test('a receiver behind the deepest outfield defender is not flagged, even with the keeper further back still', async ({ page }) => {
+    // Regression test: "second-last defender" has to count the keeper as
+    // one of the defenders (they're normally the actual last one) — the
+    // receiver here sits behind B's deepest OUTFIELD defender (the real
+    // second-last opponent, keeper counted as last), which is onside by
+    // law, but a version of _offsideLineDist that excludes the keeper
+    // from its distance list ends up using the second-deepest OUTFIELD
+    // defender instead — one player too far up — and wrongly flags it.
+    await waitForRosterLoaded(page);
+    await startMatch(page);
+
+    const flagged = await page.evaluate(() => {
+      const s = window.__scene;
+      s.confrontation = null;
+
+      const gk = s.teamB.find((e) => e.slot === 0);
+      const outfield = s.teamB.filter((e) => e.slot !== 0);
+      s.matter.body.setPosition(gk.body, { x: 400, y: 50 }); // deepest of all, near B's own goal
+      outfield.forEach((e, i) => s.matter.body.setPosition(e.body, { x: 400 + i * 60, y: 300 + i * 200 }));
+      // outfield[0] at y=300 is the true second-last defender (keeper is
+      // last); everyone else in outfield sits further back still.
+
+      const passer = s.teamA.find((e) => e.slot !== 0);
+      const receiver = s.teamA.find((e) => e.slot !== 0 && e.id !== passer.id);
+      s.teamA.forEach((e) => { if (e.slot !== 0) s.matter.body.setPosition(e.body, { x: 500, y: 1300 }); });
+      s.matter.body.setPosition(passer.body, { x: 400, y: 900 });
+      s.matter.body.setPosition(receiver.body, { x: 420, y: 400 }); // behind outfield[0] (y=300) — onside
+
+      s.possRole = 'A';
+      s._setActive('A', passer.id);
+      s._doPass('A', { x: receiver.body.position.x, y: receiver.body.position.y });
+      return !!(s.offsideFlag && s.offsideFlag.ids.has(receiver.id));
+    });
+
+    expect(flagged).toBe(false);
+  });
 });

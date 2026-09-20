@@ -394,6 +394,12 @@
 
   <!-- Team panel: change formation, and tap a pitch player + a bench player to sub -->
   <div id="sub-panel" class="panel-overlay">
+    <!-- Peeking at the rival's formation is read-only — no formation presets
+         or subs, just a look at their current lineup (see _setSubPanelSide). -->
+    <div id="sub-panel-side-tabs" style="display:flex;gap:6px;margin-bottom:10px;">
+      <button class="sub-panel-side-tab nes-btn is-primary is-compact" data-side="me">Your Team</button>
+      <button class="sub-panel-side-tab nes-btn is-compact" data-side="rival">👁 Rival Team</button>
+    </div>
     <h2 style="margin-bottom:8px;">Formation</h2>
     <div class="preset-btns" id="formation-preset-btns"></div>
     <h2 id="sub-panel-title">Squad <span class="info-icon" data-info-title="Team panel" data-info-body="Tap two pitch players to swap positions, or a pitch player then a bench one to substitute them.">ⓘ</span></h2>

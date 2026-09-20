@@ -1268,3 +1268,77 @@ line now leads with the same icon the stat grid above it already uses
 for that category (⚡ shot, 💨 dribble, 🛡 defense, 🧤 keeper —
 `TECH_CAT_ICON`), so it reads at a glance instead of requiring you to
 already know the move by name.
+
+## Mid-match team panel can now peek at the rival's formation, read-only
+
+The in-match "Team" panel only ever showed your own squad — no way to
+check what the rival was actually lined up as without guessing from
+their pitch positions. Added the same "Your Team" / "Rival Team" tab
+pattern the pre-match squad editor already uses (`_setSubPanelSide`),
+but view-only on the rival side, on purpose:
+- Formation preset buttons are hidden entirely rather than shown
+  disabled — they change *your* formation, which has no meaning (and
+  isn't yours to change) while looking at the rival's side.
+- Tapping a rival pin just opens their read-only stat card, instead of
+  arming the usual tap-to-select-then-swap flow — that flow builds a
+  cross-team pairing otherwise (a rival pin plus one of your own would
+  read as "sub my player for theirs"), which was never a real
+  substitution the game supports.
+- The panel's status line switches from "Match paused — make as many
+  changes..." to "Viewing the rival's formation — read-only" so it's
+  clear at a glance which mode you're in.
+
+Purely local UI state (`subPanelSide`, reset to "Your Team" every time
+the panel opens) — never networked, since a real opponent's team is
+already fully known to both clients locally (it has to be, to render
+their players on the pitch at all) and each side peeking at it doesn't
+need to affect the other player's screen.
+
+## Fixed a real offside false-positive, restored lost speed, fixed AI bunching
+
+Three separate reports, three separate bugs:
+
+**Offside false positives** — `_offsideLineDist` excluded the goalkeeper
+entirely from its list of defenders before picking the second-deepest
+one as "the second-last defender". That's wrong: the keeper is normally
+the actual *last* defender, so excluding them shifts the reference
+point to what's really the *third*-last defender — one player further
+forward than it should be. A receiver standing between the true
+second-last defender and that miscounted one would get flagged even
+though they're onside by the real rule (nearer to goal than the ball or
+the second-last opponent, keeper included). Fixed by counting the
+keeper in the distance list like everyone else. Covered by a new
+regression test that reproduces the exact scenario (keeper deep in
+goal, receiver sitting behind the real second-last defender but ahead
+of a further-back third one).
+
+**Speed felt off since the stats recompute** — recomputing every
+player's stats straight from `InazumaElevenAPI` (see that entry
+further up) dropped the average `speed` stat specifically by ~5%
+(0.956 → 0.911), more than the other four stats moved. `speed` maps
+1:1 from the raw Agility stat rather than averaging two raw stats like
+the others, so it took the recompute's own noise more directly, and
+speed feeds straight into both the steering force and the velocity cap
+every player moves at — so the whole match quietly got slower without
+anyone asking for that. Nudged `BASE_MAX_SPEED`/`AUTO_MAX_SPEED` back
+up by the same ~5% (this project's existing lever for this exact kind
+of global pace adjustment — see "Overall speed down another 5%"
+earlier) to compensate.
+
+**AI players bunching up in the middle when passing** — `_offBallTarget`'s
+"offer a supporting run" logic sent every off-ball teammate on the same
+side of the ball carrier to the *exact same point*
+(`carrier.x ± 130, carrier.y + 130`), regardless of which player it
+was computing for. With a blend weight of 0.65 toward that shared
+point, most of a side's outfield players collapsed onto one of just two
+spots instead of spreading across the pitch — visible as the whole team
+clumping together whenever they had the ball. Fixed by anchoring the
+support spot on each player's *own* formation position and nudging it
+toward the ball side, instead of snapping to a carrier-relative point
+shared by everyone: a quick check confirmed 9 outfield players landed
+on 9 distinct spots after the fix, versus 2 shared points before it.
+
+Verified against the full Playwright suite (44/45 passing — the one
+failure is the pre-existing `drag-and-pass.spec.js` timing flake noted
+several times above, unrelated to any of this, and passes cleanly on
+repeat).
