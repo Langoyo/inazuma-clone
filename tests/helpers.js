@@ -4,13 +4,18 @@
 // visible on screen, read scene state through the `window.__scene` hook
 // `main.js` exposes in dev builds only (see that file).
 
-/** Waits for the roster to finish loading in the squad editor. */
+/** Waits for the roster to finish loading, then clicks through the
+ *  landing page and mode-select panel (defaulting to solo) to reach the
+ *  squad editor — every test needs it open, so this is done once here
+ *  instead of repeated in each one. */
 export async function waitForRosterLoaded(page) {
   await page.goto('/');
   await page.waitForFunction(
     () => document.querySelectorAll('#squad-pick-list .pick-card').length > 0,
     { timeout: 15000 }
   );
+  await page.click('#landing-play-btn');
+  await page.click('#mode-solo-btn');
 }
 
 /** Randomizes a squad and confirms it, leaving a live match in progress. */

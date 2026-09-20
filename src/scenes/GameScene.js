@@ -311,24 +311,10 @@ export default class GameScene extends Phaser.Scene {
     this.VP_H    = this.scale.height || VIEWPORT_H;
     this.scale.on('resize', gameSize=>this._onResize(gameSize));
 
-    const roomCode=getOrCreateRoomCode();
-    document.getElementById('room-code').textContent=roomCode;
-    this.net=connectToRoom(roomCode);
-    this.role=this.net.isHost()?'A':'B';
-    // isHost() at this exact instant is only a guess: the WebRTC handshake
-    // hasn't happened yet, so both browsers loading the page at once see
-    // "nobody else here" and both provisionally become 'A'. Once a peer
-    // actually connects, redo the (now-real) comparison.
-    this.net.onPeerConnect(()=>{
-      this._syncRoleFromNet();
-      // A squad confirmed before this exact moment was sent to whatever
-      // peers existed at the time — if that was zero (confirmed faster than
-      // the handshake completed), the message just went nowhere and nothing
-      // ever retried it, leaving the other side waiting forever even though
-      // both players had actually confirmed. Resending now that a peer
-      // definitely exists costs nothing and fixes that silently-dropped case.
-      if(this.mySquadConfirmed) this.net.sendSquad(this.mySquadPayload);
-    });
+    this.roomCode=getOrCreateRoomCode();
+    document.getElementById('room-code').textContent=this.roomCode;
+    this.uiMode='solo'; // finalized once the mode-select panel resolves — see _applyUiMode
+    this._connectNet(this.roomCode);
 
     this._drawField();
     this.pathGfx=this.add.graphics();
@@ -371,7 +357,8 @@ export default class GameScene extends Phaser.Scene {
     this.formation={A:DEFAULT_FORMATION,B:DEFAULT_FORMATION};
     this.pendingFormChange=null;
 
-    this.matchClock={half:1,secondsRemaining:HALF_S,ended:false};
+    this.halfLengthS=HALF_S; // overridable via the squad editor's half-length select
+    this.matchClock={half:1,secondsRemaining:this.halfLengthS,ended:false};
     this._fullTimeShown=false; this._fullTimeTimer=null;
     this.possRole=null; this.currentPossession=null;
     this.duelLockUntil=0; this.confrontation=null;
@@ -443,14 +430,116 @@ export default class GameScene extends Phaser.Scene {
     }).catch(err=>{ document.getElementById('squad-pick-list').innerHTML=`<p style="color:#f88">Couldn't load roster.<br>${err.message}</p>`; });
 
     document.getElementById('confirm-squad-btn').addEventListener('click',()=>this._confirmSquad());
+    this.matter.world.on('collisionstart',ev=>this._collisions(ev));
+    this._initLandingAndModeFlow();
+    this._initInfoIcons();
+  }
 
-    // Networking
+  /** Every "ⓘ" icon in the app (static HTML, or injected later like the
+   *  team panel's) shares one delegated listener and one popup, keyed off
+   *  its own data-info-title/-body — so an explanation lives once, next to
+   *  whatever it explains, instead of as permanent text cluttering the
+   *  interface. */
+  _initInfoIcons(){
+    document.getElementById('info-modal-close').addEventListener('click',()=>this._hideInfo());
+    document.getElementById('info-modal').addEventListener('click',e=>{ if(e.target.id==='info-modal') this._hideInfo(); });
+    document.body.addEventListener('click',e=>{
+      const icon=e.target.closest('.info-icon'); if(!icon) return;
+      e.stopPropagation();
+      this._showInfo(icon.dataset.infoTitle||'Info',icon.dataset.infoBody||'');
+    });
+  }
+  _showInfo(title,body){
+    document.getElementById('info-modal-title').textContent=title;
+    document.getElementById('info-modal-body').textContent=body;
+    document.getElementById('info-modal').style.display='flex';
+  }
+  _hideInfo(){ document.getElementById('info-modal').style.display='none'; }
+
+  /** Connects (or reconnects, via _switchRoom) to a P2P room and wires up
+   *  every handler that depends on `this.net` — extracted so a manual room
+   *  switch (joining a friend's code instead of your own) can redo this
+   *  without duplicating it. */
+  _connectNet(code){
+    this.net=connectToRoom(code);
+    this.role=this.net.isHost()?'A':'B';
+    // isHost() at this exact instant is only a guess: the WebRTC handshake
+    // hasn't happened yet, so both browsers loading the page at once see
+    // "nobody else here" and both provisionally become 'A'. Once a peer
+    // actually connects, redo the (now-real) comparison.
+    this.net.onPeerConnect(()=>{
+      this._syncRoleFromNet();
+      // A squad confirmed before this exact moment was sent to whatever
+      // peers existed at the time — if that was zero (confirmed faster than
+      // the handshake completed), the message just went nowhere and nothing
+      // ever retried it, leaving the other side waiting forever even though
+      // both players had actually confirmed. Resending now that a peer
+      // definitely exists costs nothing and fixes that silently-dropped case.
+      if(this.mySquadConfirmed) this.net.sendSquad(this.mySquadPayload);
+    });
     this.remoteState=null;
     this.remoteInput={targets:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,repositionRequest:null,formationChange:null};
     this.net.onInput(d=>{ this.remoteInput=d; });
     this.net.onState(d=>this._incomingState(d));
     this.net.onSquad(d=>{ this.remoteSquadPayload=d; if(this.role==='A'&&this.mySquadConfirmed&&!this.matchStarted) this._startMatch(this.mySquadPayload,d); });
-    this.matter.world.on('collisionstart',ev=>this._collisions(ev));
+  }
+
+  /** Leaves the current room and joins a different one — used when the
+   *  player types a friend's code into the multiplayer join field instead
+   *  of sharing their own. Only ever called pre-match, from the mode
+   *  panel, so there's no in-progress game state to worry about losing. */
+  async _switchRoom(newCode){
+    try{ await this.net.room.leave(); }catch{}
+    const params=new URLSearchParams(window.location.search);
+    params.set('room',newCode);
+    window.history.replaceState({},'',`${window.location.pathname}?${params}`);
+    this.roomCode=newCode;
+    document.getElementById('room-code').textContent=newCode;
+    this._connectNet(newCode);
+  }
+
+  /** The very first thing a player sees: a title screen, then a choice
+   *  between solo-vs-AI and multiplayer (with room-code sharing/joining)
+   *  before the squad editor itself appears. */
+  _initLandingAndModeFlow(){
+    document.getElementById('landing-play-btn').addEventListener('click',()=>{
+      document.getElementById('landing-panel').style.display='none';
+      document.getElementById('mode-select-panel').style.display='flex';
+      document.getElementById('mode-own-code').textContent=this.roomCode;
+    });
+    document.getElementById('mode-solo-btn').addEventListener('click',()=>{
+      this.uiMode='solo';
+      this._applyUiMode();
+      document.getElementById('mode-select-panel').style.display='none';
+      document.getElementById('squad-editor-panel').style.display='flex';
+    });
+    document.getElementById('mode-multi-btn').addEventListener('click',()=>{
+      document.getElementById('mode-multi-panel').style.display='block';
+      document.getElementById('mode-own-code').textContent=this.roomCode;
+    });
+    document.getElementById('mode-copy-code-btn').addEventListener('click',async()=>{
+      const btn=document.getElementById('mode-copy-code-btn');
+      try{ await navigator.clipboard.writeText(this.roomCode); btn.textContent='✅ Copied'; }
+      catch{ btn.textContent='Copy failed'; }
+      setTimeout(()=>{ btn.textContent='📋 Copy'; },1500);
+    });
+    document.getElementById('mode-multi-start-btn').addEventListener('click',async()=>{
+      const code=document.getElementById('mode-join-input').value.trim().toUpperCase();
+      if(code&&code!==this.roomCode) await this._switchRoom(code);
+      this.uiMode='multiplayer';
+      this._applyUiMode();
+      document.getElementById('mode-select-panel').style.display='none';
+      document.getElementById('squad-editor-panel').style.display='flex';
+    });
+  }
+
+  /** A real opponent always picks their own squad, so the "Rival Team" tab
+   *  (only ever meaningful for the solo-vs-AI matchup) has no purpose in
+   *  multiplayer and would just be confusing to leave visible. */
+  _applyUiMode(){
+    const multi=this.uiMode==='multiplayer';
+    document.getElementById('squad-side-tabs').style.display=multi?'none':'flex';
+    if(multi&&this.editSide==='rival') this._setEditSide('me');
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -618,6 +707,13 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
     document.getElementById('squad-place-cancel-btn').addEventListener('click',()=>{ this._squadSel=null; this._renderPitch(); this._renderPickList(); });
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
+    document.getElementById('half-length-select').addEventListener('change',e=>{
+      this.halfLengthS=parseInt(e.target.value,10)*60;
+      // Nothing's ticking yet at this point (still in the squad editor), so
+      // it's safe to just overwrite the clock the match will start with.
+      this.matchClock.secondsRemaining=this.halfLengthS;
+      this._renderClock(this.matchClock);
+    });
     document.querySelectorAll('#squad-side-tabs .squad-side-tab').forEach(btn=>btn.addEventListener('click',()=>this._setEditSide(btn.dataset.side)));
     document.querySelectorAll('.view-tab').forEach(btn=>btn.addEventListener('click',()=>this._toggleSquadSection(btn.dataset.view)));
     document.getElementById('squad-save-btn').addEventListener('click',()=>this._saveSquad());
@@ -716,7 +812,6 @@ export default class GameScene extends Phaser.Scene {
     // .squad-side-tab class but have no data-side, so an unscoped query
     // would spuriously touch their own is-warning state too.
     document.querySelectorAll('#squad-side-tabs .squad-side-tab').forEach(b=>b.classList.toggle('is-primary',b.dataset.side===side));
-    document.getElementById('rival-tab-note').style.display=side==='rival'?'block':'none';
     this._squadSel=null;
     this._renderPitch(); this._renderPickList();
   }
@@ -1403,7 +1498,6 @@ export default class GameScene extends Phaser.Scene {
   }
   _renderSubPanel(){
     this._renderFormationPresets();
-    document.getElementById('sub-panel-title').textContent='Tap two pitch players to swap positions, or a pitch player then a bench one to substitute';
     const st=document.getElementById('sub-panel-state');
     if(st){
       st.textContent=this.paused?'⏸ Match paused — make as many changes as you like, then close'
@@ -2190,7 +2284,7 @@ export default class GameScene extends Phaser.Scene {
     this.matchClock.secondsRemaining-=delta/1000;
     if(this.matchClock.secondsRemaining<=0){
       if(this.matchClock.half===1){
-        this.matchClock.half=2; this.matchClock.secondsRemaining=HALF_S;
+        this.matchClock.half=2; this.matchClock.secondsRemaining=this.halfLengthS;
         // Whoever didn't start the match gets the second half, as in a real
         // one. Line everyone up for it and show the break, then actually
         // freeze play for a beat instead of snapping straight into the
@@ -2585,7 +2679,8 @@ export default class GameScene extends Phaser.Scene {
     techs.forEach((tech,idx)=>{
       const btn=document.createElement('button');
       btn.className='conf-btn nes-btn'; btn.dataset.idx=idx;
-      btn.innerHTML=`${tech.name}<span class="cost">${tech.cost} PT</span>`;
+      const elBadge=stats?.element?this._elBadge(stats.element):'';
+      btn.innerHTML=`${elBadge}${tech.name}<span class="cost">${tech.cost} PT</span>`;
       btn.disabled=!stats||stats.sp<tech.cost;
       if(myChoiceIsTech&&myChoice.tech===idx) btn.classList.add('is-primary');
       techWrap.appendChild(btn);
