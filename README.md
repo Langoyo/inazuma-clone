@@ -974,3 +974,21 @@ en curso. El "seguir corriendo" de verdad (cuando sueltas y el jugador
 llega solo al final de una línea con balón) sigue funcionando igual que
 antes; lo comprobé forzando la carrera exacta paso a paso y por separado
 verificando que ese caso normal no se rompe.
+
+## Seis formaciones más
+
+De las 4 originales (4-4-2, 4-3-3, 4-2-3-1, 3-5-2) a **10**: se suman
+**4-5-1**, **5-3-2**, **3-4-3**, **4-1-4-1** (mediocentro defensivo +
+línea de 4), **5-4-1** y **4-3-1-2** (rombo con mediapunta). El botón
+"Formation" del panel de equipo y el desplegable del editor las recogen
+solas — ambos leen la lista de formaciones en vez de tenerla escrita a
+mano — así que no hubo que tocar nada más para que aparecieran ahí.
+
+Cada una son 11 coordenadas (arquero + líneas de defensas/mediocentros/
+delanteros) dentro del mismo rango que ya usaban las 4 originales, y un
+array paralelo que le pone a cada puesto su rol (GK/DF/MF/FW) para el
+resto del juego — el emparejamiento entre "puesto de la formación" y
+"eleven real" no distingue mediocentro defensivo de uno de ataque, así
+que el pivote del 4-1-4-1 y el mediapunta del 4-3-1-2 quedan como MF
+normales; lo que cambia de una formación a otra es la forma en el campo,
+no ese rol.
