@@ -84,6 +84,9 @@ const BENCH_COVER       = ['GK','DF','MF','FW','MF']; // positions the auto-pick
 const HALF_S            = 3 * 60;
 const HALFTIME_PAUSE_MS = 3000; // how long play freezes for the half-time break
 const GOAL_PAUSE_MS     = 2500; // how long play freezes to show the goal banner
+const AI_SUB_CHECK_MS   = 8000; // how often the AI reconsiders its own lineup
+const AI_SUB_STAMINA    = 0.35; // fraction of maxStamina below which a player becomes a sub candidate
+const AI_MAX_SUBS       = 3;    // matches the real substitution limit
 const STATE_HZ          = 20;
 const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 
@@ -378,6 +381,7 @@ export default class GameScene extends Phaser.Scene {
     this.rivalBenchIds=new Set();
     this.rivalFormation=DEFAULT_FORMATION;
     this.aiLevel=AI_LEVEL_DEFAULT;
+    this.aiSubsUsed=0; this._aiSubCheckAt=0;
     this.mySquadConfirmed=false;
     this.mySquadPayload=null;
     this.remoteSquadPayload=null;
@@ -1629,6 +1633,32 @@ export default class GameScene extends Phaser.Scene {
     if(role==='B'&&this.gkIdB===req.outId) this.gkIdB=req.inId;
   }
 
+  /** Solo-vs-AI only: every so often the AI checks its own lineup and subs
+   *  off its most tired outfield player once they're running low, same as
+   *  a human would from the team panel — up to the real substitution
+   *  limit. Never touches the keeper (fatigue there doesn't mean much) or
+   *  anyone mid-duel, and prefers a bench replacement in the same
+   *  position when one's available. */
+  _aiConsiderSub(now){
+    if(this.aiSubsUsed>=AI_MAX_SUBS||now<this._aiSubCheckAt) return;
+    this._aiSubCheckAt=now+AI_SUB_CHECK_MS;
+    if(!this.benchB?.length) return;
+    let worst=null,worstRatio=AI_SUB_STAMINA;
+    this.teamB.forEach(e=>{
+      if(e.slot===0||this._isOut('B',e.id)) return;
+      const st=this.statsMapB.get(e.id); if(!st) return;
+      const ratio=st.stamina/st.maxStamina;
+      if(ratio<worstRatio){ worstRatio=ratio; worst=e; }
+    });
+    if(!worst) return;
+    const outRp=getPlayerById(worst.id);
+    const bench=this.benchB.map(id=>getPlayerById(id)).filter(Boolean);
+    if(!bench.length) return;
+    const inRp=bench.find(p=>p.position===outRp?.position)||bench[0];
+    this._trySub('B',{outId:worst.id,inId:inRp.id});
+    this.aiSubsUsed+=1;
+  }
+
   /** Swaps which of two pitch slots each of these two players occupies —
    *  a straight reposition, not a substitution: their PT/stamina/active-id
    *  references are all tracked by roster id already, so nothing about them
@@ -2508,6 +2538,7 @@ export default class GameScene extends Phaser.Scene {
       const ai=decideAIMove({selfPos:eB?eB.body.position:{x:this.FIELD_W/2,y:0},ballPos:this.ball.position,axis:'y',ownGoalValue:0,rivalGoalValue:this.FIELD_H,fieldPrimarySize:this.FIELD_H,
         hasBall:this.possRole==='B',goalCentre:this.FIELD_W/2});
       inputB={targets:eB?[{id:eB.id,...ai.target}]:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,repositionRequest:null,formationChange:null};
+      if(!this.paused&&!this.confrontation&&!this.matchClock.ended) this._aiConsiderSub(now);
     }
     this.currentPossession=this.possRole;
     // Paused (team panel open, solo vs AI): nothing about the match advances,
