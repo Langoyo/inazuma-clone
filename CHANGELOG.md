@@ -1488,3 +1488,27 @@ closed still only affects Formation, and closing the drawer via its
 own `✕` (the only reachable way once it's open, per above) leaves
 Formation untouched either way. Verified against the full Playwright
 suite (46/46 passing).
+
+## Moved both toggle buttons above the pitch, not stuck below it
+
+"🔍 Browse Players" used to sit right above the section it opens —
+which meant scrolling all the way down past the entire pitch/bench
+just to *find* the button, before the drawer added in the previous
+entry could even come into play. Moved both toggles into a shared
+`#squad-view-tabs` row at the very top of the panel instead, right
+below the Your Team/Rival Team tabs — visible immediately, no
+scrolling required to discover either one.
+
+On the wide (>=900px) side-by-side layout the two tabs are sized to
+match their columns below (380px/640px) so they still line up
+visually; on a narrow screen they're two equal-width buttons in one
+row. The drawer itself still starts from the very top of the screen
+(`top: 0`), so opening it now covers the tab row too, same as
+everything else behind it — the dedicated `✕` close button added in
+the previous entry is what gets you back, not scrolling up to find
+the toggle again.
+
+No test changes needed — `.view-tab` is a class-based query, so moving
+the buttons' position in the DOM doesn't affect anything that already
+worked. Verified against the full Playwright suite (46/46 passing) and
+visually at both viewport sizes.
