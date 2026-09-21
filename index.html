@@ -261,6 +261,10 @@
       .squad-column:last-child .section-toggle,
       .squad-column:last-child .section-container,
       .squad-column:last-child #squad-pick-list { width: 640px; max-width: 640px; }
+      /* Exactly 3 cards per row here, not however many the auto-fill
+         default happens to fit at 640px (4, a bit cramped) — the mobile
+         grid keeps auto-fill since there's only ever room for 1-2 there. */
+      .squad-column:last-child #squad-pick-list { grid-template-columns: repeat(3, 1fr); }
     }
     #squad-save-status { font-size: 13px; opacity: 0.9; color: var(--green); }
 

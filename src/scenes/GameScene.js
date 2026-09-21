@@ -129,6 +129,15 @@ const SUPPORT_BLEND  = 0.65;
 const PRESS_BLEND    = 0.35;
 const PRESS_RANGE    = 190;
 
+// How much the AI ball carrier's per-tick pass chance (AI_LEVELS.passChance)
+// gets scaled when nobody's actually marking them closely — same PRESS_RANGE
+// used to decide whether a defender is pressing doubles as "am I under
+// pressure" here. Passing at a flat rate regardless of pressure meant the
+// AI kept lumping the ball off even in wide open space, reading as far too
+// pass-happy; cut way down with nobody near, back to the tuned rate once
+// someone's actually closing in.
+const PASS_CHANCE_FREE_MULT = 0.25;
+
 // The formation spans the whole pitch, not just the defending half: the
 // deepest slot sits on its own goal line and the most advanced one pushes
 // up near the rival box, so defenders/midfielders/forwards end up in their
@@ -2095,6 +2104,21 @@ export default class GameScene extends Phaser.Scene {
     this.ballGfx.setPosition(x,y-h*0.55).setScale(1+h/70);
     this.ballShadow.setVisible(h>1).setPosition(x,y).setScale(1-Math.min(0.3,h/170));
   }
+  /** Closest opponent (any outfield or keeper still on the pitch) to
+   *  `entry`, in pixels — used to gauge whether the AI's ball carrier is
+   *  actually under pressure right now, rather than passing at a flat
+   *  rate regardless of whether anyone's actually closing them down. */
+  _nearestOpponentDist(role,entry){
+    const oppRole=role==='A'?'B':'A';
+    const oppTeam=oppRole==='A'?this.teamA:this.teamB;
+    let best=Infinity;
+    for(const o of oppTeam){
+      if(!o.body||this._isOut(oppRole,o.id)) continue;
+      const d=Phaser.Math.Distance.Between(entry.body.position.x,entry.body.position.y,o.body.position.x,o.body.position.y);
+      if(d<best) best=d;
+    }
+    return best;
+  }
   /** Picks a reasonable pass target for the AI: the most advanced teammate
    *  (closer to the rival goal than the passer) within a sane passing
    *  range, preferring the furthest-advanced one among nearby options. */
@@ -2710,9 +2734,13 @@ export default class GameScene extends Phaser.Scene {
         const eB=this._activeEntry('B'), p=this._aiParams();
         // Shoot as soon as it's in range rather than dithering around the box
         if(eB&&eB.body.position.y>this.FIELD_H-p.shootRange&&Math.random()<p.shootChance) this._startConfront('shot','B','A',now);
-        else if(eB&&Math.random()<p.passChance){
-          const mate=this._aiPickPassTarget('B',eB);
-          if(mate) this._doPass('B',{x:mate.body.position.x,y:mate.body.position.y});
+        else if(eB){
+          const underPressure=this._nearestOpponentDist('B',eB)<PRESS_RANGE;
+          const passChance=underPressure?p.passChance:p.passChance*PASS_CHANCE_FREE_MULT;
+          if(Math.random()<passChance){
+            const mate=this._aiPickPassTarget('B',eB);
+            if(mate) this._doPass('B',{x:mate.body.position.x,y:mate.body.position.y});
+          }
         }
       }
       if(!this.confrontation) this._checkForDuel(now);

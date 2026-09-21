@@ -1390,3 +1390,31 @@ Verified against the full Playwright suite (45/45 passing) and
 visually in a running browser at both a phone-sized and a desktop
 viewport (screenshots) — side-by-side columns and the WASD pad both
 render as expected at each.
+
+## Fixed card grid to 3 per row, AI passes only when actually pressured
+
+**Exactly 3 cards per row in the side-by-side player list** — the
+640px-wide column from the previous entry left the grid's
+`auto-fill`/`minmax(126px,1fr)` default to decide, which fit 4 fairly
+cramped cards per row. Pinned it to `grid-template-columns: repeat(3,
+1fr)` specifically at that width instead (mobile keeps `auto-fill`,
+since there's only ever room for 1-2 there regardless).
+
+**AI passing was flat-rate regardless of pressure** — `passChance`
+(`AI_LEVELS`) rolled every tick whether or not anyone was actually
+closing the ball carrier down, so the AI kept lumping the ball off
+even standing alone in open space, reading as pass-happy overall
+(open, unpressured play is the common case, so most rolls were
+happening exactly when a real player would just carry the ball
+instead). Added `_nearestOpponentDist()` — the same idea the defensive
+press logic already uses to decide who's close enough to press,
+reused here to ask the same question from the attacking side — and
+only use the full tuned `passChance` when an opponent is within
+`PRESS_RANGE`; otherwise it's cut to a quarter (`PASS_CHANCE_FREE_MULT
+= 0.25`). Passing under real pressure is unchanged; passing in space
+drops sharply.
+
+Verified against the full Playwright suite (45/45 passing) and
+directly: 3 cards confirmed per row at the 1280px viewport, and
+`_nearestOpponentDist` correctly reads ~365px with defenders pushed
+away versus 50px with one placed right next to the carrier.
