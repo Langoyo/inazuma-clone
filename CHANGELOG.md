@@ -1683,3 +1683,44 @@ test was about, so it now takes the selected player from the scene and
 checks what it actually cares about — that a real drag builds a path,
 on a player of ours, and that the path survives while the press is
 held.
+
+## Readable names on the pitch, and a keeper who stays home
+
+Two things reported together, both about the match itself.
+
+**Names.** They were 9px white Courier with a soft shadow. Legible in
+isolation, not over a pitch: thin light strokes on mid-green is barely
+any contrast, and the shadow was there because the obvious fix had
+already been tried and failed — an outline thick enough to matter at
+that size eats the letters (a 3px one on 7px text read as a black
+blob). So the contrast now comes from a dark plate behind each name
+instead, which gives every one of them the same footing wherever it
+sits, and the text moves to 12px bold Pixelify Sans — the font the
+rest of the UI already uses, and one that stays crisp small. The
+roster has long since loaded by the time a match builds its teams, so
+the webfont is reliably available by then.
+
+Size and contrast weren't the whole problem, though: players bunch up
+constantly, and two names on top of each other are unreadable whatever
+the font — worse with a plate behind each, where the pair butts
+together and reads as a single word. So a name that would land on one
+already shown this frame is now dropped instead (`_declutterLabels`).
+Which one survives follows a fixed order — the ball carrier first,
+then whoever each side is steering, then by slot — rather than
+whatever order the teams happen to be in, so a close pair resolves the
+same way for as long as they're close instead of the two flickering
+against each other frame to frame. Verified: three players stacked on
+one spot show exactly one name, and eight consecutive frames produce a
+single visibility pattern. It only ever hides a label, so a player
+already off the pitch (sent off, substituted) keeps theirs hidden.
+
+**The keeper.** When a drawn line ran out, `_runOnWaypoint` kept the
+player making ground up the pitch rather than turning straight back
+into the formation — which is right for everyone except the one player
+with somewhere specific to be. Drawing a keeper out and having them
+carry on with the rest of the attack left their goal open behind them.
+Their line ending now deletes the path instead, which hands them to
+`_offBallTarget` — where a keeper already stays on plain formation
+logic — so they head back to their post. Drawing a run for them still
+works exactly as before; this is only about where they end up once it
+finishes. Outfielders are untouched, which the tests check both ways.
