@@ -83,3 +83,80 @@ test.describe('AI substitutions', () => {
     expect(result.final).toBeLessThanOrEqual(3);
   });
 });
+
+test.describe('on-pitch name follows a lineup change', () => {
+  // Regression tests: _trySub/_tryReposition/_syncClientIds all reassign
+  // which roster player an entry represents by changing entry.id — stats,
+  // PT and possession all key off that id and picked it up immediately,
+  // but the on-pitch name is a separate Text object created once at
+  // kickoff and was never told to update. The substitute's stats were
+  // live the whole time; only the name on the pitch still said whoever
+  // used to be there, which read as the substitution having done nothing.
+
+  test('a manual substitution renames the entry on the pitch', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await startMatch(page);
+
+    const result = await page.evaluate(() => {
+      const s = window.__scene;
+      const outEntry = s.teamA.find((e) => e.slot !== 0 && e.body);
+      const outId = outEntry.id;
+      const before = outEntry.label.text;
+      const inId = s.benchA[0];
+      s._trySub('A', { outId, inId });
+      const inRp = s.rosterAll.find((r) => r.id === inId);
+      const entry = s.teamA.find((e) => e.id === inId);
+      return { before, after: entry.label.text, expected: inRp.nickname || inRp.name };
+    });
+
+    expect(result.after).not.toBe(result.before);
+    expect(result.after).toBe(result.expected);
+  });
+
+  test('a formation reposition renames both entries involved', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await startMatch(page);
+
+    const result = await page.evaluate(() => {
+      const s = window.__scene;
+      const [eA, eB] = s.teamA.filter((e) => e.slot !== 0 && e.body).slice(0, 2);
+      const beforeA = eA.label.text, beforeB = eB.label.text;
+      s._tryReposition('A', { aId: eA.id, bId: eB.id });
+      const nameA = s.rosterAll.find((r) => r.id === eA.id);
+      const nameB = s.rosterAll.find((r) => r.id === eB.id);
+      return {
+        beforeA, beforeB,
+        afterA: eA.label.text, afterB: eB.label.text,
+        expectA: nameA.nickname || nameA.name, expectB: nameB.nickname || nameB.name,
+      };
+    });
+
+    expect(result.afterA).toBe(result.expectA);
+    expect(result.afterB).toBe(result.expectB);
+    expect(result.afterA).toBe(result.beforeB); // the two genuinely swapped
+    expect(result.afterB).toBe(result.beforeA);
+  });
+
+  test('a client mirrors a substitution made on the host, name included', async ({ page }) => {
+    // _syncClientIds is what a non-hosting peer runs every frame to mirror
+    // the host's authoritative lineup — this is the path a real subbed-in
+    // player's name takes on the OTHER player's screen in a multiplayer
+    // match, not just locally for whoever tapped Confirm on the sub.
+    await waitForRosterLoaded(page);
+    await startMatch(page);
+
+    const result = await page.evaluate(() => {
+      const s = window.__scene;
+      const entry = s.teamB.find((e) => e.slot !== 0 && e.body);
+      const oldId = entry.id;
+      const before = entry.label.text;
+      const newId = s.benchB[0];
+      s._syncClientIds({ starterIds: { a: s.teamA.map((e) => e.id), b: s.teamB.map((e) => (e.id === oldId ? newId : e.id)) } });
+      const rp = s.rosterAll.find((r) => r.id === newId);
+      return { before, after: entry.label.text, expected: rp.nickname || rp.name };
+    });
+
+    expect(result.after).not.toBe(result.before);
+    expect(result.after).toBe(result.expected);
+  });
+});

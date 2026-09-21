@@ -1783,3 +1783,32 @@ moment you go to adjust it.
 automatic, and the payload/`_payloadColor` path is untouched. Three new
 tests cover the automatic preview tracking the squad, an override
 surviving a squad change, and both directions of the checkbox.
+
+## Fixed: substitutions changed nothing visible on the pitch
+
+Reported as "I'm changing players and I see no effect." The
+substitution itself was working the whole time — `_trySub` correctly
+swapped `entry.id`, moved the new player's stats into `statsMapA`/`B`,
+and updated the bench — but the on-pitch name is a separate Phaser Text
+object created once at kickoff in `_buildTeam`, and nothing ever told
+it to update. So the substitute's stats were live from the moment they
+came on, but the pitch kept showing the name of whoever they replaced,
+indefinitely. From the outside that reads as exactly "no effect,"
+because the one thing you can actually see didn't change.
+
+Same gap in two other places that reassign which player an entry
+represents by changing `entry.id`: `_tryReposition` (swapping two
+players' spots from the team panel) and `_syncClientIds` (a client
+mirroring whatever substitution or reposition the host just made) —
+the latter meaning a real opponent watching your sub over the network
+would never see the new name either, only you would (and only in your
+own head, since your own screen was equally wrong).
+
+Added one helper, `_relabelEntry(e)`, that looks up the roster player
+for `e.id` and calls `e.label.setText(...)`, and called it from all
+three sites right after each one changes `e.id`. Six tests cover it:
+the three existing `_aiConsiderSub` tests still pass unchanged, and
+three new ones in `tests/ai-subs.spec.js` check the label directly
+after a manual sub, after a reposition (both entries, and that they
+actually swapped rather than both landing on the same name), and after
+`_syncClientIds` mirrors a host-side change.

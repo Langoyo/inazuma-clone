@@ -1533,6 +1533,21 @@ export default class GameScene extends Phaser.Scene {
 
   _findGkId(ids){ return ids.find(id=>getPlayerById(id)?.position==='GK')||ids[0]; }
 
+  /** Every place that reassigns which roster player an on-pitch entry
+   *  represents after kickoff (a substitution, a reposition swap, or a
+   *  client mirroring the host's own subs/reposition over the network)
+   *  changes `e.id` — the stats lookups, PT/stamina and possession logic
+   *  all key off that and picked the change up immediately. The on-pitch
+   *  name, though, is a Text object created once in _buildTeam and never
+   *  touched again, so without this it kept showing whoever used to be
+   *  there: the substitute's stats were live but their name on the pitch
+   *  never was, which read as the substitution having silently done
+   *  nothing at all. */
+  _relabelEntry(e){
+    const p=getPlayerById(e.id);
+    if(p&&e.label) e.label.setText(p.nickname||p.name);
+  }
+
   _startMatch(payloadA,payloadB){
     this.formation.A=payloadA.formation||DEFAULT_FORMATION;
     this.formation.B=payloadB.formation||DEFAULT_FORMATION;
@@ -1926,6 +1941,7 @@ export default class GameScene extends Phaser.Scene {
     if(bIdx===-1||!entry) return;
     const rp=getPlayerById(req.inId); if(!rp) return;
     entry.id=req.inId;
+    this._relabelEntry(entry);
     if(entry.body) this.bodyOwner.set(entry.body,{role,id:req.inId});
     const st=createPlayerStats(); applyRosterPlayerToStats(st,rp); map.set(req.inId,st);
     bench.splice(bIdx,1,req.outId);
@@ -1973,6 +1989,7 @@ export default class GameScene extends Phaser.Scene {
     if(!eA||!eB) return;
     if(this._isOut(role,eA.id)||this._isOut(role,eB.id)) return; // a sent-off player can't be repositioned
     const tmp=eA.id; eA.id=eB.id; eB.id=tmp;
+    this._relabelEntry(eA); this._relabelEntry(eB);
     if(eA.body) this.bodyOwner.set(eA.body,{role,id:eA.id});
     if(eB.body) this.bodyOwner.set(eB.body,{role,id:eB.id});
   }
@@ -3047,7 +3064,7 @@ export default class GameScene extends Phaser.Scene {
 
   _syncClientIds(rs){
     if(!rs.starterIds) return;
-    ['A','B'].forEach(role=>{ const team=role==='A'?this.teamA:this.teamB,ids=role==='A'?rs.starterIds.a:rs.starterIds.b,map=role==='A'?this.statsMapA:this.statsMapB; team.forEach((e,i)=>{ const nid=ids[i]; if(nid&&nid!==e.id){e.id=nid;if(!map.has(nid)){const rp=getPlayerById(nid);if(rp){const s=createPlayerStats();applyRosterPlayerToStats(s,rp);map.set(nid,s);}}}}); });
+    ['A','B'].forEach(role=>{ const team=role==='A'?this.teamA:this.teamB,ids=role==='A'?rs.starterIds.a:rs.starterIds.b,map=role==='A'?this.statsMapA:this.statsMapB; team.forEach((e,i)=>{ const nid=ids[i]; if(nid&&nid!==e.id){e.id=nid;this._relabelEntry(e);if(!map.has(nid)){const rp=getPlayerById(nid);if(rp){const s=createPlayerStats();applyRosterPlayerToStats(s,rp);map.set(nid,s);}}}}); });
     if(rs.benchIds){this.benchA=rs.benchIds.a||this.benchA;this.benchB=rs.benchIds.b||this.benchB;}
     // PT only truly regenerates on the host — mirror its authoritative
     // values into our local copy so a client's own PT bar and technique
