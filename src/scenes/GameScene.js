@@ -401,6 +401,11 @@ export default class GameScene extends Phaser.Scene {
     this.squadSlots=Array(TEAM_SIZE).fill(null);
     this.benchIds=new Set();
     this.chosenFormation=DEFAULT_FORMATION;
+    // Null until the player actually touches the color picker — leaves
+    // _payloadColor free to fall back to the auto-derived squad color
+    // (whichever real team most of the XI belongs to) for anyone who
+    // never bothers with it, same as before this existed.
+    this.myTeamColor=null;
     // Rival-team state, only used solo vs AI — a real connected opponent
     // always picks their own squad regardless of what's set here.
     this.editSide='me';
@@ -757,6 +762,15 @@ export default class GameScene extends Phaser.Scene {
     const top=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
     return top?hexToInt(top[0]):fallback;
   }
+  /** A squad payload's kit color: whatever that player explicitly picked
+   *  (payload.color, from the "Your team color" selector), or the usual
+   *  auto-derived one if they never touched it — same fallback chain
+   *  _squadColor already provided, just with a manual override in front
+   *  of it. */
+  _payloadColor(payload, fallback){
+    if(payload.color){ const c=hexToInt(payload.color); if(c!=null) return c; }
+    return this._squadColor(payload.starterIds, fallback);
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // Squad editor (topological pitch)
@@ -777,6 +791,7 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
     document.getElementById('squad-place-cancel-btn').addEventListener('click',()=>{ this._squadSel=null; this._renderPitch(); this._renderPickList(); });
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
+    document.getElementById('my-team-color').addEventListener('input',e=>{ this.myTeamColor=e.target.value; });
     document.getElementById('half-length-select').addEventListener('change',e=>{
       this.halfLengthS=parseInt(e.target.value,10)*60;
       // Nothing's ticking yet at this point (still in the squad editor), so
@@ -1377,7 +1392,7 @@ export default class GameScene extends Phaser.Scene {
 
   _confirmSquad(){
     const starterIds=this.squadSlots.filter(Boolean); if(starterIds.length!==TEAM_SIZE) return;
-    const payload={starterIds,benchIds:[...this.benchIds],formation:this.chosenFormation};
+    const payload={starterIds,benchIds:[...this.benchIds],formation:this.chosenFormation,color:this.myTeamColor};
     this.mySquadPayload=payload; this.mySquadConfirmed=true;
     this.net.sendSquad(payload);
     document.getElementById('confirm-squad-btn').disabled=true;
@@ -1421,8 +1436,8 @@ export default class GameScene extends Phaser.Scene {
     this.formation.A=payloadA.formation||DEFAULT_FORMATION;
     this.formation.B=payloadB.formation||DEFAULT_FORMATION;
     // Ensure distinct team colors
-    const rawA=this._squadColor(payloadA.starterIds,0x3399ff);
-    const rawB=this._squadColor(payloadB.starterIds,0xff4444);
+    const rawA=this._payloadColor(payloadA,0x3399ff);
+    const rawB=this._payloadColor(payloadB,0xff4444);
     this.teamColorA=rawA;
     this.teamColorB=distinctColor(rawB,rawA);
     this.teamA=this._buildTeam('A',payloadA.starterIds,true);
@@ -1446,8 +1461,8 @@ export default class GameScene extends Phaser.Scene {
     if(this.clientTeamsBuilt||!this.mySquadPayload||!this.remoteSquadPayload) return;
     this.formation.A=this.remoteSquadPayload.formation||DEFAULT_FORMATION;
     this.formation.B=this.mySquadPayload.formation||DEFAULT_FORMATION;
-    const rawA=this._squadColor(this.remoteSquadPayload.starterIds,0x3399ff);
-    const rawB=this._squadColor(this.mySquadPayload.starterIds,0xff4444);
+    const rawA=this._payloadColor(this.remoteSquadPayload,0x3399ff);
+    const rawB=this._payloadColor(this.mySquadPayload,0xff4444);
     this.teamColorA=rawA; this.teamColorB=distinctColor(rawB,rawA);
     this.teamA=this._buildTeam('A',this.remoteSquadPayload.starterIds,false);
     this.teamB=this._buildTeam('B',this.mySquadPayload.starterIds,false);

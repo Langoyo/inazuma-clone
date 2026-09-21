@@ -1546,3 +1546,27 @@ existing bench-slots test already exercises arming a spot and filling
 it from the still-open drawer end to end), and a tap genuinely outside
 both does close it. Verified against the full Playwright suite
 (47/47 passing).
+
+## A color picker for your own team's kit
+
+Your team's on-pitch color was always picked automatically —
+whichever real team most of the starting XI actually belongs to (see
+`_squadColor`). No way to just pick a color you wanted instead, short
+of building a squad entirely out of players from one specific team.
+Added a "Your team color:" swatch next to the other match-setup
+selectors (Half length, AI difficulty) that overrides it directly.
+
+Left untouched (`myTeamColor` starts `null`), everything works exactly
+as before — a new `_payloadColor()` helper only overrides `_squadColor`'s
+usual result when the payload actually carries a `color` (added to the
+`{starterIds, benchIds, formation}` squad payload sent over
+`net.sendSquad`), so a remote opponent's own choice, or the absence of
+one, is respected too, not just the local player's. Only affects
+whichever side is *your* squad (`teamColorA`/`teamColorB` depending on
+role) — the rival AI's or a real opponent's own color is untouched
+either way.
+
+Verified directly: picking a color and starting a match makes
+`teamColorA` match it exactly (not the auto-derived one), and leaving
+it alone still produces the same color `_squadColor` always would.
+Verified against the full Playwright suite (49/49 passing).

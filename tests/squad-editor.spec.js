@@ -37,6 +37,40 @@ test.describe('random squad builders', () => {
   });
 });
 
+test.describe('team color selector', () => {
+  test('picking a color overrides the auto-derived kit color on the pitch', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+    await page.fill('#my-team-color', '#00ff00');
+    await page.dispatchEvent('#my-team-color', 'input');
+    await page.click('#confirm-squad-btn');
+    await page.waitForFunction(() => window.__scene?.matchStarted === true, { timeout: 10000 });
+
+    const info = await page.evaluate(() => {
+      const s = window.__scene;
+      return { role: s.role, teamColor: s._css3(s.role === 'A' ? s.teamColorA : s.teamColorB) };
+    });
+    expect(info.teamColor).toBe('#00ff00');
+  });
+
+  test('leaving it untouched still falls back to the auto-derived squad color', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+    const expectedColor = await page.evaluate(() => {
+      const s = window.__scene;
+      return s._css3(s._squadColor(s.squadSlots.filter(Boolean), 0x3399ff));
+    });
+    await page.click('#confirm-squad-btn');
+    await page.waitForFunction(() => window.__scene?.matchStarted === true, { timeout: 10000 });
+
+    const info = await page.evaluate(() => {
+      const s = window.__scene;
+      return { role: s.role, teamColor: s._css3(s.role === 'A' ? s.teamColorA : s.teamColorB) };
+    });
+    expect(info.teamColor).toBe(expectedColor);
+  });
+});
+
 test.describe('player list pagination', () => {
   test('pages through results and resets to page 1 on a new search', async ({ page }) => {
     await waitForRosterLoaded(page);
