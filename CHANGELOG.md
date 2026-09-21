@@ -1642,3 +1642,44 @@ above the ~0.65 the cap actually allows, and they reach it within a
 few frames. So the cap is what every run in the match is up against,
 and a change here shows up in full rather than being partly absorbed
 by how long players take to get up to speed.
+
+## The camera pad was swallowing presses meant for the pitch
+
+Turned up by a drag test that started failing intermittently after the
+pace change above — which turned out to be a real input bug the speed
+had only changed the odds of hitting.
+
+The WASD camera pad is a CSS grid shaped like a d-pad, so two of its
+six cells are empty (either side of W), and it sits inside a bare flex
+wrapper (`#scroll-controls`). All of that is transparent and reads as
+pitch, but it still covered those points, so a press there was
+swallowed instead of reaching the canvas: a player standing in the
+bottom-left corner of the screen simply couldn't be grabbed to draw a
+run, with nothing on screen to explain why. The container and the
+wrapper now let presses through (`pointer-events: none`), with only
+the buttons themselves taking their own (`pointer-events: auto`) —
+the same treatment the HUD elements above them already get, and for
+the same reason. Verified both halves: the empty cells now hit the
+canvas, and holding a button still scrolls the camera and releasing it
+still stops.
+
+Two test-side fixes came out of the same investigation, both cases of
+a test assuming something the game never promised:
+
+`findOnScreenPlayer` picked a player by viewport bounds alone, which
+its own docstring says is meant to be "a point Playwright's mouse can
+actually land on". The HUD puts real controls over the pitch (the
+camera pad bottom-left, the subs button bottom-right), and a press on
+one of those is legitimately theirs — a player standing under one is
+not grabbable, so the helper now skips them instead of handing back a
+point whose press never reaches the game.
+
+The drag test also pinned the id of the player it sampled, but play is
+live: between reading that position and the mouse landing on it, they
+can run out of `PLAYER_SEL_RADIUS` and the drag goes to whichever
+teammate is nearest the press instead. That tolerance is the whole
+point of the radius, and which player got picked was never what the
+test was about, so it now takes the selected player from the scene and
+checks what it actually cares about — that a real drag builds a path,
+on a player of ours, and that the path survives while the press is
+held.

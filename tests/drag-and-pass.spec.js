@@ -13,20 +13,29 @@ test.describe('drawing a path', () => {
     await page.mouse.down();
     await page.mouse.move(player.screenX + 60, player.screenY - 250, { steps: 20 });
 
-    const mid = await page.evaluate(
-      (id) => ({
-        pathLen: window.__scene.myPaths.get(id)?.length ?? null,
-        gestureMoved: window.__scene.gestureMoved,
-      }),
-      player.id
-    );
+    // Whose path this is comes from the scene, not the player sampled above:
+    // play is live, so between reading that position and the mouse actually
+    // landing on it they may have run out of PLAYER_SEL_RADIUS, handing the
+    // drag to a teammate nearer the press (or to the active player). Which
+    // one it is was never the point — that a real drag builds a path that
+    // then survives is.
+    const mid = await page.evaluate(() => {
+      const s = window.__scene;
+      return {
+        selectedId: s.selectedPlayerId,
+        onMyTeam: (s.role === 'A' ? s.teamA : s.teamB).some((e) => e.id === s.selectedPlayerId),
+        pathLen: s.myPaths.get(s.selectedPlayerId)?.length ?? null,
+        gestureMoved: s.gestureMoved,
+      };
+    });
     expect(mid.gestureMoved).toBe(true);
+    expect(mid.onMyTeam).toBe(true);
     expect(mid.pathLen).toBeGreaterThan(1);
 
     await page.waitForTimeout(600); // still holding — should not be consumed away
     const held = await page.evaluate(
       (id) => window.__scene.myPaths.get(id)?.length ?? null,
-      player.id
+      mid.selectedId
     );
     expect(held).not.toBeNull();
 
@@ -156,5 +165,53 @@ test.describe('tap to pass', () => {
       s._drawPaths();
     });
     expect(await page.evaluate(() => window.__scene.passMarker)).toBeNull();
+  });
+});
+
+test.describe('on-screen camera pad', () => {
+  /** The pad's own bounding box, which its grid cells are laid out inside. */
+  const padBox = (page) => page.evaluate(() => {
+    const r = document.getElementById('wasd-pad').getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  });
+
+  test('its empty corner cells let a press through to the pitch behind', async ({ page }) => {
+    // Regression test: the d-pad's grid leaves two cells empty (either side
+    // of W), and its wrapper is a bare layout box around the whole thing.
+    // Both are transparent — they read as pitch — but both still covered
+    // those points, so a press there never reached the canvas at all: a
+    // player standing in that corner couldn't be grabbed to draw a run,
+    // with nothing on screen to explain why.
+    await waitForRosterLoaded(page);
+    await startMatch(page);
+    const box = await padBox(page);
+
+    const hitAt = (x, y) => page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      return el && el.tagName;
+    }, { x, y });
+
+    expect(await hitAt(box.x + 14, box.y + 14)).toBe('CANVAS');
+    expect(await hitAt(box.x + box.w - 14, box.y + 14)).toBe('CANVAS');
+    // The buttons themselves must still take their own presses, though.
+    expect(await hitAt(box.x + box.w / 2, box.y + 14)).toBe('BUTTON');
+    expect(await hitAt(box.x + box.w / 2, box.y + box.h - 14)).toBe('BUTTON');
+  });
+
+  test('holding a button still scrolls the camera, and releasing it stops', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await startMatch(page);
+    const box = await padBox(page);
+
+    const before = await page.evaluate(() => window.__scene.cameras.main.scrollY);
+    await page.mouse.move(box.x + box.w / 2, box.y + box.h - 14); // S
+    await page.mouse.down();
+    expect(await page.evaluate(() => window.__scene.scrollKeys.down)).toBe(true);
+    await page.waitForTimeout(400);
+    await page.mouse.up();
+
+    expect(await page.evaluate(() => window.__scene.scrollKeys.down)).toBe(false);
+    const after = await page.evaluate(() => window.__scene.cameras.main.scrollY);
+    expect(after).toBeGreaterThan(before);
   });
 });

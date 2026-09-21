@@ -148,8 +148,13 @@
     #scroll-controls {
       position: fixed; left: 16px; bottom: 16px; z-index: 15;
       display: none; align-items: center; justify-content: center;
+      /* A bare wrapper around whichever control is in use, so it must not
+         take presses of its own — see the note on #wasd-pad's empty cells
+         below, which sit inside this box too. */
+      pointer-events: none;
     }
     #joy-base {
+      pointer-events: auto;
       width: 90px; height: 90px; border-radius: 50%;
       background: var(--panel); border: 3px solid #000;
       position: relative; touch-action: none; user-select: none;
@@ -175,8 +180,16 @@
       grid-template-columns: 28px 28px 28px;
       grid-template-rows: 28px 28px;
       gap: 3px;
+      /* The d-pad shape leaves two cells of this grid empty (either side of
+         W) and gaps between the rest. Those are transparent — they read as
+         pitch — but the container still covers them, so a press there was
+         swallowed instead of reaching the canvas: a player standing in that
+         corner simply couldn't be grabbed to draw a run, with nothing on
+         screen to explain why. Only the buttons themselves take presses. */
+      pointer-events: none;
     }
     #wasd-pad button {
+      pointer-events: auto;
       width: 28px; height: 28px; padding: 0; font-size: 11px; font-weight: bold;
       background: var(--panel); border: 2px solid #000; color: #fff;
       user-select: none; touch-action: none; cursor: pointer;
