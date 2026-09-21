@@ -97,16 +97,18 @@ const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 // couldn't get there with any urgency.
 const STEER_FORCE           = 0.00034;
 const AUTO_STEER_FORCE      = 0.00032;
-// was 0.684/0.627, +5% — recomputing every player's stats straight from
-// InazumaElevenAPI (see the roster/CHANGELOG history) dropped the average
-// `speed` stat specifically by ~5% (0.956 -> 0.911), since it's a 1:1 map
-// of the raw Agility stat rather than an average of two like the others,
-// so it took the recompute's own noise more directly. That made the whole
-// match feel a notch slower without anyone having asked for that — this
-// nudges the general cap back up to compensate, same lever as the earlier
-// -5% tuning pass below.
-const BASE_MAX_SPEED        = 0.718;
-const AUTO_MAX_SPEED        = 0.658;
+// The general pace lever: 0.684/0.627 originally, +5% to undo the slowdown
+// that recomputing every player's stats straight from InazumaElevenAPI
+// caused (it dropped the average `speed` stat specifically by ~5%,
+// 0.956 -> 0.911, since that one is a 1:1 map of the raw Agility stat
+// rather than an average of two like the others, so it took the
+// recompute's own noise more directly), then +7% on top by preference —
+// back at the old pace it just still read as sluggish. These are what
+// actually decide top speed: the steering force alone would settle
+// around 1.1 against the players' 0.16 air friction, so the cap is what
+// every run hits, and a nudge here shows up almost in full.
+const BASE_MAX_SPEED        = 0.768;
+const AUTO_MAX_SPEED        = 0.704;
 // A player following a drawn line sprints: draw somewhere and it's a
 // deliberate run, so they push harder and cap out faster than everyone
 // else — but only as much as their legs currently allow. The bonus scales
@@ -119,8 +121,24 @@ const SPRINT_MAX_FORCE_BONUS = 0.15;
 // Off-ball behaviour: how strongly teammates push forward to support the
 // ball carrier, and how close a defender presses the opponent on the ball.
 const SUPPORT_BLEND  = 0.65;
-const PRESS_BLEND    = 0.5;
-const PRESS_RANGE    = 260;
+// Was 0.5/260 — on a 960-wide pitch that let well over half the width
+// press at once, and each pulled hard enough toward the ball to swamp
+// their own formation spot, so the whole side (wingers included) visibly
+// collapsed into a knot around the ball instead of holding their lanes.
+// Fewer players engage now, and the ones who do keep more of their own
+// spot's pull, so it reads as a press from whoever's actually close
+// rather than the entire team caving inward.
+const PRESS_BLEND    = 0.35;
+const PRESS_RANGE    = 190;
+
+// How much the AI ball carrier's per-tick pass chance (AI_LEVELS.passChance)
+// gets scaled when nobody's actually marking them closely — same PRESS_RANGE
+// used to decide whether a defender is pressing doubles as "am I under
+// pressure" here. Passing at a flat rate regardless of pressure meant the
+// AI kept lumping the ball off even in wide open space, reading as far too
+// pass-happy; cut way down with nobody near, back to the tuned rate once
+// someone's actually closing in.
+const PASS_CHANCE_FREE_MULT = 0.25;
 
 // The formation spans the whole pitch, not just the defending half: the
 // deepest slot sits on its own goal line and the most advanced one pushes
@@ -385,6 +403,11 @@ export default class GameScene extends Phaser.Scene {
     this.squadSlots=Array(TEAM_SIZE).fill(null);
     this.benchIds=new Set();
     this.chosenFormation=DEFAULT_FORMATION;
+    // Null until the player actually touches the color picker — leaves
+    // _payloadColor free to fall back to the auto-derived squad color
+    // (whichever real team most of the XI belongs to) for anyone who
+    // never bothers with it, same as before this existed.
+    this.myTeamColor=null;
     // Rival-team state, only used solo vs AI — a real connected opponent
     // always picks their own squad regardless of what's set here.
     this.editSide='me';
@@ -621,6 +644,26 @@ export default class GameScene extends Phaser.Scene {
     bind(['UP','W'],'up');     bind(['DOWN','S'],'down');
     bind(['LEFT','A'],'left'); bind(['RIGHT','D'],'right');
     this._setupJoystick();
+    this._setupWasdPad();
+  }
+
+  /** On-screen WASD-styled d-pad shown instead of the joystick on a real
+   *  mouse+keyboard setup (see the CSS media query around #wasd-pad) — a
+   *  visible hint that the actual W/A/S/D keys do the same thing, which a
+   *  generic joystick doesn't convey. Drives the exact same `scrollKeys`
+   *  flags the keyboard bindings above do, not a separate code path. */
+  _setupWasdPad(){
+    const bind=(id,dir)=>{
+      const btn=document.getElementById(id); if(!btn) return;
+      const press=e=>{ e.preventDefault(); this.scrollKeys[dir]=true; btn.classList.add('is-held'); };
+      const release=()=>{ this.scrollKeys[dir]=false; btn.classList.remove('is-held'); };
+      btn.addEventListener('pointerdown',press);
+      btn.addEventListener('pointerup',release);
+      btn.addEventListener('pointerleave',release);
+      btn.addEventListener('pointercancel',release);
+    };
+    bind('wasd-w','up'); bind('wasd-a','left');
+    bind('wasd-s','down'); bind('wasd-d','right');
   }
 
   /** Virtual joystick (mobile) driving continuous camera-scroll velocity,
@@ -721,6 +764,15 @@ export default class GameScene extends Phaser.Scene {
     const top=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
     return top?hexToInt(top[0]):fallback;
   }
+  /** A squad payload's kit color: whatever that player explicitly picked
+   *  (payload.color, from the "Your team color" selector), or the usual
+   *  auto-derived one if they never touched it — same fallback chain
+   *  _squadColor already provided, just with a manual override in front
+   *  of it. */
+  _payloadColor(payload, fallback){
+    if(payload.color){ const c=hexToInt(payload.color); if(c!=null) return c; }
+    return this._squadColor(payload.starterIds, fallback);
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // Squad editor (topological pitch)
@@ -739,8 +791,10 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('pick-prev-btn').addEventListener('click',()=>{ this._pickPage=Math.max(0,this._pickPage-1); this._renderPickList(); });
     document.getElementById('pick-next-btn').addEventListener('click',()=>{ this._pickPage++; this._renderPickList(); });
     document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
-    document.getElementById('squad-place-cancel-btn').addEventListener('click',()=>{ this._squadSel=null; this._renderPitch(); this._renderPickList(); });
+    document.getElementById('squad-place-cancel-btn').addEventListener('click',()=>{ this._squadSel=null; this._pickPosFilter=null; this._renderPitch(); this._renderPickList(); });
+    document.getElementById('pick-scope-clear').addEventListener('click',()=>{ this._pickPosFilter=null; this._renderPickListReset(); });
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
+    document.getElementById('my-team-color').addEventListener('input',e=>{ this.myTeamColor=e.target.value; });
     document.getElementById('half-length-select').addEventListener('change',e=>{
       this.halfLengthS=parseInt(e.target.value,10)*60;
       // Nothing's ticking yet at this point (still in the squad editor), so
@@ -750,12 +804,45 @@ export default class GameScene extends Phaser.Scene {
     });
     document.querySelectorAll('#squad-side-tabs .squad-side-tab').forEach(btn=>btn.addEventListener('click',()=>this._setEditSide(btn.dataset.side)));
     document.querySelectorAll('.view-tab').forEach(btn=>btn.addEventListener('click',()=>this._toggleSquadSection(btn.dataset.view)));
+    document.getElementById('squad-players-drawer-close').addEventListener('click',()=>this._toggleSquadSection('players'));
+    // Tapping outside the drawer closes it too, same as a typical modal/
+    // drawer backdrop — not just the dedicated ✕. "Outside" means outside
+    // #squad-columns entirely (both the drawer *and* the pitch/bench
+    // beside it), not just outside the drawer element itself: the visible
+    // sliver of pitch is there so a bench/pitch spot can be armed and then
+    // filled from the still-open drawer in one flow (see the bench-slots
+    // test), and closing on that same tap would break exactly that. Only
+    // below 900px, where it's actually a drawer overlaying something else;
+    // above that it's a normal always-visible column, and clicking the
+    // pitch beside it was never meant to hide it.
+    document.addEventListener('click',(e)=>{
+      if(window.innerWidth>=900) return;
+      if(!this.squadSectionOpen?.players) return;
+      if(document.getElementById('squad-editor-panel').style.display!=='flex') return;
+      // Tapping a pitch/bench pin re-renders that whole section right in
+      // its own click handler (_onSquadPinClick -> _renderPitch), which
+      // detaches the original target node from the document before this
+      // listener runs — a plain .contains() check against the *current*
+      // tree would then wrongly say "not inside #squad-columns" for a tap
+      // that very much was. composedPath() is fixed at dispatch time, so
+      // it still reflects where the click actually happened.
+      const path=e.composedPath();
+      const columns=document.getElementById('squad-columns');
+      const openToggle=document.querySelector('button[data-view="players"]');
+      if(path.includes(columns)||path.includes(openToggle)) return;
+      this._toggleSquadSection('players');
+    });
     document.getElementById('squad-save-btn').addEventListener('click',()=>this._saveSquad());
     document.getElementById('squad-load-btn').addEventListener('click',()=>this._loadSquad());
     // Give the rival a full, position-aware random XI up front — it plays
     // fine untouched, and is only ever used solo vs AI.
     this.editSide='rival'; this._fillSquadByPosition(this.rosterAll); this.editSide='me';
-    this.squadSectionOpen={formation:true,players:true};
+    // Both open by default in the side-by-side (>=900px) layout, matching
+    // how it's always worked there. Below that, "players" becomes an
+    // overlay drawer covering most of the screen (see the CSS) — opening
+    // it by default would immediately hide the formation controls behind
+    // it, so it starts closed there and opens on request instead.
+    this.squadSectionOpen={formation:true,players:window.innerWidth>=900};
     this._applySquadSectionVisibility();
     this._renderPitch(); this._renderPickList();
     this._refreshSavedSquadUI();
@@ -821,13 +908,33 @@ export default class GameScene extends Phaser.Scene {
    *  without switching views first. Collapsing one just frees up screen
    *  space; it doesn't affect which side (me/rival) is being edited. */
   _toggleSquadSection(view){
-    this.squadSectionOpen[view]=!this.squadSectionOpen[view];
+    this._setSquadSection(view,!this.squadSectionOpen[view]);
+  }
+  _setSquadSection(view,open){
+    if(this.squadSectionOpen[view]===open) return;
+    this.squadSectionOpen[view]=open;
+    // An empty spot is only ever armed to be filled from this list (see
+    // _armEmptySpot), so closing the list without picking anyone is a
+    // change of mind — leave it armed and the *next* tap on another empty
+    // spot would spend itself swapping the two, with nothing to show for
+    // it. A pool player armed from the list is deliberately kept: placing
+    // them onto the pitch is the whole point, and the pitch is what's left
+    // once this closes.
+    if(view==='players'&&!open&&this._isEmptySpot(this._squadSel)){
+      this._squadSel=null; this._pickPosFilter=null;
+      this._renderPitch(); this._renderPickList();
+    }
     this._applySquadSectionVisibility();
   }
   _applySquadSectionVisibility(){
     const open=this.squadSectionOpen;
     document.getElementById('squad-editor').classList.toggle('hidden-section',!open.formation);
-    document.getElementById('squad-players-view').classList.toggle('hidden-section',!open.players);
+    const playersEl=document.getElementById('squad-players-view');
+    playersEl.classList.toggle('hidden-section',!open.players);
+    // Below 900px this also turns it into the overlay drawer (see the CSS
+    // media query) instead of a stacked block — harmless above that width,
+    // since the query it depends on simply doesn't match there.
+    playersEl.classList.toggle('drawer-open',open.players);
     document.querySelectorAll('.view-tab').forEach(b=>b.classList.toggle('is-warning',!!open[b.dataset.view]));
   }
 
@@ -1100,12 +1207,31 @@ export default class GameScene extends Phaser.Scene {
   // slot/bench spot works whether or not that spot is already occupied.
   _squadSel=null;
   _pickPage=0;
+  /** Position the list is currently narrowed to, set by tapping an empty
+   *  pitch slot (see _armEmptySpot). Transient and separate from the
+   *  search-row filters — it's cleared as soon as the spot that asked for
+   *  it is filled, rather than being another thing left set behind you. */
+  _pickPosFilter=null;
   _onSquadPinClick(sel){
-    if(!this._squadSel){ this._squadSel=sel; this._renderPitch(); this._renderPickList(); return; }
+    if(!this._squadSel){
+      this._squadSel=sel;
+      if(sel.type!=='pool'&&!this._squadSelPlayer(sel)) this._armEmptySpot(sel);
+      this._renderPitch(); this._renderPickList(); return;
+    }
     if(this._squadSel.type===sel.type&&(sel.type==='slot'?this._squadSel.slot===sel.slot:this._squadSel.id===sel.id)){
       const p=this._squadSelPlayer(sel);
-      this._squadSel=null; this._renderPitch(); this._renderPickList();
+      this._squadSel=null; this._pickPosFilter=null;
+      this._renderPitch(); this._renderPickList();
       if(p) this._showPlayerStats(p);
+      return;
+    }
+    if(this._isEmptySpot(this._squadSel)&&this._isEmptySpot(sel)){
+      // Swapping two empty spots does nothing, so tapping a second one is
+      // a change of mind about which to fill — re-arm there (and re-scope
+      // the list to it) rather than spending the tap on a no-op swap that
+      // also clears the selection.
+      this._squadSel=sel; this._armEmptySpot(sel);
+      this._renderPitch(); this._renderPickList();
       return;
     }
     if(this._squadSel.type==='pool'&&sel.type==='pool'){
@@ -1116,7 +1242,30 @@ export default class GameScene extends Phaser.Scene {
     }
     this._swapSquadSelections(this._squadSel,sel);
     this._squadSel=null;
+    this._finishSpotFill();
     this._renderPitch(); this._renderPickList();
+  }
+  /** Tapping an empty spot is only ever a request to fill it, so it doubles
+   *  as "open the list, showing the players that fit here" — which is what
+   *  makes filling an XI two taps a player (spot, then player) instead of
+   *  opening the list, hunting for someone, and going back for the spot.
+   *  Bench spots take anyone (they're generic cover, not a role), so they
+   *  open the list unnarrowed. */
+  _isEmptySpot(sel){ return !!sel&&sel.type!=='pool'&&!this._squadSelPlayer(sel); }
+  _armEmptySpot(sel){
+    const roles=SLOT_ROLES[this._edFormation()]||SLOT_ROLES[DEFAULT_FORMATION];
+    this._pickPosFilter=sel.type==='slot'?(roles[sel.slot]||null):null;
+    this._pickPage=0;
+    this._setSquadSection('players',true);
+  }
+  /** A completed placement retires the narrowing it was made under, and — on
+   *  the narrow layout, where the list is a drawer over the pitch — gets the
+   *  drawer out of the way again, so the next spot is right there to tap
+   *  without a close in between. Above 900px the list is a permanent column
+   *  beside the pitch and collapsing it mid-flow would only be startling. */
+  _finishSpotFill(){
+    this._pickPosFilter=null;
+    if(window.innerWidth<900) this._setSquadSection('players',false);
   }
   _squadSelPlayer(sel){
     const id=sel.type==='slot'?this._edSlots()[sel.slot]:sel.id;
@@ -1234,7 +1383,14 @@ export default class GameScene extends Phaser.Scene {
     const sortKey=document.getElementById('squad-sort-select').value;
     const inSquad=this._allInSquad(); const PAGE_SIZE=30;
     const sel=this._squadSel;
-    const matches=this.rosterAll.filter(p=>(!gf||p.game===gf)&&(!tfTeam||p.team===tfTeam)&&(!tfGame||p.game===tfGame)&&(!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q)));
+    const pos=this._pickPosFilter;
+    const matches=this.rosterAll.filter(p=>(!pos||p.position===pos)&&(!gf||p.game===gf)&&(!tfTeam||p.team===tfTeam)&&(!tfGame||p.game===tfGame)&&(!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q)));
+    // Say which spot the list is narrowed for, with the way out of it — the
+    // narrowing is invisible otherwise, and a roster of ~5000 suddenly
+    // showing a few hundred reads as a bug rather than as help.
+    const scope=document.getElementById('pick-scope');
+    scope.style.display=pos?'flex':'none';
+    if(pos) document.getElementById('pick-scope-role').textContent=pos;
     const sorters=this._pickListSorters();
     matches.sort(sorters[sortKey]||sorters.rating);
     const pageCount=Math.max(1,Math.ceil(matches.length/PAGE_SIZE));
@@ -1282,7 +1438,7 @@ export default class GameScene extends Phaser.Scene {
     const {team:tfTeam,game:tfGame}=this._parseTeamFilter(document.getElementById('squad-team-filter').value);
     if(!gf&&!tfTeam) return;
     this._fillSquadByPosition(this.rosterAll.filter(p=>(!tfTeam||p.team===tfTeam)&&(!tfGame||p.game===tfGame)&&(!gf||p.game===gf)));
-    this._squadSel=null;
+    this._squadSel=null; this._pickPosFilter=null;
     this._renderPitch(); this._renderPickList();
   }
 
@@ -1297,13 +1453,13 @@ export default class GameScene extends Phaser.Scene {
     this._edSetFormation(Phaser.Utils.Array.GetRandom(Object.keys(FORMATIONS)));
     document.getElementById('formation-select').value=this._edFormation();
     this._fillSquadByPosition(topOnly?this._topPercentileByPosition(this.rosterAll):this.rosterAll);
-    this._squadSel=null;
+    this._squadSel=null; this._pickPosFilter=null;
     this._renderPitch(); this._renderPickList();
   }
 
   _confirmSquad(){
     const starterIds=this.squadSlots.filter(Boolean); if(starterIds.length!==TEAM_SIZE) return;
-    const payload={starterIds,benchIds:[...this.benchIds],formation:this.chosenFormation};
+    const payload={starterIds,benchIds:[...this.benchIds],formation:this.chosenFormation,color:this.myTeamColor};
     this.mySquadPayload=payload; this.mySquadConfirmed=true;
     this.net.sendSquad(payload);
     document.getElementById('confirm-squad-btn').disabled=true;
@@ -1347,8 +1503,8 @@ export default class GameScene extends Phaser.Scene {
     this.formation.A=payloadA.formation||DEFAULT_FORMATION;
     this.formation.B=payloadB.formation||DEFAULT_FORMATION;
     // Ensure distinct team colors
-    const rawA=this._squadColor(payloadA.starterIds,0x3399ff);
-    const rawB=this._squadColor(payloadB.starterIds,0xff4444);
+    const rawA=this._payloadColor(payloadA,0x3399ff);
+    const rawB=this._payloadColor(payloadB,0xff4444);
     this.teamColorA=rawA;
     this.teamColorB=distinctColor(rawB,rawA);
     this.teamA=this._buildTeam('A',payloadA.starterIds,true);
@@ -1372,8 +1528,8 @@ export default class GameScene extends Phaser.Scene {
     if(this.clientTeamsBuilt||!this.mySquadPayload||!this.remoteSquadPayload) return;
     this.formation.A=this.remoteSquadPayload.formation||DEFAULT_FORMATION;
     this.formation.B=this.mySquadPayload.formation||DEFAULT_FORMATION;
-    const rawA=this._squadColor(this.remoteSquadPayload.starterIds,0x3399ff);
-    const rawB=this._squadColor(this.mySquadPayload.starterIds,0xff4444);
+    const rawA=this._payloadColor(this.remoteSquadPayload,0x3399ff);
+    const rawB=this._payloadColor(this.mySquadPayload,0xff4444);
     this.teamColorA=rawA; this.teamColorB=distinctColor(rawB,rawA);
     this.teamA=this._buildTeam('A',this.remoteSquadPayload.starterIds,false);
     this.teamB=this._buildTeam('B',this.mySquadPayload.starterIds,false);
@@ -1482,8 +1638,15 @@ export default class GameScene extends Phaser.Scene {
       const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,ballCarrier.body.position.x,ballCarrier.body.position.y);
       if(d<PRESS_RANGE){
         const ownGoalY=role==='A'?this.FIELD_H:0;
+        // Anchored on this player's own formation spot (base.x), not their
+        // live, already-drifted position — pressSpot fed back into itself
+        // via the live body position otherwise, so a player who'd nudged
+        // toward the ball last frame started this frame's press already
+        // closer in, compounding every tick into everyone (wingers
+        // included) collapsing onto the ball carrier instead of holding
+        // their own lane of the pitch.
         const pressSpot={
-          x:Phaser.Math.Linear(ballCarrier.body.position.x,e.body.position.x,0.25),
+          x:Phaser.Math.Linear(ballCarrier.body.position.x,base.x,0.35),
           y:Phaser.Math.Linear(ballCarrier.body.position.y,ownGoalY,0.15)
         };
         target={
@@ -2060,6 +2223,21 @@ export default class GameScene extends Phaser.Scene {
   _drawBall(x,y,h){
     this.ballGfx.setPosition(x,y-h*0.55).setScale(1+h/70);
     this.ballShadow.setVisible(h>1).setPosition(x,y).setScale(1-Math.min(0.3,h/170));
+  }
+  /** Closest opponent (any outfield or keeper still on the pitch) to
+   *  `entry`, in pixels — used to gauge whether the AI's ball carrier is
+   *  actually under pressure right now, rather than passing at a flat
+   *  rate regardless of whether anyone's actually closing them down. */
+  _nearestOpponentDist(role,entry){
+    const oppRole=role==='A'?'B':'A';
+    const oppTeam=oppRole==='A'?this.teamA:this.teamB;
+    let best=Infinity;
+    for(const o of oppTeam){
+      if(!o.body||this._isOut(oppRole,o.id)) continue;
+      const d=Phaser.Math.Distance.Between(entry.body.position.x,entry.body.position.y,o.body.position.x,o.body.position.y);
+      if(d<best) best=d;
+    }
+    return best;
   }
   /** Picks a reasonable pass target for the AI: the most advanced teammate
    *  (closer to the rival goal than the passer) within a sane passing
@@ -2676,9 +2854,13 @@ export default class GameScene extends Phaser.Scene {
         const eB=this._activeEntry('B'), p=this._aiParams();
         // Shoot as soon as it's in range rather than dithering around the box
         if(eB&&eB.body.position.y>this.FIELD_H-p.shootRange&&Math.random()<p.shootChance) this._startConfront('shot','B','A',now);
-        else if(eB&&Math.random()<p.passChance){
-          const mate=this._aiPickPassTarget('B',eB);
-          if(mate) this._doPass('B',{x:mate.body.position.x,y:mate.body.position.y});
+        else if(eB){
+          const underPressure=this._nearestOpponentDist('B',eB)<PRESS_RANGE;
+          const passChance=underPressure?p.passChance:p.passChance*PASS_CHANCE_FREE_MULT;
+          if(Math.random()<passChance){
+            const mate=this._aiPickPassTarget('B',eB);
+            if(mate) this._doPass('B',{x:mate.body.position.x,y:mate.body.position.y});
+          }
         }
       }
       if(!this.confrontation) this._checkForDuel(now);

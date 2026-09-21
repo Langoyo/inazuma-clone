@@ -1342,3 +1342,344 @@ Verified against the full Playwright suite (44/45 passing — the one
 failure is the pre-existing `drag-and-pass.spec.js` timing flake noted
 several times above, unrelated to any of this, and passes cleanly on
 repeat).
+
+## Formation/Browse Players side by side, a WASD d-pad on PC, and less AI bunching
+
+**Formation and Browse Players sit side by side on a wide screen now**
+Building a squad meant scrolling down past the whole pitch to reach the
+player list, picking someone, then scrolling back up to see where they
+landed — the two sections stacked vertically even though both were
+already shown by default. Wrapped both in `#squad-columns`, which lays
+them out side by side above a 900px viewport (each still independently
+collapsible, same as before) and leaves them stacked exactly as before
+on anything narrower. The pitch column is narrower on the wide layout
+(380px — its 2:3 aspect ratio makes it tall, so less width keeps it a
+reasonable height) and the player list wider (640px, fitting 4 cards
+per row instead of 3, so the same players take fewer rows).
+
+**A WASD-styled d-pad instead of the joystick on a real mouse+keyboard**
+The on-screen joystick (for panning the camera) showed on every device,
+even though PC already had working arrow-key/WASD camera panning with
+no visible hint that it existed. Added a 4-button pad laid out and
+labeled like the actual keys (`. W .` / `A S D`), shown instead of the
+joystick specifically when the device has a precise pointer and hover
+(`@media (pointer: fine) and (hover: hover)` — a real mouse, not a
+touchscreen, which keeps the joystick since it's easier to hit
+precisely with a finger). The buttons drive the exact same
+`scrollKeys` flags the keyboard bindings already do, not a separate
+input path.
+
+**AI players bunching toward the ball while defending, not just attacking**
+The previous entry fixed teammates converging on a shared point while
+*attacking* (an unnamed "support" bug); a similar issue existed on the
+*defending* side: `_offBallTarget`'s press logic computed each
+defender's target using their own already-drifted live position
+(`e.body.position.x`), which fed back into itself — a player who'd
+already nudged toward the ball last frame started this frame's press
+already closer in, compounding every tick until the entire side,
+wingers included, collapsed into a knot around the ball carrier rather
+than holding their own lane. Anchored the press spot on each player's
+stable formation position instead, and dialed back how many players
+engage at once and how hard (`PRESS_RANGE` 260→190, `PRESS_BLEND`
+0.5→0.35) so a press reads as "whoever's actually close" rather than
+the whole team caving inward. A check with the opponent in possession
+confirmed all 10 outfield defenders now spread across ~740px of the
+960px-wide pitch, each landing on a distinct spot.
+
+Verified against the full Playwright suite (45/45 passing) and
+visually in a running browser at both a phone-sized and a desktop
+viewport (screenshots) — side-by-side columns and the WASD pad both
+render as expected at each.
+
+## Fixed card grid to 3 per row, AI passes only when actually pressured
+
+**Exactly 3 cards per row in the side-by-side player list** — the
+640px-wide column from the previous entry left the grid's
+`auto-fill`/`minmax(126px,1fr)` default to decide, which fit 4 fairly
+cramped cards per row. Pinned it to `grid-template-columns: repeat(3,
+1fr)` specifically at that width instead (mobile keeps `auto-fill`,
+since there's only ever room for 1-2 there regardless).
+
+**AI passing was flat-rate regardless of pressure** — `passChance`
+(`AI_LEVELS`) rolled every tick whether or not anyone was actually
+closing the ball carrier down, so the AI kept lumping the ball off
+even standing alone in open space, reading as pass-happy overall
+(open, unpressured play is the common case, so most rolls were
+happening exactly when a real player would just carry the ball
+instead). Added `_nearestOpponentDist()` — the same idea the defensive
+press logic already uses to decide who's close enough to press,
+reused here to ask the same question from the attacking side — and
+only use the full tuned `passChance` when an opponent is within
+`PRESS_RANGE`; otherwise it's cut to a quarter (`PASS_CHANCE_FREE_MULT
+= 0.25`). Passing under real pressure is unchanged; passing in space
+drops sharply.
+
+Verified against the full Playwright suite (45/45 passing) and
+directly: 3 cards confirmed per row at the 1280px viewport, and
+`_nearestOpponentDist` correctly reads ~365px with defenders pushed
+away versus 50px with one placed right next to the carrier.
+
+## Fixed the 3-card grid overflowing, then leaving an uneven gap
+
+Two follow-on bugs from the same change, caught in review:
+- `#squad-pick-list` had been pinned to the same `640px` as the column
+  and its container, but it actually sits *inside* that container's
+  padded content box (640px minus padding and border on each side,
+  ~606px) — matching the outer width instead of its own parent's inner
+  one meant it overflowed past the container's right edge by that
+  padding+border.
+- Fixing that by dropping back to the element's own `width:100%`
+  surfaced a second issue: its base rule's `max-width:500px` (sized
+  for the old single-column mobile layout) is narrower than the ~606px
+  actually available in the side-by-side layout, so the grid stopped
+  overflowing but now fell short of the container's own width instead
+  — a lopsided gap on the right where the left/right padding should've
+  matched.
+
+Lifted the `max-width` cap for this specific context (`max-width:
+none`) so `#squad-pick-list` actually fills the space its container
+gives it. Verified directly: left and right gaps both measure exactly
+17px (the container's own padding+border) and the last card in a row
+now reaches the same right edge the grid itself does.
+
+## A "side by side" option for mobile too: Browse Players as a drawer
+
+The side-by-side columns only kick in above 900px — there's no real
+way to fit two ~300px+ columns on a phone. Below that, added a
+different answer to the same request: Browse Players now overlays the
+right ~78% of the screen as a drawer instead of navigating away from
+the pitch entirely, leaving a sliver of it (and whatever's scrolled
+into view behind the drawer) visible on the left for context. Same
+`squadSectionOpen`/`.hidden-section` toggle mechanism as the desktop
+columns already use — a new `.drawer-open` class just changes how
+"open" is drawn below 900px, via `@media (max-width: 899px)`.
+
+Since the drawer covers most of the screen while open — including,
+unlike a true side-by-side column, the Formation toggle button itself
+— it needed its own dedicated close button (`✕`, top-right of the
+drawer) rather than relying on reaching back to the button that opened
+it. It also now defaults to *closed* on a narrow screen (open by
+default above 900px, same as before): starting it open would
+immediately hide the formation controls behind it before you'd done
+anything, which is a worse default than a drawer that opens on
+request.
+
+Two real bugs surfaced building this, both from the same root cause —
+a fixed-position element with both `left` and `right` set, plus an
+inherited `width` from `.section-container`'s base rule that doesn't
+get overridden by the drawer's own `max-width: none`:
+- `width` (not `auto`) beats `right` when a fixed-position box has all
+  three of `left`/`width`/`right` set — the browser drops `right`
+  rather than treat the box as over-constrained, so the drawer's
+  actual right edge ended up `left + width` (past the viewport's own
+  edge) instead of stopping at the screen's edge like `right: 0` asks
+  for. Needed an explicit `width: auto` so `left`+`right` are what
+  compute it, not a leftover `width: 100%`.
+- The close button's `display: block` override lived in a `@media`
+  block placed *before* its own `display: none` base rule — same
+  specificity (both plain ID selectors), so cascade order made the
+  later, unconditional `none` win regardless of viewport. Moved the
+  media query below the base rule it's meant to override.
+
+Also updated the existing "each toggle button only collapses its own
+section" test for the new default (Browse Players starts closed under
+900px) and split it into two: toggling Formation while the drawer's
+closed still only affects Formation, and closing the drawer via its
+own `✕` (the only reachable way once it's open, per above) leaves
+Formation untouched either way. Verified against the full Playwright
+suite (46/46 passing).
+
+## Moved both toggle buttons above the pitch, not stuck below it
+
+"🔍 Browse Players" used to sit right above the section it opens —
+which meant scrolling all the way down past the entire pitch/bench
+just to *find* the button, before the drawer added in the previous
+entry could even come into play. Moved both toggles into a shared
+`#squad-view-tabs` row at the very top of the panel instead, right
+below the Your Team/Rival Team tabs — visible immediately, no
+scrolling required to discover either one.
+
+On the wide (>=900px) side-by-side layout the two tabs are sized to
+match their columns below (380px/640px) so they still line up
+visually; on a narrow screen they're two equal-width buttons in one
+row. The drawer itself still starts from the very top of the screen
+(`top: 0`), so opening it now covers the tab row too, same as
+everything else behind it — the dedicated `✕` close button added in
+the previous entry is what gets you back, not scrolling up to find
+the toggle again.
+
+No test changes needed — `.view-tab` is a class-based query, so moving
+the buttons' position in the DOM doesn't affect anything that already
+worked. Verified against the full Playwright suite (46/46 passing) and
+visually at both viewport sizes.
+
+## Tapping outside the Browse Players drawer closes it too
+
+Not just the dedicated `✕` — tapping anywhere outside the drawer now
+closes it as well, the usual modal/backdrop convention. "Outside"
+turned out to need real care to define:
+
+- It means outside `#squad-columns` entirely (the drawer *and* the
+  pitch/bench beside it), not just outside the drawer element. The
+  visible sliver of pitch exists specifically so a bench/pitch spot can
+  be armed and then filled from the still-open drawer in one flow (see
+  the bench-slots test) — closing on that same tap would break exactly
+  that. First attempt scoped it to just the drawer element and broke
+  that flow immediately.
+- Even scoped to `#squad-columns`, a plain `.contains(e.target)` check
+  still didn't work: tapping a bench/pitch pin re-renders that whole
+  section synchronously inside its own click handler
+  (`_onSquadPinClick` → `_renderPitch`), which replaces the DOM node
+  the click actually landed on before this listener's turn comes up in
+  the same bubble phase — `.contains()` against the *current* tree then
+  wrongly says "not inside" for a tap that very much was, since the
+  original node is now detached. Fixed with `event.composedPath()`
+  instead, which is fixed at dispatch time and unaffected by DOM
+  changes a handler makes along the way.
+- Only applies below 900px, where Browse Players is actually a drawer
+  overlaying something else — above that it's a normal always-visible
+  column, and clicking the pitch beside it was never meant to hide it.
+
+New test covers all three cases: a tap inside the drawer doesn't close
+it, a tap on the pitch/bench sliver beside it doesn't either (and the
+existing bench-slots test already exercises arming a spot and filling
+it from the still-open drawer end to end), and a tap genuinely outside
+both does close it. Verified against the full Playwright suite
+(47/47 passing).
+
+## A color picker for your own team's kit
+
+Your team's on-pitch color was always picked automatically —
+whichever real team most of the starting XI actually belongs to (see
+`_squadColor`). No way to just pick a color you wanted instead, short
+of building a squad entirely out of players from one specific team.
+Added a "Your team color:" swatch next to the other match-setup
+selectors (Half length, AI difficulty) that overrides it directly.
+
+Left untouched (`myTeamColor` starts `null`), everything works exactly
+as before — a new `_payloadColor()` helper only overrides `_squadColor`'s
+usual result when the payload actually carries a `color` (added to the
+`{starterIds, benchIds, formation}` squad payload sent over
+`net.sendSquad`), so a remote opponent's own choice, or the absence of
+one, is respected too, not just the local player's. Only affects
+whichever side is *your* squad (`teamColorA`/`teamColorB` depending on
+role) — the rival AI's or a real opponent's own color is untouched
+either way.
+
+Verified directly: picking a color and starting a match makes
+`teamColorA` match it exactly (not the auto-derived one), and leaving
+it alone still produces the same color `_squadColor` always would.
+Verified against the full Playwright suite (49/49 passing).
+
+## Tap a spot on the pitch to fill it
+
+Filling an XI meant doing the work in the wrong order: open the player
+list, find someone good, then remember which spot they were meant for
+and go back to the pitch for it. On a phone that's worse still, since
+the list is a drawer covering most of the pitch — so the flow was open
+the drawer, pick, close the drawer, place. The drawer geometry got a
+lot of attention for that reason, but the geometry was never really
+the problem: two panels fighting over one screen is a fix for a
+workflow that isn't actually simultaneous. Picking a player and
+choosing their spot are sequential, and the editor's own selection
+model already treated them as the same operation.
+
+So tapping an *empty* pitch slot now opens the list itself, narrowed
+to the position that slot asks for (`SLOT_ROLES`) and sorted as ever
+by rating, and the tap that picks a player from it both fills the spot
+and closes the list again — putting the next empty spot straight back
+under the thumb. Two taps a player, no opening or closing in between.
+
+Almost none of this is new machinery. A list card and a pitch pin were
+already the exact same thing to `_onSquadPinClick` (see
+`_squadSelForPlayer`), so an empty spot just needed to additionally
+arm the list (`_armEmptySpot`: set the position narrowing, reset to
+page 1, open the section) and a completed placement to retire it
+(`_finishSpotFill`). Which is also why the original route — browse the
+whole roster first, pick someone, then choose where they go — keeps
+working untouched, and both now end the same way, with the drawer
+getting out of the way once the player has somewhere to be. Arming a
+player from the list deliberately does *not* close it, since tapping
+the same card twice is how you read their stats.
+
+Deliberately limited to empty spots. Tapping an occupied pin is the
+start of a swap with another pin, and the list opening over the pitch
+would bury the other half of that. The narrowing is transient and
+announced rather than silent — a "Filling a GK spot · Show all" banner
+above the list, since a roster of ~5000 suddenly showing 792 reads as
+a bug otherwise — and clears itself on placement, on cancel, and on a
+bulk fill (`_randomize`, `_useWholeTeam`), so it's never a filter left
+set behind you. Only the narrow layout auto-closes; above 900px the
+list is a permanent column beside the pitch, where collapsing it
+mid-flow would just be startling.
+
+One bug found and fixed while building it: an empty spot left armed
+after closing the list without picking anyone ate the next tap, since
+two empty spots resolve through `_swapSquadSelections` as a swap of
+two nothings — which cleared the selection and, having "handled" the
+tap, never reopened the list for the spot just tapped. Closing the
+list now drops an armed empty spot (a pool player stays armed, that
+being the whole point of the other route), and an empty-to-empty tap
+re-arms the new spot rather than spending itself on a no-op swap.
+
+Six new tests cover the narrowing, the two-tap fill, "Show all", the
+stale-arm regression, the browse-then-place route, and an occupied pin
+still being left alone.
+
+## Another nudge up to player pace
+
+The general pace lever (`BASE_MAX_SPEED`/`AUTO_MAX_SPEED`) up another
+7%, 0.718/0.658 -> 0.768/0.704, by preference — the earlier +5% only
+restored the pace the stat recompute had cost, and at that pace it
+still read as sluggish. Both move together, keeping off-ball players
+at the same ~92% of a carrier's top speed as before rather than
+quietly changing how the team moves relative to whoever has the ball.
+
+Worth noting why these two constants are the right lever at all and
+the steering forces aren't: a player's steering force against their
+0.16 air friction settles at a terminal velocity around 1.1, well
+above the ~0.65 the cap actually allows, and they reach it within a
+few frames. So the cap is what every run in the match is up against,
+and a change here shows up in full rather than being partly absorbed
+by how long players take to get up to speed.
+
+## The camera pad was swallowing presses meant for the pitch
+
+Turned up by a drag test that started failing intermittently after the
+pace change above — which turned out to be a real input bug the speed
+had only changed the odds of hitting.
+
+The WASD camera pad is a CSS grid shaped like a d-pad, so two of its
+six cells are empty (either side of W), and it sits inside a bare flex
+wrapper (`#scroll-controls`). All of that is transparent and reads as
+pitch, but it still covered those points, so a press there was
+swallowed instead of reaching the canvas: a player standing in the
+bottom-left corner of the screen simply couldn't be grabbed to draw a
+run, with nothing on screen to explain why. The container and the
+wrapper now let presses through (`pointer-events: none`), with only
+the buttons themselves taking their own (`pointer-events: auto`) —
+the same treatment the HUD elements above them already get, and for
+the same reason. Verified both halves: the empty cells now hit the
+canvas, and holding a button still scrolls the camera and releasing it
+still stops.
+
+Two test-side fixes came out of the same investigation, both cases of
+a test assuming something the game never promised:
+
+`findOnScreenPlayer` picked a player by viewport bounds alone, which
+its own docstring says is meant to be "a point Playwright's mouse can
+actually land on". The HUD puts real controls over the pitch (the
+camera pad bottom-left, the subs button bottom-right), and a press on
+one of those is legitimately theirs — a player standing under one is
+not grabbable, so the helper now skips them instead of handing back a
+point whose press never reaches the game.
+
+The drag test also pinned the id of the player it sampled, but play is
+live: between reading that position and the mouse landing on it, they
+can run out of `PLAYER_SEL_RADIUS` and the drag goes to whichever
+teammate is nearest the press instead. That tolerance is the whole
+point of the radius, and which player got picked was never what the
+test was about, so it now takes the selected player from the scene and
+checks what it actually cares about — that a real drag builds a path,
+on a player of ours, and that the path survives while the press is
+held.

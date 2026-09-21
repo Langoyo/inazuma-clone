@@ -148,8 +148,13 @@
     #scroll-controls {
       position: fixed; left: 16px; bottom: 16px; z-index: 15;
       display: none; align-items: center; justify-content: center;
+      /* A bare wrapper around whichever control is in use, so it must not
+         take presses of its own — see the note on #wasd-pad's empty cells
+         below, which sit inside this box too. */
+      pointer-events: none;
     }
     #joy-base {
+      pointer-events: auto;
       width: 90px; height: 90px; border-radius: 50%;
       background: var(--panel); border: 3px solid #000;
       position: relative; touch-action: none; user-select: none;
@@ -158,6 +163,40 @@
       width: 40px; height: 40px; border-radius: 50%; background: var(--gold); border: 2px solid #000;
       position: absolute; left: 23px; top: 23px; pointer-events: none;
     }
+    /* On a real mouse+keyboard setup, a d-pad shaped and labeled like the
+       WASD keys hints that the keyboard does the same thing more clearly
+       than a generic joystick would — arrow keys/WASD already scroll the
+       camera either way (see GameScene's keyboard bindings). Swapped in
+       for #joy-base only when the device actually has a precise pointer
+       and hover (a real mouse, not a touchscreen); touch devices keep the
+       joystick, which is easier to hit precisely with a finger. */
+    #wasd-pad { display: none; }
+    @media (pointer: fine) and (hover: hover) {
+      #joy-base { display: none; }
+      #wasd-pad { display: grid; }
+    }
+    #wasd-pad {
+      grid-template-areas: ". w ." "a s d";
+      grid-template-columns: 28px 28px 28px;
+      grid-template-rows: 28px 28px;
+      gap: 3px;
+      /* The d-pad shape leaves two cells of this grid empty (either side of
+         W) and gaps between the rest. Those are transparent — they read as
+         pitch — but the container still covers them, so a press there was
+         swallowed instead of reaching the canvas: a player standing in that
+         corner simply couldn't be grabbed to draw a run, with nothing on
+         screen to explain why. Only the buttons themselves take presses. */
+      pointer-events: none;
+    }
+    #wasd-pad button {
+      pointer-events: auto;
+      width: 28px; height: 28px; padding: 0; font-size: 11px; font-weight: bold;
+      background: var(--panel); border: 2px solid #000; color: #fff;
+      user-select: none; touch-action: none; cursor: pointer;
+    }
+    #wasd-pad button:active, #wasd-pad button.is-held { background: var(--gold); color: #1b1b1b; }
+    #wasd-w { grid-area: w; } #wasd-a { grid-area: a; }
+    #wasd-s { grid-area: s; } #wasd-d { grid-area: d; }
     /* Player stat popup */
     #player-stat-panel {
       position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 35;
@@ -209,12 +248,99 @@
        at once. Each toggle button sits right above the container it opens
        and closes, full-width so it reads as that section's own header
        rather than a loose button somewhere above both. */
-    .section-toggle { display: block; width: 100%; max-width: 500px; margin: 0 0 8px; text-align: center; }
+    /* ---- Formation/Browse Players toggle tabs. Sit together above both
+       sections (not each stuck right above its own, further down the
+       page) specifically so "Browse Players" stays visible without
+       scrolling past the whole pitch to find it — the more that section
+       became a drawer you actively summon rather than a block you just
+       scroll to, the more that mattered. */
+    #squad-view-tabs { display: flex; gap: 8px; width: 100%; max-width: 500px; margin-bottom: 8px; }
+    .section-toggle { flex: 1; text-align: center; }
     .section-container {
       width: 100%; max-width: 500px; background: var(--panel); border: 3px solid #000;
       padding: 14px; margin-bottom: 16px;
     }
     #squad-editor.hidden-section, #squad-players-view.hidden-section { display: none; }
+    /* ---- Formation + Browse Players side by side on a wide-enough screen.
+       Stacked (each column full width, one above the other) below that —
+       same layout as before this existed. */
+    #squad-columns { display: flex; flex-direction: column; align-items: center; width: 100%; }
+    .squad-column { display: flex; flex-direction: column; align-items: center; width: 100%; }
+    .squad-column + .squad-column { margin-top: 16px; }
+    @media (min-width: 900px) {
+      #squad-view-tabs { max-width: 1100px; gap: 20px; }
+      /* The pitch column narrower (its 2:3 aspect ratio makes it tall, so
+         less width keeps its height reasonable next to the list) and the
+         player list wider (more cards per row, so the same players take
+         fewer rows) — the swap the two need isn't the same swap, so they
+         get different caps rather than one shared column width. Matched
+         here so each tab still lines up above its own column below. */
+      #squad-view-tabs .section-toggle:first-child { flex: 0 0 380px; }
+      #squad-view-tabs .section-toggle:last-child { flex: 0 0 640px; }
+      #squad-columns { flex-direction: row; align-items: flex-start; justify-content: center; gap: 20px; max-width: 1100px; }
+      .squad-column { width: auto; }
+      .squad-column + .squad-column { margin-top: 0; }
+      .squad-column:first-child .section-container { width: 380px; max-width: 380px; }
+      .squad-column:last-child .section-container { width: 640px; max-width: 640px; }
+      /* #squad-pick-list itself stays at its own default width:100% —
+         it sits inside .section-container's padded content box (640px
+         minus 14px padding and 3px border on each side, ~606px), so
+         matching the *outer* 640px here like the two rules above do
+         overflowed past the container's own edge by that padding+border.
+         Its base rule's own max-width:500px (sized for the old single-
+         column mobile-width layout) is now narrower than that ~606px
+         content box, though, so it still needs lifting here — left
+         alone it caps the grid well short of the space actually
+         available, leaving a lopsided gap on the right instead of
+         matching the container's own even padding on every side. */
+      .squad-column:last-child #squad-pick-list {
+        max-width: none;
+        /* Exactly 3 cards per row, not however many auto-fill fits
+           (4, a bit cramped) — the mobile grid keeps auto-fill since
+           there's only ever room for 1-2 there regardless. */
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+    /* Below 900px there's no room for two real columns (each would be
+       under ~200px), so "side by side" instead means a drawer: Browse
+       Players overlays the right ~78% of the screen, leaving a sliver of
+       the pitch visible on the left for context rather than navigating
+       away from it entirely. Still the same open/closed state and
+       .hidden-section toggle as the desktop columns — this only changes
+       how "open" is drawn. */
+    @media (max-width: 899px) {
+      #squad-players-view.drawer-open {
+        position: fixed; top: 0; right: 0; bottom: 70px; left: 22%;
+        /* The base .section-container rule sets width:100%, which (being
+           neither auto nor unset) wins out over `right` per how CSS
+           resolves an over-constrained fixed-position box — left+width
+           end up deciding the box and `right` gets silently dropped,
+           overflowing well past the viewport's actual right edge.
+           Needs explicit `width: auto` so left+right are what compute it. */
+        width: auto;
+        z-index: 33; margin: 0; max-width: none; overflow-y: auto;
+        box-shadow: -8px 0 20px rgba(0,0,0,.6);
+        border-width: 0 0 0 3px;
+      }
+    }
+    #squad-players-drawer-close {
+      display: none; position: sticky; top: 0; margin-left: auto;
+      background: var(--panel-2); border: 2px solid #000; color: #fff;
+      width: 28px; height: 28px; font-size: 14px; cursor: pointer; z-index: 1;
+    }
+    /* Same specificity as the base rule above (both plain ID selectors),
+       so this only wins because it comes later in the stylesheet — it
+       has to stay below that rule, not just inside its own media query,
+       or the cascade falls back to source order and picks the wrong one. */
+    @media (max-width: 899px) {
+      #squad-players-drawer-close { display: block; }
+    }
+    #pick-scope {
+      display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+      font-size: 12px; margin-bottom: 6px; padding: 6px 8px;
+      background: rgba(255,217,102,0.12); border: 2px solid var(--gold);
+    }
+    #pick-scope b { color: var(--gold); }
     #squad-save-status { font-size: 13px; opacity: 0.9; color: var(--green); }
 
     /* ---- topological squad editor */
@@ -469,10 +595,21 @@
 
     <!-- Formation pitch/bench and the searchable player list are shown together
          by default so you can tap a player in the list, then tap straight onto
-         a pitch spot; each button sits right above the section it collapses,
-         so it stays obvious which one it belongs to. -->
-    <button class="view-tab nes-btn is-warning section-toggle" data-view="formation">📋 Formation</button>
-
+         a pitch spot. Both toggle buttons sit together up here, above both
+         sections, rather than each one stuck right above the (possibly long)
+         section it opens — Browse Players in particular needs to stay
+         reachable without scrolling past the whole pitch first, more so now
+         that under 900px it's a drawer you actively summon (see its own CSS)
+         rather than a block you just scroll down to. On a wide-enough screen
+         (see #squad-columns' media query) the two sections sit side by side
+         instead of stacked, so placing a player doesn't mean scrolling down
+         to the list and back up to the pitch on every pick. -->
+    <div id="squad-view-tabs">
+      <button class="view-tab nes-btn is-warning section-toggle" data-view="formation">📋 Formation</button>
+      <button class="view-tab nes-btn is-warning section-toggle" data-view="players">🔍 Browse Players</button>
+    </div>
+    <div id="squad-columns">
+    <div class="squad-column">
     <!-- Topological pitch editor -->
     <div id="squad-editor" class="section-container">
       <!-- Formation selector -->
@@ -526,6 +663,16 @@
         <span class="info-icon" data-info-title="AI difficulty" data-info-body="Every level plays at least as sharply as the old &quot;Hard&quot; used to. Above Easy, the AI's side also gets its combat stats inflated (and half of that on movement).">ⓘ</span>
       </div>
 
+      <!-- Overrides the kit color your XI plays in — normally picked
+           automatically from whichever real team most of the starting XI
+           belongs to. Applies to your own side only, whichever role that
+           ends up being; a real opponent still always picks their own. -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+        <label style="font-size:12px;">Your team color:</label>
+        <input type="color" id="my-team-color" value="#3399ff" style="width:36px;height:28px;padding:0;border:2px solid #000;background:none;cursor:pointer;">
+        <span class="info-icon" data-info-title="Your team color" data-info-body="Overrides the kit color your XI plays in on the pitch — normally picked automatically from whichever real team most of your starting XI belongs to. Only affects your own side; a real connected opponent always picks their own color regardless.">ⓘ</span>
+      </div>
+
       <div id="formation-pitch">
         <div class="pitch-line-h"></div>
         <!-- .slot-pin elements injected here by JS -->
@@ -544,10 +691,18 @@
         <button id="squad-place-cancel-btn" class="nes-btn is-compact">Cancel</button>
       </div>
     </div>
+    </div>
 
+    <div class="squad-column">
     <!-- Player search / list to pick from -->
-    <button class="view-tab nes-btn is-warning section-toggle" data-view="players" style="margin-top:16px;">🔍 Browse Players</button>
     <div id="squad-players-view" class="section-container">
+      <!-- Only shown (see CSS) when this section is a drawer overlaying the
+           pitch rather than a stacked block below it — the "🔍 Browse
+           Players" toggle up in #squad-view-tabs sits at the very top of
+           the panel (same as the drawer's own `top: 0`), so it ends up
+           covered by the drawer once open, same as everything else behind
+           it. This is the way to close it again from there instead. -->
+      <button id="squad-players-drawer-close" type="button" title="Close">✕</button>
       <div id="squad-search-row">
         <input id="squad-search" type="text" placeholder="Search player..." />
         <select id="squad-game-filter"><option value="">All games</option></select>
@@ -564,6 +719,12 @@
         </select>
         <button id="squad-whole-team-btn" class="nes-btn is-compact" disabled>Select from here</button>
       </div>
+      <!-- Shown only while the list is narrowed to the spot you tapped on the
+           pitch (see _armEmptySpot / #pick-scope-clear). -->
+      <div id="pick-scope">
+        <span>Filling a <b id="pick-scope-role"></b> spot</span>
+        <button id="pick-scope-clear" class="nes-btn is-compact" type="button">Show all</button>
+      </div>
       <div id="pick-count"></div>
       <div id="squad-pick-list"></div>
       <div id="pick-pager" style="display:flex;gap:10px;align-items:center;justify-content:center;margin-top:10px;">
@@ -571,6 +732,8 @@
         <span id="pick-page-info" style="font-size:13px;"></span>
         <button id="pick-next-btn" class="nes-btn is-compact">Next ▸</button>
       </div>
+    </div>
+    </div>
     </div>
 
     <!-- Fixed confirm bar -->
@@ -580,9 +743,18 @@
     </div>
   </div>
 
-  <!-- Camera joystick (mobile; PC still uses arrow keys) -->
+  <!-- Camera scroll control: a joystick on touch devices, a WASD-styled
+       d-pad on a real mouse+keyboard setup (see the media query above) —
+       both drive the same scrollKeys/joyVec state (see _setupJoystick and
+       the WASD button wiring next to it in GameScene). -->
   <div id="scroll-controls">
     <div id="joy-base"><div id="joy-stick"></div></div>
+    <div id="wasd-pad">
+      <button id="wasd-w" type="button">W</button>
+      <button id="wasd-a" type="button">A</button>
+      <button id="wasd-s" type="button">S</button>
+      <button id="wasd-d" type="button">D</button>
+    </div>
   </div>
 
   <!-- Player stat panel (shown on tap in squad editor / sub panel) -->
