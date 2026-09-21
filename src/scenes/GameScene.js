@@ -786,12 +786,18 @@ export default class GameScene extends Phaser.Scene {
     });
     document.querySelectorAll('#squad-side-tabs .squad-side-tab').forEach(btn=>btn.addEventListener('click',()=>this._setEditSide(btn.dataset.side)));
     document.querySelectorAll('.view-tab').forEach(btn=>btn.addEventListener('click',()=>this._toggleSquadSection(btn.dataset.view)));
+    document.getElementById('squad-players-drawer-close').addEventListener('click',()=>this._toggleSquadSection('players'));
     document.getElementById('squad-save-btn').addEventListener('click',()=>this._saveSquad());
     document.getElementById('squad-load-btn').addEventListener('click',()=>this._loadSquad());
     // Give the rival a full, position-aware random XI up front — it plays
     // fine untouched, and is only ever used solo vs AI.
     this.editSide='rival'; this._fillSquadByPosition(this.rosterAll); this.editSide='me';
-    this.squadSectionOpen={formation:true,players:true};
+    // Both open by default in the side-by-side (>=900px) layout, matching
+    // how it's always worked there. Below that, "players" becomes an
+    // overlay drawer covering most of the screen (see the CSS) — opening
+    // it by default would immediately hide the formation controls behind
+    // it, so it starts closed there and opens on request instead.
+    this.squadSectionOpen={formation:true,players:window.innerWidth>=900};
     this._applySquadSectionVisibility();
     this._renderPitch(); this._renderPickList();
     this._refreshSavedSquadUI();
@@ -863,7 +869,12 @@ export default class GameScene extends Phaser.Scene {
   _applySquadSectionVisibility(){
     const open=this.squadSectionOpen;
     document.getElementById('squad-editor').classList.toggle('hidden-section',!open.formation);
-    document.getElementById('squad-players-view').classList.toggle('hidden-section',!open.players);
+    const playersEl=document.getElementById('squad-players-view');
+    playersEl.classList.toggle('hidden-section',!open.players);
+    // Below 900px this also turns it into the overlay drawer (see the CSS
+    // media query) instead of a stacked block — harmless above that width,
+    // since the query it depends on simply doesn't match there.
+    playersEl.classList.toggle('drawer-open',open.players);
     document.querySelectorAll('.view-tab').forEach(b=>b.classList.toggle('is-warning',!!open[b.dataset.view]));
   }
 

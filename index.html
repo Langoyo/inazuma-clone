@@ -279,6 +279,40 @@
         grid-template-columns: repeat(3, 1fr);
       }
     }
+    /* Below 900px there's no room for two real columns (each would be
+       under ~200px), so "side by side" instead means a drawer: Browse
+       Players overlays the right ~78% of the screen, leaving a sliver of
+       the pitch visible on the left for context rather than navigating
+       away from it entirely. Still the same open/closed state and
+       .hidden-section toggle as the desktop columns — this only changes
+       how "open" is drawn. */
+    @media (max-width: 899px) {
+      #squad-players-view.drawer-open {
+        position: fixed; top: 0; right: 0; bottom: 70px; left: 22%;
+        /* The base .section-container rule sets width:100%, which (being
+           neither auto nor unset) wins out over `right` per how CSS
+           resolves an over-constrained fixed-position box — left+width
+           end up deciding the box and `right` gets silently dropped,
+           overflowing well past the viewport's actual right edge.
+           Needs explicit `width: auto` so left+right are what compute it. */
+        width: auto;
+        z-index: 33; margin: 0; max-width: none; overflow-y: auto;
+        box-shadow: -8px 0 20px rgba(0,0,0,.6);
+        border-width: 0 0 0 3px;
+      }
+    }
+    #squad-players-drawer-close {
+      display: none; position: sticky; top: 0; margin-left: auto;
+      background: var(--panel-2); border: 2px solid #000; color: #fff;
+      width: 28px; height: 28px; font-size: 14px; cursor: pointer; z-index: 1;
+    }
+    /* Same specificity as the base rule above (both plain ID selectors),
+       so this only wins because it comes later in the stylesheet — it
+       has to stay below that rule, not just inside its own media query,
+       or the cascade falls back to source order and picks the wrong one. */
+    @media (max-width: 899px) {
+      #squad-players-drawer-close { display: block; }
+    }
     #squad-save-status { font-size: 13px; opacity: 0.9; color: var(--green); }
 
     /* ---- topological squad editor */
@@ -619,6 +653,11 @@
     <!-- Player search / list to pick from -->
     <button class="view-tab nes-btn is-warning section-toggle" data-view="players">🔍 Browse Players</button>
     <div id="squad-players-view" class="section-container">
+      <!-- Only shown (see CSS) when this section is a drawer overlaying
+           the pitch rather than a stacked block below it — the section
+           toggle button above still works too, but scrolls out of reach
+           once the drawer's covering the screen. -->
+      <button id="squad-players-drawer-close" type="button" title="Close">✕</button>
       <div id="squad-search-row">
         <input id="squad-search" type="text" placeholder="Search player..." />
         <select id="squad-game-filter"><option value="">All games</option></select>

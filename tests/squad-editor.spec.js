@@ -40,6 +40,9 @@ test.describe('random squad builders', () => {
 test.describe('player list pagination', () => {
   test('pages through results and resets to page 1 on a new search', async ({ page }) => {
     await waitForRosterLoaded(page);
+    // Below 900px, Browse Players is a drawer that starts closed (see
+    // squadSectionOpen) — this test's viewport is 420px (playwright.config.js).
+    await page.click('button[data-view="players"]');
 
     const page1Info = await page.locator('#pick-page-info').textContent();
     expect(page1Info).toMatch(/^Page 1\//);
@@ -92,6 +95,9 @@ test.describe('bench slots', () => {
     // all), but the empty placeholders never got a click handler wired up —
     // only occupied ones did — so tapping one to place a player did nothing.
     await waitForRosterLoaded(page);
+    // Below 900px, Browse Players is a drawer that starts closed (see
+    // squadSectionOpen) — this test's viewport is 420px (playwright.config.js).
+    await page.click('button[data-view="players"]');
 
     const emptyPins = page.locator('#bench-strip .bench-pin.empty');
     await expect(emptyPins).toHaveCount(5);
@@ -114,16 +120,36 @@ test.describe('bench slots', () => {
 });
 
 test.describe('collapsible Formation / Browse Players sections', () => {
-  test('each toggle button only collapses its own section', async ({ page }) => {
+  test('toggling Formation while Browse Players is closed leaves it closed', async ({ page }) => {
     await waitForRosterLoaded(page);
+    // Below 900px, Browse Players is a drawer that starts closed (see
+    // squadSectionOpen), covering most of the screen — including the
+    // Formation toggle button itself — once open, so this direction (both
+    // toggles reachable) only works while it's still closed.
+    await expect(page.locator('#squad-players-view')).toHaveClass(/hidden-section/);
 
     await page.click('button[data-view="formation"]');
     await page.waitForTimeout(100);
     await expect(page.locator('#squad-editor')).toHaveClass(/hidden-section/);
-    await expect(page.locator('#squad-players-view')).not.toHaveClass(/hidden-section/);
+    await expect(page.locator('#squad-players-view')).toHaveClass(/hidden-section/);
 
     await page.click('button[data-view="formation"]');
     await page.waitForTimeout(100);
+    await expect(page.locator('#squad-editor')).not.toHaveClass(/hidden-section/);
+  });
+
+  test('closing the Browse Players drawer via its own close button leaves Formation untouched', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('button[data-view="players"]');
+    await page.waitForTimeout(100);
+    await expect(page.locator('#squad-players-view')).not.toHaveClass(/hidden-section/);
+    await expect(page.locator('#squad-editor')).not.toHaveClass(/hidden-section/);
+
+    // The drawer covers the Formation toggle button itself while open (see
+    // above), so its own "✕" is the only way to close it from here.
+    await page.click('#squad-players-drawer-close');
+    await page.waitForTimeout(100);
+    await expect(page.locator('#squad-players-view')).toHaveClass(/hidden-section/);
     await expect(page.locator('#squad-editor')).not.toHaveClass(/hidden-section/);
   });
 });

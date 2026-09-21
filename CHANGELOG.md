@@ -1441,3 +1441,50 @@ none`) so `#squad-pick-list` actually fills the space its container
 gives it. Verified directly: left and right gaps both measure exactly
 17px (the container's own padding+border) and the last card in a row
 now reaches the same right edge the grid itself does.
+
+## A "side by side" option for mobile too: Browse Players as a drawer
+
+The side-by-side columns only kick in above 900px — there's no real
+way to fit two ~300px+ columns on a phone. Below that, added a
+different answer to the same request: Browse Players now overlays the
+right ~78% of the screen as a drawer instead of navigating away from
+the pitch entirely, leaving a sliver of it (and whatever's scrolled
+into view behind the drawer) visible on the left for context. Same
+`squadSectionOpen`/`.hidden-section` toggle mechanism as the desktop
+columns already use — a new `.drawer-open` class just changes how
+"open" is drawn below 900px, via `@media (max-width: 899px)`.
+
+Since the drawer covers most of the screen while open — including,
+unlike a true side-by-side column, the Formation toggle button itself
+— it needed its own dedicated close button (`✕`, top-right of the
+drawer) rather than relying on reaching back to the button that opened
+it. It also now defaults to *closed* on a narrow screen (open by
+default above 900px, same as before): starting it open would
+immediately hide the formation controls behind it before you'd done
+anything, which is a worse default than a drawer that opens on
+request.
+
+Two real bugs surfaced building this, both from the same root cause —
+a fixed-position element with both `left` and `right` set, plus an
+inherited `width` from `.section-container`'s base rule that doesn't
+get overridden by the drawer's own `max-width: none`:
+- `width` (not `auto`) beats `right` when a fixed-position box has all
+  three of `left`/`width`/`right` set — the browser drops `right`
+  rather than treat the box as over-constrained, so the drawer's
+  actual right edge ended up `left + width` (past the viewport's own
+  edge) instead of stopping at the screen's edge like `right: 0` asks
+  for. Needed an explicit `width: auto` so `left`+`right` are what
+  compute it, not a leftover `width: 100%`.
+- The close button's `display: block` override lived in a `@media`
+  block placed *before* its own `display: none` base rule — same
+  specificity (both plain ID selectors), so cascade order made the
+  later, unconditional `none` win regardless of viewport. Moved the
+  media query below the base rule it's meant to override.
+
+Also updated the existing "each toggle button only collapses its own
+section" test for the new default (Browse Players starts closed under
+900px) and split it into two: toggling Formation while the drawer's
+closed still only affects Formation, and closing the drawer via its
+own `✕` (the only reachable way once it's open, per above) leaves
+Formation untouched either way. Verified against the full Playwright
+suite (46/46 passing).
