@@ -119,8 +119,15 @@ const SPRINT_MAX_FORCE_BONUS = 0.15;
 // Off-ball behaviour: how strongly teammates push forward to support the
 // ball carrier, and how close a defender presses the opponent on the ball.
 const SUPPORT_BLEND  = 0.65;
-const PRESS_BLEND    = 0.5;
-const PRESS_RANGE    = 260;
+// Was 0.5/260 — on a 960-wide pitch that let well over half the width
+// press at once, and each pulled hard enough toward the ball to swamp
+// their own formation spot, so the whole side (wingers included) visibly
+// collapsed into a knot around the ball instead of holding their lanes.
+// Fewer players engage now, and the ones who do keep more of their own
+// spot's pull, so it reads as a press from whoever's actually close
+// rather than the entire team caving inward.
+const PRESS_BLEND    = 0.35;
+const PRESS_RANGE    = 190;
 
 // The formation spans the whole pitch, not just the defending half: the
 // deepest slot sits on its own goal line and the most advanced one pushes
@@ -621,6 +628,26 @@ export default class GameScene extends Phaser.Scene {
     bind(['UP','W'],'up');     bind(['DOWN','S'],'down');
     bind(['LEFT','A'],'left'); bind(['RIGHT','D'],'right');
     this._setupJoystick();
+    this._setupWasdPad();
+  }
+
+  /** On-screen WASD-styled d-pad shown instead of the joystick on a real
+   *  mouse+keyboard setup (see the CSS media query around #wasd-pad) — a
+   *  visible hint that the actual W/A/S/D keys do the same thing, which a
+   *  generic joystick doesn't convey. Drives the exact same `scrollKeys`
+   *  flags the keyboard bindings above do, not a separate code path. */
+  _setupWasdPad(){
+    const bind=(id,dir)=>{
+      const btn=document.getElementById(id); if(!btn) return;
+      const press=e=>{ e.preventDefault(); this.scrollKeys[dir]=true; btn.classList.add('is-held'); };
+      const release=()=>{ this.scrollKeys[dir]=false; btn.classList.remove('is-held'); };
+      btn.addEventListener('pointerdown',press);
+      btn.addEventListener('pointerup',release);
+      btn.addEventListener('pointerleave',release);
+      btn.addEventListener('pointercancel',release);
+    };
+    bind('wasd-w','up'); bind('wasd-a','left');
+    bind('wasd-s','down'); bind('wasd-d','right');
   }
 
   /** Virtual joystick (mobile) driving continuous camera-scroll velocity,
@@ -1482,8 +1509,15 @@ export default class GameScene extends Phaser.Scene {
       const d=Phaser.Math.Distance.Between(e.body.position.x,e.body.position.y,ballCarrier.body.position.x,ballCarrier.body.position.y);
       if(d<PRESS_RANGE){
         const ownGoalY=role==='A'?this.FIELD_H:0;
+        // Anchored on this player's own formation spot (base.x), not their
+        // live, already-drifted position — pressSpot fed back into itself
+        // via the live body position otherwise, so a player who'd nudged
+        // toward the ball last frame started this frame's press already
+        // closer in, compounding every tick into everyone (wingers
+        // included) collapsing onto the ball carrier instead of holding
+        // their own lane of the pitch.
         const pressSpot={
-          x:Phaser.Math.Linear(ballCarrier.body.position.x,e.body.position.x,0.25),
+          x:Phaser.Math.Linear(ballCarrier.body.position.x,base.x,0.35),
           y:Phaser.Math.Linear(ballCarrier.body.position.y,ownGoalY,0.15)
         };
         target={

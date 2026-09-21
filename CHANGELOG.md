@@ -1342,3 +1342,51 @@ Verified against the full Playwright suite (44/45 passing — the one
 failure is the pre-existing `drag-and-pass.spec.js` timing flake noted
 several times above, unrelated to any of this, and passes cleanly on
 repeat).
+
+## Formation/Browse Players side by side, a WASD d-pad on PC, and less AI bunching
+
+**Formation and Browse Players sit side by side on a wide screen now**
+Building a squad meant scrolling down past the whole pitch to reach the
+player list, picking someone, then scrolling back up to see where they
+landed — the two sections stacked vertically even though both were
+already shown by default. Wrapped both in `#squad-columns`, which lays
+them out side by side above a 900px viewport (each still independently
+collapsible, same as before) and leaves them stacked exactly as before
+on anything narrower. The pitch column is narrower on the wide layout
+(380px — its 2:3 aspect ratio makes it tall, so less width keeps it a
+reasonable height) and the player list wider (640px, fitting 4 cards
+per row instead of 3, so the same players take fewer rows).
+
+**A WASD-styled d-pad instead of the joystick on a real mouse+keyboard**
+The on-screen joystick (for panning the camera) showed on every device,
+even though PC already had working arrow-key/WASD camera panning with
+no visible hint that it existed. Added a 4-button pad laid out and
+labeled like the actual keys (`. W .` / `A S D`), shown instead of the
+joystick specifically when the device has a precise pointer and hover
+(`@media (pointer: fine) and (hover: hover)` — a real mouse, not a
+touchscreen, which keeps the joystick since it's easier to hit
+precisely with a finger). The buttons drive the exact same
+`scrollKeys` flags the keyboard bindings already do, not a separate
+input path.
+
+**AI players bunching toward the ball while defending, not just attacking**
+The previous entry fixed teammates converging on a shared point while
+*attacking* (an unnamed "support" bug); a similar issue existed on the
+*defending* side: `_offBallTarget`'s press logic computed each
+defender's target using their own already-drifted live position
+(`e.body.position.x`), which fed back into itself — a player who'd
+already nudged toward the ball last frame started this frame's press
+already closer in, compounding every tick until the entire side,
+wingers included, collapsed into a knot around the ball carrier rather
+than holding their own lane. Anchored the press spot on each player's
+stable formation position instead, and dialed back how many players
+engage at once and how hard (`PRESS_RANGE` 260→190, `PRESS_BLEND`
+0.5→0.35) so a press reads as "whoever's actually close" rather than
+the whole team caving inward. A check with the opponent in possession
+confirmed all 10 outfield defenders now spread across ~740px of the
+960px-wide pitch, each landing on a distinct spot.
+
+Verified against the full Playwright suite (45/45 passing) and
+visually in a running browser at both a phone-sized and a desktop
+viewport (screenshots) — side-by-side columns and the WASD pad both
+render as expected at each.

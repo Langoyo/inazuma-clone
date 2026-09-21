@@ -158,6 +158,32 @@
       width: 40px; height: 40px; border-radius: 50%; background: var(--gold); border: 2px solid #000;
       position: absolute; left: 23px; top: 23px; pointer-events: none;
     }
+    /* On a real mouse+keyboard setup, a d-pad shaped and labeled like the
+       WASD keys hints that the keyboard does the same thing more clearly
+       than a generic joystick would — arrow keys/WASD already scroll the
+       camera either way (see GameScene's keyboard bindings). Swapped in
+       for #joy-base only when the device actually has a precise pointer
+       and hover (a real mouse, not a touchscreen); touch devices keep the
+       joystick, which is easier to hit precisely with a finger. */
+    #wasd-pad { display: none; }
+    @media (pointer: fine) and (hover: hover) {
+      #joy-base { display: none; }
+      #wasd-pad { display: grid; }
+    }
+    #wasd-pad {
+      grid-template-areas: ". w ." "a s d";
+      grid-template-columns: 28px 28px 28px;
+      grid-template-rows: 28px 28px;
+      gap: 3px;
+    }
+    #wasd-pad button {
+      width: 28px; height: 28px; padding: 0; font-size: 11px; font-weight: bold;
+      background: var(--panel); border: 2px solid #000; color: #fff;
+      user-select: none; touch-action: none; cursor: pointer;
+    }
+    #wasd-pad button:active, #wasd-pad button.is-held { background: var(--gold); color: #1b1b1b; }
+    #wasd-w { grid-area: w; } #wasd-a { grid-area: a; }
+    #wasd-s { grid-area: s; } #wasd-d { grid-area: d; }
     /* Player stat popup */
     #player-stat-panel {
       position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 35;
@@ -215,6 +241,27 @@
       padding: 14px; margin-bottom: 16px;
     }
     #squad-editor.hidden-section, #squad-players-view.hidden-section { display: none; }
+    /* ---- Formation + Browse Players side by side on a wide-enough screen.
+       Stacked (each column full width, one above the other) below that —
+       same layout as before this existed. */
+    #squad-columns { display: flex; flex-direction: column; align-items: center; width: 100%; }
+    .squad-column { display: flex; flex-direction: column; align-items: center; width: 100%; }
+    .squad-column + .squad-column { margin-top: 16px; }
+    @media (min-width: 900px) {
+      #squad-columns { flex-direction: row; align-items: flex-start; justify-content: center; gap: 20px; max-width: 1100px; }
+      .squad-column { width: auto; }
+      .squad-column + .squad-column { margin-top: 0; }
+      /* The pitch column narrower (its 2:3 aspect ratio makes it tall, so
+         less width keeps its height reasonable next to the list) and the
+         player list wider (more cards per row, so the same players take
+         fewer rows) — the swap the two need isn't the same swap, so they
+         get different caps rather than one shared column width. */
+      .squad-column:first-child .section-toggle,
+      .squad-column:first-child .section-container { width: 380px; max-width: 380px; }
+      .squad-column:last-child .section-toggle,
+      .squad-column:last-child .section-container,
+      .squad-column:last-child #squad-pick-list { width: 640px; max-width: 640px; }
+    }
     #squad-save-status { font-size: 13px; opacity: 0.9; color: var(--green); }
 
     /* ---- topological squad editor */
@@ -470,7 +517,12 @@
     <!-- Formation pitch/bench and the searchable player list are shown together
          by default so you can tap a player in the list, then tap straight onto
          a pitch spot; each button sits right above the section it collapses,
-         so it stays obvious which one it belongs to. -->
+         so it stays obvious which one it belongs to. On a wide-enough screen
+         (see #squad-columns' media query) the two sit side by side instead of
+         stacked, so placing a player doesn't mean scrolling down to the list
+         and back up to the pitch on every pick. -->
+    <div id="squad-columns">
+    <div class="squad-column">
     <button class="view-tab nes-btn is-warning section-toggle" data-view="formation">📋 Formation</button>
 
     <!-- Topological pitch editor -->
@@ -544,9 +596,11 @@
         <button id="squad-place-cancel-btn" class="nes-btn is-compact">Cancel</button>
       </div>
     </div>
+    </div>
 
+    <div class="squad-column">
     <!-- Player search / list to pick from -->
-    <button class="view-tab nes-btn is-warning section-toggle" data-view="players" style="margin-top:16px;">🔍 Browse Players</button>
+    <button class="view-tab nes-btn is-warning section-toggle" data-view="players">🔍 Browse Players</button>
     <div id="squad-players-view" class="section-container">
       <div id="squad-search-row">
         <input id="squad-search" type="text" placeholder="Search player..." />
@@ -572,6 +626,8 @@
         <button id="pick-next-btn" class="nes-btn is-compact">Next ▸</button>
       </div>
     </div>
+    </div>
+    </div>
 
     <!-- Fixed confirm bar -->
     <div id="confirm-bar">
@@ -580,9 +636,18 @@
     </div>
   </div>
 
-  <!-- Camera joystick (mobile; PC still uses arrow keys) -->
+  <!-- Camera scroll control: a joystick on touch devices, a WASD-styled
+       d-pad on a real mouse+keyboard setup (see the media query above) —
+       both drive the same scrollKeys/joyVec state (see _setupJoystick and
+       the WASD button wiring next to it in GameScene). -->
   <div id="scroll-controls">
     <div id="joy-base"><div id="joy-stick"></div></div>
+    <div id="wasd-pad">
+      <button id="wasd-w" type="button">W</button>
+      <button id="wasd-a" type="button">A</button>
+      <button id="wasd-s" type="button">S</button>
+      <button id="wasd-d" type="button">D</button>
+    </div>
   </div>
 
   <!-- Player stat panel (shown on tap in squad editor / sub panel) -->
