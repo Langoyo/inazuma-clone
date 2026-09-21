@@ -1570,3 +1570,58 @@ Verified directly: picking a color and starting a match makes
 `teamColorA` match it exactly (not the auto-derived one), and leaving
 it alone still produces the same color `_squadColor` always would.
 Verified against the full Playwright suite (49/49 passing).
+
+## Tap a spot on the pitch to fill it
+
+Filling an XI meant doing the work in the wrong order: open the player
+list, find someone good, then remember which spot they were meant for
+and go back to the pitch for it. On a phone that's worse still, since
+the list is a drawer covering most of the pitch — so the flow was open
+the drawer, pick, close the drawer, place. The drawer geometry got a
+lot of attention for that reason, but the geometry was never really
+the problem: two panels fighting over one screen is a fix for a
+workflow that isn't actually simultaneous. Picking a player and
+choosing their spot are sequential, and the editor's own selection
+model already treated them as the same operation.
+
+So tapping an *empty* pitch slot now opens the list itself, narrowed
+to the position that slot asks for (`SLOT_ROLES`) and sorted as ever
+by rating, and the tap that picks a player from it both fills the spot
+and closes the list again — putting the next empty spot straight back
+under the thumb. Two taps a player, no opening or closing in between.
+
+Almost none of this is new machinery. A list card and a pitch pin were
+already the exact same thing to `_onSquadPinClick` (see
+`_squadSelForPlayer`), so an empty spot just needed to additionally
+arm the list (`_armEmptySpot`: set the position narrowing, reset to
+page 1, open the section) and a completed placement to retire it
+(`_finishSpotFill`). Which is also why the original route — browse the
+whole roster first, pick someone, then choose where they go — keeps
+working untouched, and both now end the same way, with the drawer
+getting out of the way once the player has somewhere to be. Arming a
+player from the list deliberately does *not* close it, since tapping
+the same card twice is how you read their stats.
+
+Deliberately limited to empty spots. Tapping an occupied pin is the
+start of a swap with another pin, and the list opening over the pitch
+would bury the other half of that. The narrowing is transient and
+announced rather than silent — a "Filling a GK spot · Show all" banner
+above the list, since a roster of ~5000 suddenly showing 792 reads as
+a bug otherwise — and clears itself on placement, on cancel, and on a
+bulk fill (`_randomize`, `_useWholeTeam`), so it's never a filter left
+set behind you. Only the narrow layout auto-closes; above 900px the
+list is a permanent column beside the pitch, where collapsing it
+mid-flow would just be startling.
+
+One bug found and fixed while building it: an empty spot left armed
+after closing the list without picking anyone ate the next tap, since
+two empty spots resolve through `_swapSquadSelections` as a swap of
+two nothings — which cleared the selection and, having "handled" the
+tap, never reopened the list for the spot just tapped. Closing the
+list now drops an armed empty spot (a pool player stays armed, that
+being the whole point of the other route), and an empty-to-empty tap
+re-arms the new spot rather than spending itself on a no-op swap.
+
+Six new tests cover the narrowing, the two-tap fill, "Show all", the
+stale-arm regression, the browse-then-place route, and an occupied pin
+still being left alone.

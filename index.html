@@ -322,6 +322,12 @@
     @media (max-width: 899px) {
       #squad-players-drawer-close { display: block; }
     }
+    #pick-scope {
+      display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+      font-size: 12px; margin-bottom: 6px; padding: 6px 8px;
+      background: rgba(255,217,102,0.12); border: 2px solid var(--gold);
+    }
+    #pick-scope b { color: var(--gold); }
     #squad-save-status { font-size: 13px; opacity: 0.9; color: var(--green); }
 
     /* ---- topological squad editor */
@@ -699,6 +705,12 @@
           <option value="keeperPower">Sort: Keeper</option>
         </select>
         <button id="squad-whole-team-btn" class="nes-btn is-compact" disabled>Select from here</button>
+      </div>
+      <!-- Shown only while the list is narrowed to the spot you tapped on the
+           pitch (see _armEmptySpot / #pick-scope-clear). -->
+      <div id="pick-scope">
+        <span>Filling a <b id="pick-scope-role"></b> spot</span>
+        <button id="pick-scope-clear" class="nes-btn is-compact" type="button">Show all</button>
       </div>
       <div id="pick-count"></div>
       <div id="squad-pick-list"></div>

@@ -153,6 +153,117 @@ test.describe('bench slots', () => {
   });
 });
 
+test.describe('tap a spot to fill it', () => {
+  const drawerHidden = (page) => expect(page.locator('#squad-players-view')).toHaveClass(/hidden-section/);
+  const drawerShown = (page) => expect(page.locator('#squad-players-view')).not.toHaveClass(/hidden-section/);
+
+  test('tapping an empty slot opens the list narrowed to the position it asks for', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await drawerHidden(page);
+
+    // An empty pin renders the role its slot asks for as its only label.
+    const role = (await page.locator('#formation-pitch .slot-pin[data-slot="0"]').textContent()).trim();
+    await page.click('#formation-pitch .slot-pin[data-slot="0"]');
+    await drawerShown(page);
+
+    await expect(page.locator('#pick-scope')).toBeVisible();
+    await expect(page.locator('#pick-scope-role')).toHaveText(role);
+    const shown = await page.evaluate(() =>
+      [...new Set([...document.querySelectorAll('#squad-pick-list .pos-badge')].map((e) => e.textContent))]);
+    expect(shown).toEqual([role]);
+  });
+
+  test('picking someone from there fills the spot and closes the list again', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('#formation-pitch .slot-pin[data-slot="0"]');
+    await drawerShown(page);
+
+    const card = page.locator('#squad-pick-list .pick-card').first();
+    const name = await card.locator('.pick-name').textContent();
+    await card.click();
+
+    // Closing itself is the point: it puts the next empty spot straight
+    // under the thumb, which is what makes filling an XI two taps a player.
+    await drawerHidden(page);
+    const placed = await page.evaluate(() => {
+      const s = window.__scene;
+      const p = s.rosterAll.find((r) => r.id === s.squadSlots[0]);
+      return p && (p.nickname || p.name);
+    });
+    expect(placed).toBe(name);
+    // And the narrowing retires with the spot that asked for it.
+    expect(await page.evaluate(() => window.__scene._pickPosFilter)).toBeNull();
+  });
+
+  test('"Show all" widens the list back to the whole roster without closing it', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('#formation-pitch .slot-pin[data-slot="0"]');
+    const scoped = await page.locator('#pick-count').textContent();
+
+    await page.click('#pick-scope-clear');
+    await expect(page.locator('#pick-scope')).toBeHidden();
+    await drawerShown(page);
+    expect(await page.locator('#pick-count').textContent()).not.toBe(scoped);
+  });
+
+  test('closing the list without picking anyone drops the spot it was armed for', async ({ page }) => {
+    // Otherwise that stale selection eats the next tap: with an empty spot
+    // still armed, tapping a different empty one used to resolve as a swap
+    // of two nothings, so the list never reopened for it.
+    await waitForRosterLoaded(page);
+    await page.click('#formation-pitch .slot-pin[data-slot="0"]');
+    await drawerShown(page);
+
+    await page.click('#squad-players-drawer-close');
+    await drawerHidden(page);
+    expect(await page.evaluate(() => window.__scene._squadSel)).toBeNull();
+
+    const other = page.locator('#formation-pitch .slot-pin.empty').nth(5);
+    const role = (await other.textContent()).trim();
+    await other.click();
+    await drawerShown(page);
+    await expect(page.locator('#pick-scope-role')).toHaveText(role);
+  });
+
+  test('browsing the whole roster first and placing onto the pitch after still works', async ({ page }) => {
+    // The other way round from the flow above, and still supported: open the
+    // list yourself, pick a player, then choose where they go. Arming them
+    // deliberately leaves the list open (tapping the same card again is how
+    // you read their stats) — it's the placement that closes it.
+    await waitForRosterLoaded(page);
+    await page.click('button[data-view="players"]');
+    await expect(page.locator('#pick-scope')).toBeHidden();
+
+    const card = page.locator('#squad-pick-list .pick-card').first();
+    const name = await card.locator('.pick-name').textContent();
+    await card.click();
+    await drawerShown(page);
+    await expect(page.locator('#squad-place-hint')).toBeVisible();
+
+    await page.click('#formation-pitch .slot-pin[data-slot="1"]');
+    await drawerHidden(page);
+    const placed = await page.evaluate(() => {
+      const s = window.__scene;
+      const p = s.rosterAll.find((r) => r.id === s.squadSlots[1]);
+      return p && (p.nickname || p.name);
+    });
+    expect(placed).toBe(name);
+  });
+
+  test('tapping an occupied pin still just arms it, leaving the list alone', async ({ page }) => {
+    // Filling is only ever what an *empty* spot can mean — an occupied one
+    // is the start of a swap with another pin, which the list opening over
+    // the pitch would get in the way of.
+    await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+    await drawerHidden(page);
+
+    await page.click('#formation-pitch .slot-pin[data-slot="0"]');
+    await drawerHidden(page);
+    expect(await page.evaluate(() => window.__scene._squadSel)).toEqual({ type: 'slot', slot: 0 });
+  });
+});
+
 test.describe('collapsible Formation / Browse Players sections', () => {
   test('toggling Formation while Browse Players is closed leaves it closed', async ({ page }) => {
     await waitForRosterLoaded(page);

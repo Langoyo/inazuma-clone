@@ -789,7 +789,8 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('pick-prev-btn').addEventListener('click',()=>{ this._pickPage=Math.max(0,this._pickPage-1); this._renderPickList(); });
     document.getElementById('pick-next-btn').addEventListener('click',()=>{ this._pickPage++; this._renderPickList(); });
     document.getElementById('squad-remove-btn').addEventListener('click',()=>this._removeSelectedFromSquad());
-    document.getElementById('squad-place-cancel-btn').addEventListener('click',()=>{ this._squadSel=null; this._renderPitch(); this._renderPickList(); });
+    document.getElementById('squad-place-cancel-btn').addEventListener('click',()=>{ this._squadSel=null; this._pickPosFilter=null; this._renderPitch(); this._renderPickList(); });
+    document.getElementById('pick-scope-clear').addEventListener('click',()=>{ this._pickPosFilter=null; this._renderPickListReset(); });
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
     document.getElementById('my-team-color').addEventListener('input',e=>{ this.myTeamColor=e.target.value; });
     document.getElementById('half-length-select').addEventListener('change',e=>{
@@ -905,7 +906,22 @@ export default class GameScene extends Phaser.Scene {
    *  without switching views first. Collapsing one just frees up screen
    *  space; it doesn't affect which side (me/rival) is being edited. */
   _toggleSquadSection(view){
-    this.squadSectionOpen[view]=!this.squadSectionOpen[view];
+    this._setSquadSection(view,!this.squadSectionOpen[view]);
+  }
+  _setSquadSection(view,open){
+    if(this.squadSectionOpen[view]===open) return;
+    this.squadSectionOpen[view]=open;
+    // An empty spot is only ever armed to be filled from this list (see
+    // _armEmptySpot), so closing the list without picking anyone is a
+    // change of mind — leave it armed and the *next* tap on another empty
+    // spot would spend itself swapping the two, with nothing to show for
+    // it. A pool player armed from the list is deliberately kept: placing
+    // them onto the pitch is the whole point, and the pitch is what's left
+    // once this closes.
+    if(view==='players'&&!open&&this._isEmptySpot(this._squadSel)){
+      this._squadSel=null; this._pickPosFilter=null;
+      this._renderPitch(); this._renderPickList();
+    }
     this._applySquadSectionVisibility();
   }
   _applySquadSectionVisibility(){
@@ -1189,12 +1205,31 @@ export default class GameScene extends Phaser.Scene {
   // slot/bench spot works whether or not that spot is already occupied.
   _squadSel=null;
   _pickPage=0;
+  /** Position the list is currently narrowed to, set by tapping an empty
+   *  pitch slot (see _armEmptySpot). Transient and separate from the
+   *  search-row filters — it's cleared as soon as the spot that asked for
+   *  it is filled, rather than being another thing left set behind you. */
+  _pickPosFilter=null;
   _onSquadPinClick(sel){
-    if(!this._squadSel){ this._squadSel=sel; this._renderPitch(); this._renderPickList(); return; }
+    if(!this._squadSel){
+      this._squadSel=sel;
+      if(sel.type!=='pool'&&!this._squadSelPlayer(sel)) this._armEmptySpot(sel);
+      this._renderPitch(); this._renderPickList(); return;
+    }
     if(this._squadSel.type===sel.type&&(sel.type==='slot'?this._squadSel.slot===sel.slot:this._squadSel.id===sel.id)){
       const p=this._squadSelPlayer(sel);
-      this._squadSel=null; this._renderPitch(); this._renderPickList();
+      this._squadSel=null; this._pickPosFilter=null;
+      this._renderPitch(); this._renderPickList();
       if(p) this._showPlayerStats(p);
+      return;
+    }
+    if(this._isEmptySpot(this._squadSel)&&this._isEmptySpot(sel)){
+      // Swapping two empty spots does nothing, so tapping a second one is
+      // a change of mind about which to fill — re-arm there (and re-scope
+      // the list to it) rather than spending the tap on a no-op swap that
+      // also clears the selection.
+      this._squadSel=sel; this._armEmptySpot(sel);
+      this._renderPitch(); this._renderPickList();
       return;
     }
     if(this._squadSel.type==='pool'&&sel.type==='pool'){
@@ -1205,7 +1240,30 @@ export default class GameScene extends Phaser.Scene {
     }
     this._swapSquadSelections(this._squadSel,sel);
     this._squadSel=null;
+    this._finishSpotFill();
     this._renderPitch(); this._renderPickList();
+  }
+  /** Tapping an empty spot is only ever a request to fill it, so it doubles
+   *  as "open the list, showing the players that fit here" — which is what
+   *  makes filling an XI two taps a player (spot, then player) instead of
+   *  opening the list, hunting for someone, and going back for the spot.
+   *  Bench spots take anyone (they're generic cover, not a role), so they
+   *  open the list unnarrowed. */
+  _isEmptySpot(sel){ return !!sel&&sel.type!=='pool'&&!this._squadSelPlayer(sel); }
+  _armEmptySpot(sel){
+    const roles=SLOT_ROLES[this._edFormation()]||SLOT_ROLES[DEFAULT_FORMATION];
+    this._pickPosFilter=sel.type==='slot'?(roles[sel.slot]||null):null;
+    this._pickPage=0;
+    this._setSquadSection('players',true);
+  }
+  /** A completed placement retires the narrowing it was made under, and — on
+   *  the narrow layout, where the list is a drawer over the pitch — gets the
+   *  drawer out of the way again, so the next spot is right there to tap
+   *  without a close in between. Above 900px the list is a permanent column
+   *  beside the pitch and collapsing it mid-flow would only be startling. */
+  _finishSpotFill(){
+    this._pickPosFilter=null;
+    if(window.innerWidth<900) this._setSquadSection('players',false);
   }
   _squadSelPlayer(sel){
     const id=sel.type==='slot'?this._edSlots()[sel.slot]:sel.id;
@@ -1323,7 +1381,14 @@ export default class GameScene extends Phaser.Scene {
     const sortKey=document.getElementById('squad-sort-select').value;
     const inSquad=this._allInSquad(); const PAGE_SIZE=30;
     const sel=this._squadSel;
-    const matches=this.rosterAll.filter(p=>(!gf||p.game===gf)&&(!tfTeam||p.team===tfTeam)&&(!tfGame||p.game===tfGame)&&(!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q)));
+    const pos=this._pickPosFilter;
+    const matches=this.rosterAll.filter(p=>(!pos||p.position===pos)&&(!gf||p.game===gf)&&(!tfTeam||p.team===tfTeam)&&(!tfGame||p.game===tfGame)&&(!q||p.name.toLowerCase().includes(q)||(p.nickname||'').toLowerCase().includes(q)));
+    // Say which spot the list is narrowed for, with the way out of it — the
+    // narrowing is invisible otherwise, and a roster of ~5000 suddenly
+    // showing a few hundred reads as a bug rather than as help.
+    const scope=document.getElementById('pick-scope');
+    scope.style.display=pos?'flex':'none';
+    if(pos) document.getElementById('pick-scope-role').textContent=pos;
     const sorters=this._pickListSorters();
     matches.sort(sorters[sortKey]||sorters.rating);
     const pageCount=Math.max(1,Math.ceil(matches.length/PAGE_SIZE));
@@ -1371,7 +1436,7 @@ export default class GameScene extends Phaser.Scene {
     const {team:tfTeam,game:tfGame}=this._parseTeamFilter(document.getElementById('squad-team-filter').value);
     if(!gf&&!tfTeam) return;
     this._fillSquadByPosition(this.rosterAll.filter(p=>(!tfTeam||p.team===tfTeam)&&(!tfGame||p.game===tfGame)&&(!gf||p.game===gf)));
-    this._squadSel=null;
+    this._squadSel=null; this._pickPosFilter=null;
     this._renderPitch(); this._renderPickList();
   }
 
@@ -1386,7 +1451,7 @@ export default class GameScene extends Phaser.Scene {
     this._edSetFormation(Phaser.Utils.Array.GetRandom(Object.keys(FORMATIONS)));
     document.getElementById('formation-select').value=this._edFormation();
     this._fillSquadByPosition(topOnly?this._topPercentileByPosition(this.rosterAll):this.rosterAll);
-    this._squadSel=null;
+    this._squadSel=null; this._pickPosFilter=null;
     this._renderPitch(); this._renderPickList();
   }
 
