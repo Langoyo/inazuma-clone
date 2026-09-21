@@ -1625,3 +1625,20 @@ re-arms the new spot rather than spending itself on a no-op swap.
 Six new tests cover the narrowing, the two-tap fill, "Show all", the
 stale-arm regression, the browse-then-place route, and an occupied pin
 still being left alone.
+
+## Another nudge up to player pace
+
+The general pace lever (`BASE_MAX_SPEED`/`AUTO_MAX_SPEED`) up another
+7%, 0.718/0.658 -> 0.768/0.704, by preference — the earlier +5% only
+restored the pace the stat recompute had cost, and at that pace it
+still read as sluggish. Both move together, keeping off-ball players
+at the same ~92% of a carrier's top speed as before rather than
+quietly changing how the team moves relative to whoever has the ball.
+
+Worth noting why these two constants are the right lever at all and
+the steering forces aren't: a player's steering force against their
+0.16 air friction settles at a terminal velocity around 1.1, well
+above the ~0.65 the cap actually allows, and they reach it within a
+few frames. So the cap is what every run in the match is up against,
+and a change here shows up in full rather than being partly absorbed
+by how long players take to get up to speed.

@@ -97,16 +97,18 @@ const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
 // couldn't get there with any urgency.
 const STEER_FORCE           = 0.00034;
 const AUTO_STEER_FORCE      = 0.00032;
-// was 0.684/0.627, +5% — recomputing every player's stats straight from
-// InazumaElevenAPI (see the roster/CHANGELOG history) dropped the average
-// `speed` stat specifically by ~5% (0.956 -> 0.911), since it's a 1:1 map
-// of the raw Agility stat rather than an average of two like the others,
-// so it took the recompute's own noise more directly. That made the whole
-// match feel a notch slower without anyone having asked for that — this
-// nudges the general cap back up to compensate, same lever as the earlier
-// -5% tuning pass below.
-const BASE_MAX_SPEED        = 0.718;
-const AUTO_MAX_SPEED        = 0.658;
+// The general pace lever: 0.684/0.627 originally, +5% to undo the slowdown
+// that recomputing every player's stats straight from InazumaElevenAPI
+// caused (it dropped the average `speed` stat specifically by ~5%,
+// 0.956 -> 0.911, since that one is a 1:1 map of the raw Agility stat
+// rather than an average of two like the others, so it took the
+// recompute's own noise more directly), then +7% on top by preference —
+// back at the old pace it just still read as sluggish. These are what
+// actually decide top speed: the steering force alone would settle
+// around 1.1 against the players' 0.16 air friction, so the cap is what
+// every run hits, and a nudge here shows up almost in full.
+const BASE_MAX_SPEED        = 0.768;
+const AUTO_MAX_SPEED        = 0.704;
 // A player following a drawn line sprints: draw somewhere and it's a
 // deliberate run, so they push harder and cap out faster than everyone
 // else — but only as much as their legs currently allow. The bonus scales
