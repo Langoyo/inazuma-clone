@@ -1418,3 +1418,26 @@ Verified against the full Playwright suite (45/45 passing) and
 directly: 3 cards confirmed per row at the 1280px viewport, and
 `_nearestOpponentDist` correctly reads ~365px with defenders pushed
 away versus 50px with one placed right next to the carrier.
+
+## Fixed the 3-card grid overflowing, then leaving an uneven gap
+
+Two follow-on bugs from the same change, caught in review:
+- `#squad-pick-list` had been pinned to the same `640px` as the column
+  and its container, but it actually sits *inside* that container's
+  padded content box (640px minus padding and border on each side,
+  ~606px) — matching the outer width instead of its own parent's inner
+  one meant it overflowed past the container's right edge by that
+  padding+border.
+- Fixing that by dropping back to the element's own `width:100%`
+  surfaced a second issue: its base rule's `max-width:500px` (sized
+  for the old single-column mobile layout) is narrower than the ~606px
+  actually available in the side-by-side layout, so the grid stopped
+  overflowing but now fell short of the container's own width instead
+  — a lopsided gap on the right where the left/right padding should've
+  matched.
+
+Lifted the `max-width` cap for this specific context (`max-width:
+none`) so `#squad-pick-list` actually fills the space its container
+gives it. Verified directly: left and right gaps both measure exactly
+17px (the container's own padding+border) and the last card in a row
+now reaches the same right edge the grid itself does.

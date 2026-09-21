@@ -259,12 +259,25 @@
       .squad-column:first-child .section-toggle,
       .squad-column:first-child .section-container { width: 380px; max-width: 380px; }
       .squad-column:last-child .section-toggle,
-      .squad-column:last-child .section-container,
-      .squad-column:last-child #squad-pick-list { width: 640px; max-width: 640px; }
-      /* Exactly 3 cards per row here, not however many the auto-fill
-         default happens to fit at 640px (4, a bit cramped) — the mobile
-         grid keeps auto-fill since there's only ever room for 1-2 there. */
-      .squad-column:last-child #squad-pick-list { grid-template-columns: repeat(3, 1fr); }
+      .squad-column:last-child .section-container { width: 640px; max-width: 640px; }
+      /* #squad-pick-list itself stays at its own default width:100% —
+         it sits inside .section-container's padded content box (640px
+         minus 14px padding and 3px border on each side, ~606px), so
+         matching the *outer* 640px here like the two rules above do
+         overflowed past the container's own edge by that padding+border.
+         Its base rule's own max-width:500px (sized for the old single-
+         column mobile-width layout) is now narrower than that ~606px
+         content box, though, so it still needs lifting here — left
+         alone it caps the grid well short of the space actually
+         available, leaving a lopsided gap on the right instead of
+         matching the container's own even padding on every side. */
+      .squad-column:last-child #squad-pick-list {
+        max-width: none;
+        /* Exactly 3 cards per row, not however many auto-fill fits
+           (4, a bit cramped) — the mobile grid keeps auto-fill since
+           there's only ever room for 1-2 there regardless. */
+        grid-template-columns: repeat(3, 1fr);
+      }
     }
     #squad-save-status { font-size: 13px; opacity: 0.9; color: var(--green); }
 
