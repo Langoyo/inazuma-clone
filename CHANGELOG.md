@@ -1724,3 +1724,32 @@ Their line ending now deletes the path instead, which hands them to
 logic — so they head back to their post. Drawing a run for them still
 works exactly as before; this is only about where they end up once it
 finishes. Outfielders are untouched, which the tests check both ways.
+
+## Made the licensing explicit: MIT, with the fan-project line drawn
+
+The project had no `LICENSE` file and no licensing section at all,
+which in practice means all rights reserved — the opposite of the
+intent. Added the MIT license (copyright Langoyo), the matching
+`"license": "MIT"` field in `package.json`, and two new README
+sections.
+
+"Built with" now credits every dependency with what it actually does
+here and the license it carries: Phaser (MIT, and the bundled Matter.js
+it uses for physics), Trystero (MIT, the WebRTC peer-to-peer layer),
+nes.css (MIT, the pixel UI kit), Vite (MIT) and Playwright
+(Apache-2.0). Licenses were read from each package's own manifest
+rather than from memory. No version numbers in the prose — those rot,
+and `package.json` is already the source of truth.
+
+"Data and assets" covers the parts that aren't code: the three Google
+Fonts under the SIL Open Font License, and the roster/team data derived
+from `InazumaElevenAPI` and its own upstream `zukan.inazuma.jp`, with a
+pointer to the provenance already written up in this file.
+
+The license section deliberately says what MIT here does *not* cover,
+because for a project like this that's the part that matters: the
+bundled libraries keep their own licenses, the fonts are under the OFL,
+and Inazuma Eleven itself belongs to Level-5. Character names, team
+names and the stats derived from them aren't this project's to
+relicense, so the section says so plainly and notes the fan-project
+status rather than letting a blanket MIT grant imply otherwise.
