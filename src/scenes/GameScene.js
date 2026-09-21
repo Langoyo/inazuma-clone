@@ -1484,13 +1484,19 @@ export default class GameScene extends Phaser.Scene {
         collisionFilter:{category:CAT_PLAYER,mask:CAT_BALL|CAT_DEFAULT}}):null;
       if(body) this.bodyOwner.set(body,{role,id});
       const gfx=this.add.circle(pos.x,pos.y,12,tColor).setDepth(5);
-      // Plain white, no stroke — a 3px black outline on 7px text was almost
-      // as thick as the letters themselves and read as a black blob. A soft
-      // shadow instead gives just enough contrast against the grass without
-      // swallowing the glyphs.
+      // A dark plate behind the name rather than an outline or a shadow on
+      // bare glyphs. 9px white text with a soft shadow was legible in
+      // isolation but not over a pitch: thin light strokes on mid-green is
+      // barely any contrast, and an outline thick enough to fix that at
+      // this size eats the letters (a 3px one on 7px text read as a black
+      // blob, which is what the shadow replaced). A plate gives every name
+      // the same contrast wherever it sits. Pixelify Sans is the UI font
+      // and stays crisp small; the roster has long since loaded by the
+      // time a match builds its teams, so the webfont is available.
       const label=this.add.text(pos.x,pos.y+15,rp.nickname||rp.name,
-        {fontSize:'9px',color:'#fff',resolution:3}).setOrigin(.5,0).setDepth(6)
-        .setShadow(0,1,'#000',2,false,true);
+        {fontSize:'12px',fontFamily:'"Pixelify Sans", monospace',fontStyle:'bold',
+         color:'#fff',backgroundColor:'rgba(0,0,0,0.55)',padding:{x:3,y:1},resolution:3})
+        .setOrigin(.5,0).setDepth(6);
       team.push({id,body,gfx,label,slot,wanderPhase:Math.random()*Math.PI*2});
       const st=createPlayerStats(); applyRosterPlayerToStats(st,rp); map.set(id,st);
     });
@@ -2025,8 +2031,14 @@ export default class GameScene extends Phaser.Scene {
       // Hold here instead and wait for the next point _pointerMove adds.
       if(this.drawing&&this.selectedPlayerId===e.id) continue;
       // The drawn line ran out: keep making ground while we're attacking
-      // rather than turning straight back into the formation.
-      const runOn=this._runOnWaypoint(pos);
+      // rather than turning straight back into the formation — except for
+      // the keeper, who has somewhere to be. Carrying on up the pitch with
+      // everyone else walked them out of their own half and left the goal
+      // open behind them, so their line ending sends them back to their
+      // post instead (deleting the path hands them to _offBallTarget,
+      // which keeps a keeper on plain formation logic). Drawing a run for
+      // them still works — this is only about where they end up after it.
+      const runOn=e.slot===0?null:this._runOnWaypoint(pos);
       if(runOn){ path.push(runOn); this.autoPathIds.add(e.id); targets.push({id:e.id,...runOn,sprint:true}); }
       else { this.myPaths.delete(e.id); this.autoPathIds.delete(e.id); }
     }
@@ -2996,6 +3008,9 @@ export default class GameScene extends Phaser.Scene {
     document.querySelector('#scoreboard .score').textContent=`${this.remoteState.score.a} - ${this.remoteState.score.b}`;
     this._renderClock(this.remoteState.clock);
     this.currentPossession=this.remoteState.possession;
+    // After the sent-off pass above and the possession assignment, so it
+    // sees who's actually on the pitch and who's carrying the ball.
+    this._declutterLabels();
     this.confrontation=this.remoteState.confrontation;
     this._renderResultBanner(this.remoteState.confrontResult,time);
     this._paintHUD(this.remoteState.sp.b,(this.remoteState.maxSp?.b)||100,this.remoteState.stamina?.b,(this.remoteState.maxStamina?.b)||150);
@@ -3162,7 +3177,36 @@ export default class GameScene extends Phaser.Scene {
       e.label.setPosition(e.body.position.x,e.body.position.y+15);
       e.gfx.setFillStyle(this._isStunned(e.id,now)?0x888888:this.teamColorB);
     });
+    this._declutterLabels();
     this._highlightActive(); this._updatePossRing();
+  }
+
+  /** Draw order for names, most worth keeping first: the ball carrier, then
+   *  whoever each side is steering, then the rest by slot. Fixed rather than
+   *  arbitrary so _declutterLabels resolves the same pair the same way for
+   *  as long as they're close, instead of the two flickering against each
+   *  other frame to frame. */
+  _labelOrder(){
+    const carrier=this.currentPossession?this._activeEntry(this.currentPossession):null;
+    const rank=e=>e.id===carrier?.id?0:(e.id===this.activeIdA||e.id===this.activeIdB)?1:2;
+    return [...this.teamA,...this.teamB].sort((a,b)=>rank(a)-rank(b)||a.slot-b.slot);
+  }
+  /** Hides a name that would land on one already shown this frame. Two
+   *  overlapping labels are unreadable whatever the font — worse with a
+   *  plate behind each, where the pair butts together and reads as a
+   *  single word — and players bunch up constantly. Only ever hides the
+   *  label: a player already off the pitch (sent off, substituted) keeps
+   *  theirs hidden, and nothing here brings it back. */
+  _declutterLabels(){
+    const shown=[];
+    for(const e of this._labelOrder()){
+      if(!e.gfx.visible){ e.label.setVisible(false); continue; }
+      const b=e.label.getBounds();
+      const clash=shown.some(r=>Math.abs(r.centerX-b.centerX)<(r.width+b.width)/2
+                              &&Math.abs(r.centerY-b.centerY)<(r.height+b.height)/2);
+      e.label.setVisible(!clash);
+      if(!clash) shown.push(b);
+    }
   }
 
   _highlightActive(){

@@ -1683,3 +1683,73 @@ test was about, so it now takes the selected player from the scene and
 checks what it actually cares about — that a real drag builds a path,
 on a player of ours, and that the path survives while the press is
 held.
+
+## Readable names on the pitch, and a keeper who stays home
+
+Two things reported together, both about the match itself.
+
+**Names.** They were 9px white Courier with a soft shadow. Legible in
+isolation, not over a pitch: thin light strokes on mid-green is barely
+any contrast, and the shadow was there because the obvious fix had
+already been tried and failed — an outline thick enough to matter at
+that size eats the letters (a 3px one on 7px text read as a black
+blob). So the contrast now comes from a dark plate behind each name
+instead, which gives every one of them the same footing wherever it
+sits, and the text moves to 12px bold Pixelify Sans — the font the
+rest of the UI already uses, and one that stays crisp small. The
+roster has long since loaded by the time a match builds its teams, so
+the webfont is reliably available by then.
+
+Size and contrast weren't the whole problem, though: players bunch up
+constantly, and two names on top of each other are unreadable whatever
+the font — worse with a plate behind each, where the pair butts
+together and reads as a single word. So a name that would land on one
+already shown this frame is now dropped instead (`_declutterLabels`).
+Which one survives follows a fixed order — the ball carrier first,
+then whoever each side is steering, then by slot — rather than
+whatever order the teams happen to be in, so a close pair resolves the
+same way for as long as they're close instead of the two flickering
+against each other frame to frame. Verified: three players stacked on
+one spot show exactly one name, and eight consecutive frames produce a
+single visibility pattern. It only ever hides a label, so a player
+already off the pitch (sent off, substituted) keeps theirs hidden.
+
+**The keeper.** When a drawn line ran out, `_runOnWaypoint` kept the
+player making ground up the pitch rather than turning straight back
+into the formation — which is right for everyone except the one player
+with somewhere specific to be. Drawing a keeper out and having them
+carry on with the rest of the attack left their goal open behind them.
+Their line ending now deletes the path instead, which hands them to
+`_offBallTarget` — where a keeper already stays on plain formation
+logic — so they head back to their post. Drawing a run for them still
+works exactly as before; this is only about where they end up once it
+finishes. Outfielders are untouched, which the tests check both ways.
+
+## Made the licensing explicit: MIT, with the fan-project line drawn
+
+The project had no `LICENSE` file and no licensing section at all,
+which in practice means all rights reserved — the opposite of the
+intent. Added the MIT license (copyright Langoyo), the matching
+`"license": "MIT"` field in `package.json`, and two new README
+sections.
+
+"Built with" now credits every dependency with what it actually does
+here and the license it carries: Phaser (MIT, and the bundled Matter.js
+it uses for physics), Trystero (MIT, the WebRTC peer-to-peer layer),
+nes.css (MIT, the pixel UI kit), Vite (MIT) and Playwright
+(Apache-2.0). Licenses were read from each package's own manifest
+rather than from memory. No version numbers in the prose — those rot,
+and `package.json` is already the source of truth.
+
+"Data and assets" covers the parts that aren't code: the three Google
+Fonts under the SIL Open Font License, and the roster/team data derived
+from `InazumaElevenAPI` and its own upstream `zukan.inazuma.jp`, with a
+pointer to the provenance already written up in this file.
+
+The license section deliberately says what MIT here does *not* cover,
+because for a project like this that's the part that matters: the
+bundled libraries keep their own licenses, the fonts are under the OFL,
+and Inazuma Eleven itself belongs to Level-5. Character names, team
+names and the stats derived from them aren't this project's to
+relicense, so the section says so plainly and notes the fan-project
+status rather than letting a blanket MIT grant imply otherwise.
