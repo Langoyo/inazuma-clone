@@ -53,6 +53,63 @@ test.describe('team color selector', () => {
     expect(info.teamColor).toBe('#00ff00');
   });
 
+  test('starts on Automatic, previewing the color that pick actually gives', async ({ page }) => {
+    // A native color input can't be blank, so the swatch has to show
+    // something — it shows what Automatic works out to for the current XI
+    // rather than a fixed value that reads as a choice nobody made.
+    await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+
+    await expect(page.locator('#my-team-color-auto')).toBeChecked();
+    expect(await page.evaluate(() => window.__scene.myTeamColor)).toBeNull();
+    const shown = await page.evaluate(() => ({
+      swatch: document.getElementById('my-team-color').value,
+      derived: window.__scene._css3(window.__scene._squadColor(window.__scene.squadSlots.filter(Boolean), 0x3399ff)),
+    }));
+    expect(shown.swatch).toBe(shown.derived);
+
+    // And it follows the squad, since that's what the pick is derived from.
+    await page.click('#randomize-top-btn');
+    const after = await page.evaluate(() => ({
+      swatch: document.getElementById('my-team-color').value,
+      derived: window.__scene._css3(window.__scene._squadColor(window.__scene.squadSlots.filter(Boolean), 0x3399ff)),
+    }));
+    expect(after.swatch).toBe(after.derived);
+  });
+
+  test('picking a color turns Automatic off, and a squad change no longer moves it', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+    await page.fill('#my-team-color', '#00ff00');
+    await page.dispatchEvent('#my-team-color', 'input');
+
+    await expect(page.locator('#my-team-color-auto')).not.toBeChecked();
+    await page.click('#randomize-top-btn');
+    expect(await page.evaluate(() => window.__scene.myTeamColor)).toBe('#00ff00');
+    expect(await page.inputValue('#my-team-color')).toBe('#00ff00');
+  });
+
+  test('ticking Automatic again hands it back, unticking holds the color on screen', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+    await page.fill('#my-team-color', '#00ff00');
+    await page.dispatchEvent('#my-team-color', 'input');
+
+    await page.check('#my-team-color-auto');
+    const back = await page.evaluate(() => ({
+      myTeamColor: window.__scene.myTeamColor,
+      swatch: document.getElementById('my-team-color').value,
+      derived: window.__scene._css3(window.__scene._squadColor(window.__scene.squadSlots.filter(Boolean), 0x3399ff)),
+    }));
+    expect(back.myTeamColor).toBeNull();
+    expect(back.swatch).toBe(back.derived);
+
+    // Taking manual control keeps what's on screen — the color shouldn't
+    // jump at the moment you go to adjust it.
+    await page.uncheck('#my-team-color-auto');
+    expect(await page.evaluate(() => window.__scene.myTeamColor)).toBe(back.derived);
+  });
+
   test('leaving it untouched still falls back to the auto-derived squad color', async ({ page }) => {
     await waitForRosterLoaded(page);
     await page.click('#randomize-top-btn');

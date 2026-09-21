@@ -1753,3 +1753,33 @@ and Inazuma Eleven itself belongs to Level-5. Character names, team
 names and the stats derived from them aren't this project's to
 relicense, so the section says so plainly and notes the fan-project
 status rather than letting a blanket MIT grant imply otherwise.
+
+## The team color selector now says when it's on automatic
+
+The swatch defaulted to `#3399ff` while `myTeamColor` was still `null`,
+so it showed a specific blue that had nothing to do with what would
+actually happen — the kit color was being derived from your XI, and
+that blue was only the fallback for a squad with no team data at all.
+It read as a choice somebody had made, which is exactly what it wasn't.
+
+A native `<input type="color">` can't be blank, so rather than fake an
+empty state the swatch now tells the truth: while nothing has been
+picked it previews what the automatic pick currently works out to for
+your XI, and an "Automatic" checkbox beside it says that's where the
+color came from. Change your squad and the preview follows, since
+that's what `_squadColor` derives it from (wired through `_renderPitch`,
+which already runs on every squad change, and always reading your own
+XI regardless of which side the pitch is showing — this setting never
+affected the rival anyway).
+
+Touching the swatch is what promotes it to a real override: it sets
+`myTeamColor` and unticks Automatic, after which squad changes leave it
+alone. Ticking Automatic back on clears the override and the preview
+resumes; unticking it deliberately keeps whatever color is on screen
+rather than snapping to some default, so the color doesn't jump at the
+moment you go to adjust it.
+
+`myTeamColor` is still the single source of truth — null means
+automatic, and the payload/`_payloadColor` path is untouched. Three new
+tests cover the automatic preview tracking the squad, an override
+surviving a squad change, and both directions of the checkbox.

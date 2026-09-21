@@ -764,6 +764,21 @@ export default class GameScene extends Phaser.Scene {
     const top=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
     return top?hexToInt(top[0]):fallback;
   }
+  /** Keeps the "Your team color" controls honest about which mode they're
+   *  in. A native colour input can't be blank, so while nothing has been
+   *  picked (`myTeamColor` null) the swatch previews what the automatic
+   *  pick currently works out to for your XI rather than showing some
+   *  fixed value that reads as a choice you made — change the squad and it
+   *  follows. Always your own XI, whichever side the pitch is showing,
+   *  since that's all this setting ever affects. */
+  _syncTeamColorUI(){
+    const swatch=document.getElementById('my-team-color');
+    const auto=document.getElementById('my-team-color-auto');
+    if(!swatch||!auto) return;
+    auto.checked=this.myTeamColor==null;
+    if(this.myTeamColor==null) swatch.value=this._css3(this._squadColor(this.squadSlots.filter(Boolean),0x3399ff));
+    else swatch.value=this.myTeamColor;
+  }
   /** A squad payload's kit color: whatever that player explicitly picked
    *  (payload.color, from the "Your team color" selector), or the usual
    *  auto-derived one if they never touched it — same fallback chain
@@ -794,7 +809,17 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-place-cancel-btn').addEventListener('click',()=>{ this._squadSel=null; this._pickPosFilter=null; this._renderPitch(); this._renderPickList(); });
     document.getElementById('pick-scope-clear').addEventListener('click',()=>{ this._pickPosFilter=null; this._renderPickListReset(); });
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
-    document.getElementById('my-team-color').addEventListener('input',e=>{ this.myTeamColor=e.target.value; });
+    // Touching the swatch is what makes the colour an explicit override —
+    // until then it's only previewing what Automatic works out to.
+    document.getElementById('my-team-color').addEventListener('input',e=>{
+      this.myTeamColor=e.target.value; this._syncTeamColorUI();
+    });
+    document.getElementById('my-team-color-auto').addEventListener('change',e=>{
+      // Unticking keeps whatever is on screen, so the colour doesn't jump
+      // the moment you take manual control of it.
+      this.myTeamColor=e.target.checked?null:document.getElementById('my-team-color').value;
+      this._syncTeamColorUI();
+    });
     document.getElementById('half-length-select').addEventListener('change',e=>{
       this.halfLengthS=parseInt(e.target.value,10)*60;
       // Nothing's ticking yet at this point (still in the squad editor), so
@@ -1072,6 +1097,9 @@ export default class GameScene extends Phaser.Scene {
     const hint=document.getElementById('squad-place-hint');
     hint.style.display=poolP?'flex':'none';
     if(poolP) document.getElementById('squad-place-hint-name').textContent=poolP.nickname||poolP.name;
+    // The automatic kit colour is derived from the XI, so its preview has to
+    // follow every change to it — this runs on all of them.
+    this._syncTeamColorUI();
   }
 
   /** Colour-coded GK/DF/MF/FW chip. `mismatch` marks a player sitting in a
