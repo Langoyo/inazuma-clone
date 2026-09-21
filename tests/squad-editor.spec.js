@@ -152,4 +152,31 @@ test.describe('collapsible Formation / Browse Players sections', () => {
     await expect(page.locator('#squad-players-view')).toHaveClass(/hidden-section/);
     await expect(page.locator('#squad-editor')).not.toHaveClass(/hidden-section/);
   });
+
+  test('tapping outside the drawer closes it, but tapping the pitch/bench beside it does not', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('button[data-view="players"]');
+    await page.waitForTimeout(100);
+    await expect(page.locator('#squad-players-view')).not.toHaveClass(/hidden-section/);
+
+    // A tap inside the drawer itself is obviously not "outside" it.
+    await page.click('#squad-search');
+    await page.waitForTimeout(100);
+    await expect(page.locator('#squad-players-view')).not.toHaveClass(/hidden-section/);
+
+    // Nor is a tap on the pitch/bench sliver still visible beside it —
+    // that's meant to stay usable (arm a bench spot, then pick from the
+    // still-open drawer), not dismiss the drawer out from under it. The
+    // bench-slots test above already exercises this exact combo end to
+    // end; this just checks the drawer itself doesn't close mid-way.
+    await page.locator('#bench-strip .bench-pin.empty').first().click();
+    await page.waitForTimeout(100);
+    await expect(page.locator('#squad-players-view')).not.toHaveClass(/hidden-section/);
+
+    // A tap genuinely outside both (the panel's top-left corner, above and
+    // left of the pitch, which the drawer doesn't reach) does close it.
+    await page.mouse.click(10, 10);
+    await page.waitForTimeout(100);
+    await expect(page.locator('#squad-players-view')).toHaveClass(/hidden-section/);
+  });
 });

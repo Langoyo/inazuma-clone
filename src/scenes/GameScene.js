@@ -787,6 +787,33 @@ export default class GameScene extends Phaser.Scene {
     document.querySelectorAll('#squad-side-tabs .squad-side-tab').forEach(btn=>btn.addEventListener('click',()=>this._setEditSide(btn.dataset.side)));
     document.querySelectorAll('.view-tab').forEach(btn=>btn.addEventListener('click',()=>this._toggleSquadSection(btn.dataset.view)));
     document.getElementById('squad-players-drawer-close').addEventListener('click',()=>this._toggleSquadSection('players'));
+    // Tapping outside the drawer closes it too, same as a typical modal/
+    // drawer backdrop — not just the dedicated ✕. "Outside" means outside
+    // #squad-columns entirely (both the drawer *and* the pitch/bench
+    // beside it), not just outside the drawer element itself: the visible
+    // sliver of pitch is there so a bench/pitch spot can be armed and then
+    // filled from the still-open drawer in one flow (see the bench-slots
+    // test), and closing on that same tap would break exactly that. Only
+    // below 900px, where it's actually a drawer overlaying something else;
+    // above that it's a normal always-visible column, and clicking the
+    // pitch beside it was never meant to hide it.
+    document.addEventListener('click',(e)=>{
+      if(window.innerWidth>=900) return;
+      if(!this.squadSectionOpen?.players) return;
+      if(document.getElementById('squad-editor-panel').style.display!=='flex') return;
+      // Tapping a pitch/bench pin re-renders that whole section right in
+      // its own click handler (_onSquadPinClick -> _renderPitch), which
+      // detaches the original target node from the document before this
+      // listener runs — a plain .contains() check against the *current*
+      // tree would then wrongly say "not inside #squad-columns" for a tap
+      // that very much was. composedPath() is fixed at dispatch time, so
+      // it still reflects where the click actually happened.
+      const path=e.composedPath();
+      const columns=document.getElementById('squad-columns');
+      const openToggle=document.querySelector('button[data-view="players"]');
+      if(path.includes(columns)||path.includes(openToggle)) return;
+      this._toggleSquadSection('players');
+    });
     document.getElementById('squad-save-btn').addEventListener('click',()=>this._saveSquad());
     document.getElementById('squad-load-btn').addEventListener('click',()=>this._loadSquad());
     // Give the rival a full, position-aware random XI up front — it plays

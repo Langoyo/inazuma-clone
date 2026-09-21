@@ -1512,3 +1512,37 @@ No test changes needed — `.view-tab` is a class-based query, so moving
 the buttons' position in the DOM doesn't affect anything that already
 worked. Verified against the full Playwright suite (46/46 passing) and
 visually at both viewport sizes.
+
+## Tapping outside the Browse Players drawer closes it too
+
+Not just the dedicated `✕` — tapping anywhere outside the drawer now
+closes it as well, the usual modal/backdrop convention. "Outside"
+turned out to need real care to define:
+
+- It means outside `#squad-columns` entirely (the drawer *and* the
+  pitch/bench beside it), not just outside the drawer element. The
+  visible sliver of pitch exists specifically so a bench/pitch spot can
+  be armed and then filled from the still-open drawer in one flow (see
+  the bench-slots test) — closing on that same tap would break exactly
+  that. First attempt scoped it to just the drawer element and broke
+  that flow immediately.
+- Even scoped to `#squad-columns`, a plain `.contains(e.target)` check
+  still didn't work: tapping a bench/pitch pin re-renders that whole
+  section synchronously inside its own click handler
+  (`_onSquadPinClick` → `_renderPitch`), which replaces the DOM node
+  the click actually landed on before this listener's turn comes up in
+  the same bubble phase — `.contains()` against the *current* tree then
+  wrongly says "not inside" for a tap that very much was, since the
+  original node is now detached. Fixed with `event.composedPath()`
+  instead, which is fixed at dispatch time and unaffected by DOM
+  changes a handler makes along the way.
+- Only applies below 900px, where Browse Players is actually a drawer
+  overlaying something else — above that it's a normal always-visible
+  column, and clicking the pitch beside it was never meant to hide it.
+
+New test covers all three cases: a tap inside the drawer doesn't close
+it, a tap on the pitch/bench sliver beside it doesn't either (and the
+existing bench-slots test already exercises arming a spot and filling
+it from the still-open drawer end to end), and a tap genuinely outside
+both does close it. Verified against the full Playwright suite
+(47/47 passing).
