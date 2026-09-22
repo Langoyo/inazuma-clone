@@ -137,8 +137,8 @@ test.describe('position-relevant stats on a search-list card', () => {
 
     const result = await page.evaluate(() => {
       const s = window.__scene;
-      const pairs = { GK: ['keeperPower', 'defensePower'], DF: ['defensePower', 'dribblePower'], MF: ['dribblePower', 'shotPower'], FW: ['shotPower', 'dribblePower'] };
-      const abbr = { speed: 'SPD', shotPower: 'SHT', dribblePower: 'DRB', defensePower: 'DEF', keeperPower: 'KPR' };
+      const pairs = { GK: ['intelligence', 'pressure'], DF: ['pressure', 'control'], MF: ['control', 'technique'], FW: ['kick', 'control'] };
+      const abbr = { kick: 'KCK', control: 'CTL', technique: 'TEC', pressure: 'PRE', physical: 'PHY', agility: 'AGI', intelligence: 'INT' };
       const out = {};
       for (const pos of Object.keys(pairs)) {
         const p = s.rosterAll.find((r) => r.position === pos);
@@ -167,13 +167,16 @@ test.describe('position-relevant stats on a search-list card', () => {
     const gk = await page.evaluate(() => {
       const s = window.__scene;
       const p = s.rosterAll.find((r) => r.position === 'GK');
-      return { name: p.nickname || p.name, line: s._cardStatLine(p) };
+      // Search by full name: nicknames aren't unique (several characters
+      // share a first name across positions), so filtering by one can put
+      // a different player's card first.
+      return { name: p.name, line: s._cardStatLine(p) };
     });
     await page.fill('#squad-search', gk.name);
     await page.waitForTimeout(150);
     const shown = await page.locator('#squad-pick-list .pick-card').first().innerText();
     expect(shown).toContain(gk.line);
-    expect(shown).not.toMatch(/^SPD/m);
+    expect(shown).not.toMatch(/^KCK/m);
   });
 });
 

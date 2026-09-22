@@ -14,10 +14,13 @@ export const CATEGORIES = ['shot', 'dribble', 'defense', 'keeper'];
 // so those stay down to the players' stats.
 export const NORMAL_ACTION_POWER = 24;
 
-// Which player stat multiplies power for each category.
+// Which of the seven native stats multiplies power for each category. These
+// used to be four stats of our own that each averaged two natives together;
+// going straight to the native one is both truer to the games and sharper,
+// since averaging two stats narrows the spread between players.
 export const STAT_FIELD_FOR_TECH = {
-  shot: 'shotPower',
-  dribble: 'dribblePower',
-  defense: 'defensePower',
-  keeper: 'keeperPower'
+  shot: 'kick',
+  dribble: 'control',
+  defense: 'pressure',
+  keeper: 'intelligence'
 };

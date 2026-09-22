@@ -720,11 +720,15 @@
           <option value="rating">Sort: Rating</option>
           <option value="name">Sort: Name</option>
           <option value="position">Sort: Position</option>
-          <option value="speed">Sort: Speed</option>
-          <option value="shotPower">Sort: Shot</option>
-          <option value="dribblePower">Sort: Dribble</option>
-          <option value="defensePower">Sort: Defense</option>
-          <option value="keeperPower">Sort: Keeper</option>
+          <!-- Values must match _pickListSorters' keys, which are generated
+               straight from NATIVE_STATS (see src/data/players.js). -->
+          <option value="kick">Sort: Kick</option>
+          <option value="control">Sort: Control</option>
+          <option value="technique">Sort: Technique</option>
+          <option value="pressure">Sort: Pressure</option>
+          <option value="physical">Sort: Physical</option>
+          <option value="agility">Sort: Agility</option>
+          <option value="intelligence">Sort: Intelligence</option>
         </select>
         <button id="squad-whole-team-btn" class="nes-btn is-compact" disabled>Select from here</button>
       </div>

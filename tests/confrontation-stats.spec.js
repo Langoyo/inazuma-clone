@@ -4,10 +4,13 @@ import { waitForRosterLoaded, startMatch } from './helpers.js';
 test.describe('stat influence on confrontations', () => {
   test('a moderate stat gap now wins roughly 60/40, not the old ~54/46', async ({ page }) => {
     // Calibration case for STAT_POWER_EXPONENT: a roster-median dribbler
-    // against a roster-median defender. Before the exponent this landed
+    // against a roster-median defender, in the native game units the roster
+    // stores since the seven-stat migration. Before the exponent this landed
     // at ~54/46 — barely different from a coin flip despite a real gap in
     // ability. Run over enough trials that the 50% null (no stat effect
     // at all) is many standard deviations away, so this can't pass by luck.
+    // The band allows for the AI's own difficulty multiplier, which applies
+    // to the defending side here and costs the attacker ~2 points.
     await waitForRosterLoaded(page);
     await startMatch(page);
 
@@ -16,7 +19,7 @@ test.describe('stat influence on confrontations', () => {
       const eA = s.teamA.find((e) => e.slot !== 0 && e.body);
       const eB = s.teamB.find((e) => e.slot !== 0 && e.body);
       const stA = s.statsMapA.get(eA.id), stB = s.statsMapB.get(eB.id);
-      stA.dribblePower = 1.080; stB.defensePower = 0.920; // roster medians
+      stA.control = 108; stB.pressure = 88; // roster medians, in native game units
       stA.element = null; stB.element = null; stA.sp = 0; stB.sp = 0; // no techniques available
       let aWins = 0; const N = 3000;
       for (let i = 0; i < N; i++) {
@@ -46,7 +49,7 @@ test.describe('stat influence on confrontations', () => {
       const eA = s.teamA.find((e) => e.slot !== 0 && e.body);
       const eB = s.teamB.find((e) => e.slot !== 0 && e.body);
       const stA = s.statsMapA.get(eA.id), stB = s.statsMapB.get(eB.id);
-      stA.dribblePower = 0.880; stB.defensePower = 1.090; // worse attacker, better defender
+      stA.control = 84; stB.pressure = 104; // worse attacker, better defender
       stA.element = null; stB.element = null;
       // Whoever randomize-top happened to put in this slot may not have a
       // 'dribble' move at all (not every player does — techniques are
@@ -78,7 +81,8 @@ test.describe('stat influence on confrontations', () => {
   test('equal stats and no techniques still land at an even 50/50', async ({ page }) => {
     // A sanity check that the exponent doesn't introduce a bias of its own
     // — a ratio of exactly 1 must stay exactly 1 whatever power it's
-    // raised to.
+    // raised to. Not quite 50% in practice because the AI side carries its
+    // difficulty multiplier, which is why the band is generous.
     await waitForRosterLoaded(page);
     await startMatch(page);
 
@@ -87,7 +91,7 @@ test.describe('stat influence on confrontations', () => {
       const eA = s.teamA.find((e) => e.slot !== 0 && e.body);
       const eB = s.teamB.find((e) => e.slot !== 0 && e.body);
       const stA = s.statsMapA.get(eA.id), stB = s.statsMapB.get(eB.id);
-      stA.dribblePower = 1.0; stB.defensePower = 1.0;
+      stA.control = 95; stB.pressure = 95;
       stA.element = null; stB.element = null; stA.sp = 0; stB.sp = 0;
       let aWins = 0; const N = 3000;
       for (let i = 0; i < N; i++) {

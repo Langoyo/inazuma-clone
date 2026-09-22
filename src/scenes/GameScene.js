@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { connectToRoom, getOrCreateRoomCode } from '../network/network.js';
 import { NORMAL_ACTION_POWER, STAT_FIELD_FOR_TECH } from '../data/techniques.js';
-import { createPlayerStats, applyRosterPlayerToStats, canActivate, techniquesFor } from '../data/players.js';
+import { createPlayerStats, applyRosterPlayerToStats, canActivate, techniquesFor, NATIVE_STATS, statMul } from '../data/players.js';
 import { loadRoster, getPlayerById, getGames } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
 
@@ -178,36 +178,55 @@ const ELEMENT_ICON  = { Fire:'🔥', Wood:'🌿', Air:'💨', Earth:'⚡' };
 // roster's two stat pools aren't centred the same, so even "average vs
 // average" isn't quite 50/50 to start with) was only 54/46, and even the
 // roster's best dribbler against its worst defender reached just 58/42.
-// 2.5 turns that same median-vs-median matchup into ~60/40 and the best-
-// vs-worst one into ~69/31 — decisive without being a foregone conclusion.
-// Deliberately applied only to the raw stat, not to technique power or the
-// element edge multiplier beside it, so spending PT on a supertechnique
+// 2.0 puts that same median-vs-median matchup at ~60/40, which is the target.
+// Re-calibrated down from 2.5 when the categories moved onto single native
+// stats (see STAT_FIELD_FOR_TECH): a native stat has a wider spread than the
+// two-stat average it replaced, so the same exponent would have overshot to
+// ~62/38. Deliberately applied only to the stat, not to technique power or
+// the element edge multiplier beside it, so spending PT on a supertechnique
 // (24 vs up to 110, untouched by this) still swings a confrontation far
 // more than any stat gap does — this makes stats matter more, not
-// techniques matter less.
-const STAT_POWER_EXPONENT = 2.5;
-// Same icons the stat grid uses for shotPower/dribblePower/defensePower/
-// keeperPower, reused here so a technique's category reads at a glance.
+// techniques matter less. Scale-free: it's the ratio of the two sides'
+// stats that decides the roll, so it doesn't matter that these are raw game
+// numbers (~95) rather than the ~1.0 multipliers they used to be.
+const STAT_POWER_EXPONENT = 2.0;
+// Same icons the stat grid uses for the stats behind shot/dribble/defense/
+// keeper, reused here so a technique's category reads at a glance.
 const TECH_CAT_ICON = { shot:'⚡', dribble:'💨', defense:'🛡', keeper:'🧤' };
 
 // The two stats worth showing on a compact search-list card, per position —
-// there's no room there for all five, and "SPD/SHT" for everyone (the old,
-// fixed pair) told a keeper or a defender nothing about the one thing that
-// actually matters for their job. Each pick is the position's main duty
-// plus one supporting skill: a keeper by how well they stop shots and, once
-// that's true, how well they read the game in front of goal; a defender by
-// how well they defend and how much they can carry the ball out under
-// pressure; a midfielder by how well they carry play forward and finish a
-// chance themselves; a forward by their finishing and the pace to get on
-// the end of one. A position missing from the roster (shouldn't happen,
-// but the data isn't ours) falls back to the old SPD/SHT pair.
+// there's no room there for all seven, and one fixed pair for everyone told
+// a keeper or a defender nothing about the one thing that actually matters
+// for their job. Each pick is the position's main duty plus one supporting
+// skill, carried over from the pairs chosen when these were still our own
+// five stats: a keeper reads the game and stands up to pressure; a defender
+// defends and carries the ball out; a midfielder controls play and has the
+// technique to use it; a forward finishes and beats their man. A position
+// missing from the roster (shouldn't happen, but the data isn't ours) falls
+// back to a neutral pair.
 const CARD_STAT_PAIR = {
-  GK: ['keeperPower','defensePower'],
-  DF: ['defensePower','dribblePower'],
-  MF: ['dribblePower','shotPower'],
-  FW: ['shotPower','dribblePower'],
+  GK: ['intelligence','pressure'],
+  DF: ['pressure','control'],
+  MF: ['control','technique'],
+  FW: ['kick','control'],
 };
-const STAT_ABBR = { speed:'SPD', shotPower:'SHT', dribblePower:'DRB', defensePower:'DEF', keeperPower:'KPR' };
+const STAT_ABBR = { kick:'KCK', control:'CTL', technique:'TEC', pressure:'PRE', physical:'PHY', agility:'AGI', intelligence:'INT' };
+// What each position's rating weighs, and how heavily. A plain average of
+// the seven is useless as a rating here: the source data conserves a
+// near-fixed total per character (high kick means low pressure and so on),
+// so the mean lands on 95 for 71% of the roster — every player "the same".
+// Weighing the stats that decide a given job instead makes the number mean
+// something: the same Axel Blaze who averages 96 flat rates 116 as a forward
+// (kick 121) and the roster spreads out across ~86-116.
+// Every position's rating is centred on this, so 100 reads as "a typical
+// player for this job" whatever the job is (see _ratingBaseline).
+const RATING_CENTRE = 100;
+const RATING_WEIGHTS = {
+  GK: { intelligence:.55, pressure:.25, physical:.20 },
+  DF: { pressure:.55, physical:.25, intelligence:.20 },
+  MF: { control:.45, technique:.30, intelligence:.25 },
+  FW: { kick:.55, control:.25, technique:.20 },
+};
 
 // AI difficulty (solo-vs-AI only). The whole ladder used to top out about
 // where "easy" now starts — the old hard is this easy, and every level above
@@ -1149,15 +1168,14 @@ export default class GameScene extends Phaser.Scene {
   }
   /** Overall rating chip for a pitch/bench pin — banded by strength so a
    *  squad's weak spots stand out without reading each number.
-   *  Thresholds are recalibrated to this roster's actual spread: the
-   *  official stat data conserves a near-fixed total per character (a
-   *  built-in game-balance choice), so ratings only really range ~68-73
-   *  rather than the wider spread a threshold like 85 assumed. 71+ is
-   *  the rare top ~6%, 70 the next ~20%, everything else (68-69) the
-   *  common ~74%. */
+   *  Thresholds track the centred rating's actual spread (see
+   *  _ratingBaseline): every position sits on 100, so 103+ is a notably
+   *  good player for their job, 98-102 the broad middle, below that a
+   *  weak one — and it means the same thing for a keeper as for a
+   *  forward, which is the point of centring. */
   _ratingBadge(p){
     const r=this._playerRating(p);
-    const band=r>=71?'hi':r>=70?'mid':'low';
+    const band=r>=103?'hi':r>=98?'mid':'low';
     return `<span class="rating-badge rating-${band}">${r}</span>`;
   }
 
@@ -1171,47 +1189,65 @@ export default class GameScene extends Phaser.Scene {
     return p.team?`${base} (${p.game})`:base;
   }
 
-  /** Stats are stored pre-scaled for the physics/AI code (they average
-   *  ~1.0, tuned to plug directly into speed multipliers, shot power,
-   *  etc.) — showing that raw multiplier to a player just reads as an
-   *  arbitrary decimal ("SHT 0.94"). Scaled up for display instead, by
-   *  the exact same ×70 _playerRating uses on the raw 5-stat average
-   *  (see _ratingRaw) — deliberately the same factor, not a separately
-   *  tuned one, so the individual numbers on a stat sheet and the ⭐
-   *  summary next to them are directly comparable: eyeballing the
-   *  average of the five roughly gives back the star. They used to be
-   *  on two unrelated scales (this divided by ~0.0105, the rating
-   *  multiplied by 70) that both happened to land in a similar-looking
-   *  0-130ish range, which invited exactly that kind of mental math
-   *  while quietly giving a wrong answer — a player's stats could
-   *  average up around 100 here while their rating read 73. Confirmed
-   *  against the roster this still comfortably fits 0-99 (max ~89
-   *  across every stat), so nothing needs its own clamp. Display only;
-   *  nothing gameplay-facing reads this. */
+  /** The roster stores the raw game numbers, so a stat sheet here shows
+   *  exactly what the games' own character pages show ("Kick 90") rather
+   *  than a rescaled invention of ours. Kept as a function anyway so the
+   *  display layer still has one place to change if that ever stops being
+   *  true. Display only; nothing gameplay-facing reads this. */
   _displayStat(v){
-    return Math.round(v*70);
+    return Math.round(v);
   }
+
   /** The two-stat line on a compact search-list card — see CARD_STAT_PAIR
    *  for which pair each position gets and why. */
   _cardStatLine(p){
-    const [a,b]=CARD_STAT_PAIR[p.position]||['speed','shotPower'];
+    const [a,b]=CARD_STAT_PAIR[p.position]||['control','physical'];
     return `${STAT_ABBR[a]} ${this._displayStat(p.stats[a])} ${STAT_ABBR[b]} ${this._displayStat(p.stats[b])}`;
   }
-  /** A single summary number from a player's 5 core stats — not a new
-   *  gameplay stat, just something readable for the cards, on a rough
-   *  0-99 scale (stats themselves average ~1.0, scaled up so a typical
-   *  player lands somewhere around 70 rather than reading as "1"). */
+  /** A single summary number for a player, in the same units as their own
+   *  stats so the two sit side by side sensibly. Not a gameplay stat —
+   *  nothing reads it but the cards and the "top players" randomizer. */
   _playerRating(p){
-    return Phaser.Math.Clamp(Math.round(this._ratingRaw(p)*70),30,99);
+    return Math.round(this._ratingRaw(p));
   }
-  /** Unrounded, unclamped version of _playerRating — the displayed
-   *  rating collapses almost everyone to the same 68-73 integer (the
-   *  official stat data conserves a near-fixed total per character), so
-   *  picking "the better players" needs the finer-grained number
-   *  underneath that display rounding throws away. */
+  /** Unrounded version of _playerRating — used for ranking, where the
+   *  fractions the display rounding throws away still break ties.
+   *  Weighted by position (see RATING_WEIGHTS): a plain average of the
+   *  seven is worthless as a rating, because the source data conserves a
+   *  near-fixed total per character, so it reads 95 for 71% of the
+   *  roster. Weighing what a given job actually needs is what makes the
+   *  number discriminate at all. */
   _ratingRaw(p){
-    const st=p.stats;
-    return (st.speed+st.shotPower+st.dribblePower+st.defensePower+st.keeperPower)/5;
+    return RATING_CENTRE+this._ratingWeighted(p)-this._ratingBaseline()[p.position||'MF'];
+  }
+  /** What a position's own weights say about this player, before centring. */
+  _ratingWeighted(p){
+    const w=RATING_WEIGHTS[p.position]||RATING_WEIGHTS.MF;
+    let total=0,sum=0;
+    for(const k in w){ total+=(p.stats[k]||0)*w[k]; sum+=w[k]; }
+    return sum?total/sum:0;
+  }
+  /** Median weighted score per position, so ratings can be centred on a
+   *  shared 100 and actually compared across positions. Weighing each job
+   *  by what it needs otherwise leaves the positions on different scales —
+   *  forwards came out 108-116 against keepers' 95-99, so every forward in
+   *  the game outranked every keeper and sorting by rating never showed a
+   *  keeper at all. Centring keeps each position's internal spread (and so
+   *  the order within it) while making 100 mean "typical for this job".
+   *  Computed once from the loaded roster rather than hardcoded, so it
+   *  can't drift out of date if the data is regenerated. */
+  _ratingBaseline(){
+    if(this._ratingBaselineCache) return this._ratingBaselineCache;
+    const byPos={};
+    for(const p of (this.rosterAll||[])) (byPos[p.position]=byPos[p.position]||[]).push(this._ratingWeighted(p));
+    const out={};
+    for(const pos in byPos){ const v=byPos[pos].sort((a,b)=>a-b); out[pos]=v[Math.floor(v.length/2)]; }
+    // Before the roster resolves there's nothing to centre against; falling
+    // back to 0 shift leaves the raw weighted number, which is still ordered
+    // correctly within a position.
+    const base=new Proxy(out,{get:(t,k)=>t[k]??RATING_CENTRE});
+    if(this.rosterAll?.length) this._ratingBaselineCache=base;
+    return base;
   }
   /** The better half (or whatever `frac` says) of `pool`, kept separate
    *  per position — so "top players" still gives a formation-fillable
@@ -1261,11 +1297,13 @@ export default class GameScene extends Phaser.Scene {
         <button onclick="document.getElementById('player-stat-panel').style.display='none'" style="margin-left:auto;background:none;border:none;color:white;font-size:20px;cursor:pointer">×</button>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px;">
-        <div>⚡ Shot <b>${this._displayStat(st.shotPower)}</b></div>
-        <div>💨 Dribble <b>${this._displayStat(st.dribblePower)}</b></div>
-        <div>🛡 Defense <b>${this._displayStat(st.defensePower)}</b></div>
-        <div>🧤 Keeper <b>${this._displayStat(st.keeperPower)}</b></div>
-        <div>🏃 Speed <b>${this._displayStat(st.speed)}</b></div>
+        <div>⚡ Kick <b>${this._displayStat(st.kick)}</b></div>
+        <div>💨 Control <b>${this._displayStat(st.control)}</b></div>
+        <div>✨ Technique <b>${this._displayStat(st.technique)}</b></div>
+        <div>🛡 Pressure <b>${this._displayStat(st.pressure)}</b></div>
+        <div>💪 Physical <b>${this._displayStat(st.physical)}</b></div>
+        <div>🏃 Agility <b>${this._displayStat(st.agility)}</b></div>
+        <div>🧠 Intelligence <b>${this._displayStat(st.intelligence)}</b></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px;">
         <div>🔋 PT <b>${ptLine}</b></div>
@@ -1441,11 +1479,7 @@ export default class GameScene extends Phaser.Scene {
       rating:  (a,b)=>this._playerRating(b)-this._playerRating(a)||byName(a,b),
       name:    byName,
       position:(a,b)=>(a.position||'').localeCompare(b.position||'')||byName(a,b),
-      speed:       (a,b)=>b.stats.speed-a.stats.speed||byName(a,b),
-      shotPower:   (a,b)=>b.stats.shotPower-a.stats.shotPower||byName(a,b),
-      dribblePower:(a,b)=>b.stats.dribblePower-a.stats.dribblePower||byName(a,b),
-      defensePower:(a,b)=>b.stats.defensePower-a.stats.defensePower||byName(a,b),
-      keeperPower: (a,b)=>b.stats.keeperPower-a.stats.keeperPower||byName(a,b),
+      ...Object.fromEntries(NATIVE_STATS.map(k=>[k,(a,b)=>b.stats[k]-a.stats[k]||byName(a,b)])),
     };
   }
   /** Search/filter/sort changes invalidate whatever page you were on —
@@ -2725,7 +2759,9 @@ export default class GameScene extends Phaser.Scene {
     const d=Phaser.Math.Distance.Between(eA.body.position.x,eA.body.position.y,eD.body.position.x,eD.body.position.y);
     if(d>=DUEL_HITBOX_RADIUS) return;
     const ds=this._statsFor(defenderRole,eD.id);
-    const foulChance=Phaser.Math.Clamp(FOUL_CHANCE_BASE/(ds?ds.defensePower:1),FOUL_CHANCE_MIN,FOUL_CHANCE_MAX);
+    // statMul because this one needs the absolute ~1.0 scale, not a ratio —
+    // dividing a probability by a raw game stat (~95) would floor it.
+    const foulChance=Phaser.Math.Clamp(FOUL_CHANCE_BASE/(ds?statMul(ds.pressure):1),FOUL_CHANCE_MIN,FOUL_CHANCE_MAX);
     if(Math.random()<foulChance) this._commitFoul(defenderRole,eD.id,attackerRole,now);
     else this._startConfront('duel',attackerRole,defenderRole,now);
   }
@@ -3011,7 +3047,11 @@ export default class GameScene extends Phaser.Scene {
         return;
       }
       if(e.body&&e.body.collisionFilter.mask!==(CAT_BALL|CAT_DEFAULT)) e.body.collisionFilter.mask=CAT_BALL|CAT_DEFAULT;
-      const st=this._statsFor(role,e.id), sp=(st?st.speed*this._fatigueMul(st):1)*this._aiSpeedMul(role);
+      // Agility is the games' own name for what used to be our `speed`, and
+      // it was already a 1:1 copy of it — statMul puts the raw game number
+      // back on the ~1.0 scale the movement code multiplies by, so pace is
+      // unchanged by the move to native stats.
+      const st=this._statsFor(role,e.id), sp=(st?statMul(st.agility)*this._fatigueMul(st):1)*this._aiSpeedMul(role);
       const t=byId.get(e.id);
       const chase=t?null:this._looseBallChase(e,activeId);
       // The sprint bonus itself shrinks as stamina drains, on top of the

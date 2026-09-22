@@ -1907,3 +1907,76 @@ the technique-over-stats hierarchy survived), and identical stats with
 no techniques on either side still land at an even 50/50 — a sanity
 check that `Math.pow` on a ratio of exactly 1 introduces no bias of its
 own.
+
+## El roster pasa a las 7 estadísticas nativas del juego
+
+Reportado con una foto de la ficha de Mark Evans en la consola: el juego
+real describe a un personaje con **siete** estadísticas, y las nuestras no
+eran ninguna de ellas. Guardábamos cinco (`speed`, `shotPower`,
+`dribblePower`, `defensePower`, `keeperPower`) calculadas a partir de esas
+siete y luego tiradas — una invención nuestra que no coincidía con nada que
+un jugador pudiera consultar, y encima con pérdida: dos de las cinco
+promediaban `physical`, así que las siete no se podían recuperar de lo
+guardado, solo volver a buscar. El usuario aportó el volcado original.
+
+Antes de tocar nada, tres comprobaciones sobre los datos:
+
+- **La derivación se confirma exactamente**: `speed = agility`,
+  `shotPower = kick`, `dribblePower = avg(control,technique)`,
+  `defensePower = avg(pressure,physical)`,
+  `keeperPower = avg(intelligence,physical)`, todo × `0.0105`.
+- **Emparejar por `id` habría corrompido el roster en silencio.** Nuestros
+  `vr-N` se desalinean con los ids del volcado a partir de `vr-262` (solo 223
+  de 4.841 parejas compartían nombre). La migración empareja por *nombre + las
+  cinco derivadas como huella*, lo que resuelve los **5.127/5.127** jugadores
+  a un único origen, sin ambigüedad ni pérdidas — incluidos los 185 nombres
+  repetidos, que la huella desempata sola.
+- **Las siete no arreglan la "planitud" por sí solas**: su total también está
+  conservado (656-693), que es la razón del cambio de valoración de abajo.
+
+`scripts/migrate-roster-stats.mjs` hace la conversión una vez y aborta si
+algún jugador no resuelve. Conserva intactos técnicas, equipo, color, PT,
+apodo, posición y — importante — los `id`, porque las plantillas guardadas en
+`localStorage` solo guardan ids y se habrían roto todas. De regalo, el
+**elemento pasa del 69% al 100%** de cobertura (1.588 nuevos, 16 corregidos),
+que el volcado sí trae para todos.
+
+En el juego: la ficha muestra las siete con los números del juego real (Mark
+Evans: Kick 90, Control 97, Technique 91, Pressure 98, Physical 105, Agility
+111, Intelligence 97), el orden de la lista tiene las siete, y las categorías
+de duelo van ahora a una nativa suelta (`shot→kick`, `dribble→control`,
+`defense→pressure`, `keeper→intelligence`) en vez de a un promedio de dos.
+`STAT_UNIT` (0.0105) queda como única constante de normalización, y solo la
+usan los dos sitios que necesitan escala absoluta — el ritmo de carrera y la
+probabilidad de falta. Los duelos no la necesitan: comparan un lado contra el
+otro, y una razón no depende de las unidades.
+
+`STAT_POWER_EXPONENT` baja de 2.5 a **2.0**. Una estadística nativa tiene más
+dispersión que el promedio de dos que sustituye, así que el mismo exponente se
+habría pasado a ~62/38; con 2.0 el duelo típico vuelve a ~60/40, que es el
+objetivo pactado. Verificado con 4.000 tiradas.
+
+## La valoración pasa a ser ponderada por posición (y centrada)
+
+Consecuencia directa de lo anterior, y cierre de la decisión que quedó
+pendiente. Con las siete nativas una media plana es inservible: da 95 al
+**71%** del roster, porque el dato de origen conserva un total casi fijo por
+personaje (mucho `kick` implica poco `pressure`). `RATING_WEIGHTS` pondera lo
+que cada puesto necesita — portero por `intelligence`/`pressure`/`physical`,
+defensa por `pressure`/`physical`/`intelligence`, medio por
+`control`/`technique`/`intelligence`, delantero por `kick`/`control`/`technique`.
+
+Eso destapó un segundo problema que la ponderación crea por sí sola: cada
+puesto quedaba en una escala distinta (delanteros 108-116 contra porteros
+95-99), así que **todos los delanteros del juego superaban a todos los
+porteros** y ordenar por valoración no mostraba un portero jamás.
+`_ratingBaseline()` centra cada posición en 100 usando su propia mediana,
+calculada del roster cargado en vez de constantes que envejecen. Cada puesto
+conserva su dispersión interna (y por tanto su orden), y un 103 significa lo
+mismo para un portero que para un delantero.
+
+De 68-73 con el 71% idénticos a 73-107 repartidos. Cinco tests nuevos en
+`tests/roster-migration.spec.js` fijan la integridad de la migración: las
+siete presentes y enteras, ninguna de las cinco antiguas superviviente, todo
+lo que no debía tocarse intacto, elemento al 100%, y la valoración
+discriminando con las cuatro posiciones centradas en el mismo número.
