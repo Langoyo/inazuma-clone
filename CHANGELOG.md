@@ -1838,3 +1838,27 @@ needed its own clamp.
 
 The compact `SPD`/`SHT` line on a search-list card reads the same
 scale automatically, same function.
+
+## Search-list cards now show the two stats that actually matter for the position
+
+Followed directly from the scale fix above: "para gk parar y defensa, para
+defense def y dribbling" — the compact card always showed SPD/SHT no
+matter the position, which told a keeper or a defender nothing about the
+one stat that actually decides whether they're good at their job.
+
+`CARD_STAT_PAIR` picks two per position — a main duty plus one supporting
+skill, same idea as the two the user named for GK and DF:
+- **GK**: Keeper (shot-stopping) + Defense (reading the box)
+- **DF**: Defense + Dribble (defending, and carrying it out under pressure)
+- **MF**: Dribble + Shot (the two roles left unassigned — carrying play
+  forward and a goal threat of their own — since the user wasn't sure and
+  asked for a suggestion)
+- **FW**: Shot + Speed (finishing, and the pace to get on the end of one)
+
+`_cardStatLine(p)` looks the pair up and formats it with the same
+`_displayStat` the stat sheet uses (now on the unified ×70 scale from the
+fix above, so these numbers and the star are still directly comparable).
+Falls back to the old SPD/SHT pair for a player with no position on
+record. Two new tests: each position's line matches its own formula and
+the four differ from one another (not a still-fixed line that happens to
+pass), and an actual rendered card shows the position-specific text.

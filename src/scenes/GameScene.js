@@ -176,6 +176,25 @@ const ELEMENT_ICON  = { Fire:'🔥', Wood:'🌿', Air:'💨', Earth:'⚡' };
 // keeperPower, reused here so a technique's category reads at a glance.
 const TECH_CAT_ICON = { shot:'⚡', dribble:'💨', defense:'🛡', keeper:'🧤' };
 
+// The two stats worth showing on a compact search-list card, per position —
+// there's no room there for all five, and "SPD/SHT" for everyone (the old,
+// fixed pair) told a keeper or a defender nothing about the one thing that
+// actually matters for their job. Each pick is the position's main duty
+// plus one supporting skill: a keeper by how well they stop shots and, once
+// that's true, how well they read the game in front of goal; a defender by
+// how well they defend and how much they can carry the ball out under
+// pressure; a midfielder by how well they carry play forward and finish a
+// chance themselves; a forward by their finishing and the pace to get on
+// the end of one. A position missing from the roster (shouldn't happen,
+// but the data isn't ours) falls back to the old SPD/SHT pair.
+const CARD_STAT_PAIR = {
+  GK: ['keeperPower','defensePower'],
+  DF: ['defensePower','dribblePower'],
+  MF: ['dribblePower','shotPower'],
+  FW: ['shotPower','speed'],
+};
+const STAT_ABBR = { speed:'SPD', shotPower:'SHT', dribblePower:'DRB', defensePower:'DEF', keeperPower:'KPR' };
+
 // AI difficulty (solo-vs-AI only). The whole ladder used to top out about
 // where "easy" now starts — the old hard is this easy, and every level above
 // it is new ground. Decision-making is still the main lever (how readily it
@@ -1158,6 +1177,12 @@ export default class GameScene extends Phaser.Scene {
   _displayStat(v){
     return Math.round(v*70);
   }
+  /** The two-stat line on a compact search-list card — see CARD_STAT_PAIR
+   *  for which pair each position gets and why. */
+  _cardStatLine(p){
+    const [a,b]=CARD_STAT_PAIR[p.position]||['speed','shotPower'];
+    return `${STAT_ABBR[a]} ${this._displayStat(p.stats[a])} ${STAT_ABBR[b]} ${this._displayStat(p.stats[b])}`;
+  }
   /** A single summary number from a player's 5 core stats — not a new
    *  gameplay stat, just something readable for the cards, on a rough
    *  0-99 scale (stats themselves average ~1.0, scaled up so a typical
@@ -1443,7 +1468,7 @@ export default class GameScene extends Phaser.Scene {
       const isSel=this._selMatchesPlayer(sel,p);
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'')+(isSel?' selected':'');
       const col=this._css3(this._rosterColor(p));
-      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">SPD ${this._displayStat(p.stats.speed)} SHT ${this._displayStat(p.stats.shotPower)}</div>`;
+      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">${this._cardStatLine(p)}</div>`;
       // A list card is, for selection purposes, exactly the pin it maps to
       // (pitch slot / bench / pool) — tap to select, tap the same card again
       // to see its full stats, tap a different target to swap/place.

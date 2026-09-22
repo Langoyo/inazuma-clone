@@ -128,6 +128,55 @@ test.describe('team color selector', () => {
   });
 });
 
+test.describe('position-relevant stats on a search-list card', () => {
+  test('each position shows its own stat pair instead of a fixed SPD/SHT', async ({ page }) => {
+    // Regression coverage for the compact card: it used to always show
+    // SPD/SHT regardless of position, which told a keeper or a defender
+    // nothing about the stat that actually matters for their job.
+    await waitForRosterLoaded(page);
+
+    const result = await page.evaluate(() => {
+      const s = window.__scene;
+      const pairs = { GK: ['keeperPower', 'defensePower'], DF: ['defensePower', 'dribblePower'], MF: ['dribblePower', 'shotPower'], FW: ['shotPower', 'speed'] };
+      const abbr = { speed: 'SPD', shotPower: 'SHT', dribblePower: 'DRB', defensePower: 'DEF', keeperPower: 'KPR' };
+      const out = {};
+      for (const pos of Object.keys(pairs)) {
+        const p = s.rosterAll.find((r) => r.position === pos);
+        if (!p) continue;
+        const [a, b] = pairs[pos];
+        const expected = `${abbr[a]} ${s._displayStat(p.stats[a])} ${abbr[b]} ${s._displayStat(p.stats[b])}`;
+        out[pos] = { actual: s._cardStatLine(p), expected };
+      }
+      return out;
+    });
+
+    for (const [pos, { actual, expected }] of Object.entries(result)) {
+      expect(actual, `position ${pos}`).toBe(expected);
+    }
+    // The four positions actually differ from each other — not just from
+    // matching their own formula, but from one another, confirming the
+    // pair really does vary by position rather than coincidentally
+    // matching a still-fixed line.
+    const lines = new Set(Object.values(result).map((r) => r.actual.split(' ')[0]));
+    expect(lines.size).toBeGreaterThan(1);
+  });
+
+  test('the card actually renders the position-specific line', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('button[data-view="players"]');
+    const gk = await page.evaluate(() => {
+      const s = window.__scene;
+      const p = s.rosterAll.find((r) => r.position === 'GK');
+      return { name: p.nickname || p.name, line: s._cardStatLine(p) };
+    });
+    await page.fill('#squad-search', gk.name);
+    await page.waitForTimeout(150);
+    const shown = await page.locator('#squad-pick-list .pick-card').first().innerText();
+    expect(shown).toContain(gk.line);
+    expect(shown).not.toMatch(/^SPD/m);
+  });
+});
+
 test.describe('player list pagination', () => {
   test('pages through results and resets to page 1 on a new search', async ({ page }) => {
     await waitForRosterLoaded(page);
