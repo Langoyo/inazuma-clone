@@ -1753,3 +1753,230 @@ and Inazuma Eleven itself belongs to Level-5. Character names, team
 names and the stats derived from them aren't this project's to
 relicense, so the section says so plainly and notes the fan-project
 status rather than letting a blanket MIT grant imply otherwise.
+
+## The team color selector now says when it's on automatic
+
+The swatch defaulted to `#3399ff` while `myTeamColor` was still `null`,
+so it showed a specific blue that had nothing to do with what would
+actually happen — the kit color was being derived from your XI, and
+that blue was only the fallback for a squad with no team data at all.
+It read as a choice somebody had made, which is exactly what it wasn't.
+
+A native `<input type="color">` can't be blank, so rather than fake an
+empty state the swatch now tells the truth: while nothing has been
+picked it previews what the automatic pick currently works out to for
+your XI, and an "Automatic" checkbox beside it says that's where the
+color came from. Change your squad and the preview follows, since
+that's what `_squadColor` derives it from (wired through `_renderPitch`,
+which already runs on every squad change, and always reading your own
+XI regardless of which side the pitch is showing — this setting never
+affected the rival anyway).
+
+Touching the swatch is what promotes it to a real override: it sets
+`myTeamColor` and unticks Automatic, after which squad changes leave it
+alone. Ticking Automatic back on clears the override and the preview
+resumes; unticking it deliberately keeps whatever color is on screen
+rather than snapping to some default, so the color doesn't jump at the
+moment you go to adjust it.
+
+`myTeamColor` is still the single source of truth — null means
+automatic, and the payload/`_payloadColor` path is untouched. Three new
+tests cover the automatic preview tracking the squad, an override
+surviving a squad change, and both directions of the checkbox.
+
+## Fixed: substitutions changed nothing visible on the pitch
+
+Reported as "I'm changing players and I see no effect." The
+substitution itself was working the whole time — `_trySub` correctly
+swapped `entry.id`, moved the new player's stats into `statsMapA`/`B`,
+and updated the bench — but the on-pitch name is a separate Phaser Text
+object created once at kickoff in `_buildTeam`, and nothing ever told
+it to update. So the substitute's stats were live from the moment they
+came on, but the pitch kept showing the name of whoever they replaced,
+indefinitely. From the outside that reads as exactly "no effect,"
+because the one thing you can actually see didn't change.
+
+Same gap in two other places that reassign which player an entry
+represents by changing `entry.id`: `_tryReposition` (swapping two
+players' spots from the team panel) and `_syncClientIds` (a client
+mirroring whatever substitution or reposition the host just made) —
+the latter meaning a real opponent watching your sub over the network
+would never see the new name either, only you would (and only in your
+own head, since your own screen was equally wrong).
+
+Added one helper, `_relabelEntry(e)`, that looks up the roster player
+for `e.id` and calls `e.label.setText(...)`, and called it from all
+three sites right after each one changes `e.id`. Six tests cover it:
+the three existing `_aiConsiderSub` tests still pass unchanged, and
+three new ones in `tests/ai-subs.spec.js` check the label directly
+after a manual sub, after a reposition (both entries, and that they
+actually swapped rather than both landing on the same name), and after
+`_syncClientIds` mirrors a host-side change.
+
+## Individual stats now share the rating's own scale
+
+Reported with the receipts: averaging the five stats shown on a
+player's sheet (Shot 131, Dribble 110, Defense 85, Keeper 89, Speed 85
+for one example) gave ~97-100, but the ⭐ rating next to them read 73.
+Both numbers come from the same underlying raw stats, but through two
+unrelated conversion factors: `_displayStat` divided the raw value by
+~0.0105 (≈×95.2, meant to recover something like the original games'
+own stat range), while `_playerRating` multiplied the raw 5-stat
+average by 70 (a deliberate 30-99 "summary" compression). Landing in
+a similar-looking numeric range was coincidental, not by design — nothing
+tied the two together, so eyeballing the stat sheet the obvious way
+(which is exactly what got reported) gave a plausible but wrong answer.
+
+`_displayStat` now uses the exact same ×70 as `_playerRating`, so the
+individual numbers and the star are directly comparable — verified
+against 4,000 players, the largest gap between an eyeballed average of
+the five displayed stats and the actual star is 0.6 (pure rounding,
+since the star rounds the raw average once while the five stats each
+round independently). Checked the resulting range holds up across the
+whole roster too: every stat still lands under 90 (max ~89), so nothing
+needed its own clamp.
+
+The compact `SPD`/`SHT` line on a search-list card reads the same
+scale automatically, same function.
+
+## Search-list cards now show the two stats that actually matter for the position
+
+Followed directly from the scale fix above: "para gk parar y defensa, para
+defense def y dribbling" — the compact card always showed SPD/SHT no
+matter the position, which told a keeper or a defender nothing about the
+one stat that actually decides whether they're good at their job.
+
+`CARD_STAT_PAIR` picks two per position — a main duty plus one supporting
+skill, same idea as the two the user named for GK and DF:
+- **GK**: Keeper (shot-stopping) + Defense (reading the box)
+- **DF**: Defense + Dribble (defending, and carrying it out under pressure)
+- **MF**: Dribble + Shot (the two roles left unassigned — carrying play
+  forward and a goal threat of their own — since the user wasn't sure and
+  asked for a suggestion)
+- **FW**: Shot + Speed (finishing, and the pace to get on the end of one)
+
+`_cardStatLine(p)` looks the pair up and formats it with the same
+`_displayStat` the stat sheet uses (now on the unified ×70 scale from the
+fix above, so these numbers and the star are still directly comparable).
+Falls back to the old SPD/SHT pair for a player with no position on
+record. Two new tests: each position's line matches its own formula and
+the four differ from one another (not a still-fixed line that happens to
+pass), and an actual rendered card shows the position-specific text.
+
+## FW card now shows Shot + Dribble
+
+Follow-up to the position-relevant card stats above — asked to swap
+Speed out for Dribble on a forward's pair, since finishing (Shot) and
+close control (Dribble) read as more forward-defining than raw pace.
+`CARD_STAT_PAIR.FW` updated; the other three positions are untouched.
+
+## Stats now have more say in who wins a confrontation
+
+Follow-up to two things reported together: a delayed answer to "can we
+make stats matter more, like 60/40 instead of 50/50" and, underneath
+it, a genuine finding once I measured it. A confrontation's win chance
+is `attackerPower / (attackerPower + defenderPower)`, where each side's
+power is `techniquePower × theirStat × ...`. Since that's linear in the
+stat, the ratio of the two POWERS equals the ratio of the two STATS —
+and the roster's stats are tightly clustered (a whole position's spread
+is maybe 20-40%), so even a clearly-better player against a clearly-worse
+one barely moved off 50/50: a roster-median dribbler against a
+roster-median defender (the two stat pools aren't centred the same, so
+"average vs average" was never exactly 50/50 to begin with) won only
+~54% of the time, and the roster's best dribbler against its worst
+defender reached just ~58%. Stats existed, but a real gap in ability
+barely showed up in the outcome.
+
+Added `STAT_POWER_EXPONENT = 2.5`, raising each side's raw stat to that
+power before the ratio (`Math.pow(stat, 2.5)`) — deliberately only the
+stat, not the technique-power factor beside it or the element-edge
+multiplier, so spending PT on a supertechnique (power 24 for a normal
+action up to 110 for the strongest ones, untouched by this) still
+swings a confrontation far more than any stat gap does. 2.5 was picked
+by calibration, not guesswork: it turns that same median-vs-median
+matchup into ~60/40 (matching the target given) and the roster's
+best-vs-worst matchup into ~69/31 — clearly decisive without making a
+stat gap alone a foregone conclusion.
+
+Three new tests in `tests/confrontation-stats.spec.js`, each run over
+1,500-3,000 trials since a single confrontation is a coin flip by
+nature: the calibration case itself lands in the low-60s (not the old
+~54%), a worse-stat attacker armed with a real supertechnique still
+beats a better-stat defender with none most of the time (confirming
+the technique-over-stats hierarchy survived), and identical stats with
+no techniques on either side still land at an even 50/50 — a sanity
+check that `Math.pow` on a ratio of exactly 1 introduces no bias of its
+own.
+
+## El roster pasa a las 7 estadísticas nativas del juego
+
+Reportado con una foto de la ficha de Mark Evans en la consola: el juego
+real describe a un personaje con **siete** estadísticas, y las nuestras no
+eran ninguna de ellas. Guardábamos cinco (`speed`, `shotPower`,
+`dribblePower`, `defensePower`, `keeperPower`) calculadas a partir de esas
+siete y luego tiradas — una invención nuestra que no coincidía con nada que
+un jugador pudiera consultar, y encima con pérdida: dos de las cinco
+promediaban `physical`, así que las siete no se podían recuperar de lo
+guardado, solo volver a buscar. El usuario aportó el volcado original.
+
+Antes de tocar nada, tres comprobaciones sobre los datos:
+
+- **La derivación se confirma exactamente**: `speed = agility`,
+  `shotPower = kick`, `dribblePower = avg(control,technique)`,
+  `defensePower = avg(pressure,physical)`,
+  `keeperPower = avg(intelligence,physical)`, todo × `0.0105`.
+- **Emparejar por `id` habría corrompido el roster en silencio.** Nuestros
+  `vr-N` se desalinean con los ids del volcado a partir de `vr-262` (solo 223
+  de 4.841 parejas compartían nombre). La migración empareja por *nombre + las
+  cinco derivadas como huella*, lo que resuelve los **5.127/5.127** jugadores
+  a un único origen, sin ambigüedad ni pérdidas — incluidos los 185 nombres
+  repetidos, que la huella desempata sola.
+- **Las siete no arreglan la "planitud" por sí solas**: su total también está
+  conservado (656-693), que es la razón del cambio de valoración de abajo.
+
+`scripts/migrate-roster-stats.mjs` hace la conversión una vez y aborta si
+algún jugador no resuelve. Conserva intactos técnicas, equipo, color, PT,
+apodo, posición y — importante — los `id`, porque las plantillas guardadas en
+`localStorage` solo guardan ids y se habrían roto todas. De regalo, el
+**elemento pasa del 69% al 100%** de cobertura (1.588 nuevos, 16 corregidos),
+que el volcado sí trae para todos.
+
+En el juego: la ficha muestra las siete con los números del juego real (Mark
+Evans: Kick 90, Control 97, Technique 91, Pressure 98, Physical 105, Agility
+111, Intelligence 97), el orden de la lista tiene las siete, y las categorías
+de duelo van ahora a una nativa suelta (`shot→kick`, `dribble→control`,
+`defense→pressure`, `keeper→intelligence`) en vez de a un promedio de dos.
+`STAT_UNIT` (0.0105) queda como única constante de normalización, y solo la
+usan los dos sitios que necesitan escala absoluta — el ritmo de carrera y la
+probabilidad de falta. Los duelos no la necesitan: comparan un lado contra el
+otro, y una razón no depende de las unidades.
+
+`STAT_POWER_EXPONENT` baja de 2.5 a **2.0**. Una estadística nativa tiene más
+dispersión que el promedio de dos que sustituye, así que el mismo exponente se
+habría pasado a ~62/38; con 2.0 el duelo típico vuelve a ~60/40, que es el
+objetivo pactado. Verificado con 4.000 tiradas.
+
+## La valoración pasa a ser ponderada por posición (y centrada)
+
+Consecuencia directa de lo anterior, y cierre de la decisión que quedó
+pendiente. Con las siete nativas una media plana es inservible: da 95 al
+**71%** del roster, porque el dato de origen conserva un total casi fijo por
+personaje (mucho `kick` implica poco `pressure`). `RATING_WEIGHTS` pondera lo
+que cada puesto necesita — portero por `intelligence`/`pressure`/`physical`,
+defensa por `pressure`/`physical`/`intelligence`, medio por
+`control`/`technique`/`intelligence`, delantero por `kick`/`control`/`technique`.
+
+Eso destapó un segundo problema que la ponderación crea por sí sola: cada
+puesto quedaba en una escala distinta (delanteros 108-116 contra porteros
+95-99), así que **todos los delanteros del juego superaban a todos los
+porteros** y ordenar por valoración no mostraba un portero jamás.
+`_ratingBaseline()` centra cada posición en 100 usando su propia mediana,
+calculada del roster cargado en vez de constantes que envejecen. Cada puesto
+conserva su dispersión interna (y por tanto su orden), y un 103 significa lo
+mismo para un portero que para un delantero.
+
+De 68-73 con el 71% idénticos a 73-107 repartidos. Cinco tests nuevos en
+`tests/roster-migration.spec.js` fijan la integridad de la migración: las
+siete presentes y enteras, ninguna de las cinco antiguas superviviente, todo
+lo que no debía tocarse intacto, elemento al 100%, y la valoración
+discriminando con las cuatro posiciones centradas en el mismo número.

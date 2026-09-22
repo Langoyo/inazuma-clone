@@ -667,10 +667,19 @@
            automatically from whichever real team most of the starting XI
            belongs to. Applies to your own side only, whichever role that
            ends up being; a real opponent still always picks their own. -->
+      <!-- A native colour input can't be blank, so rather than show an
+           arbitrary value that looks like a choice nobody made, the swatch
+           previews the colour the automatic pick would actually give for
+           the current XI, and "Automatic" says that's where it came from.
+           Touching the swatch is what turns it into a real override (see
+           _syncTeamColorUI). -->
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
-        <label style="font-size:12px;">Your team color:</label>
+        <label style="font-size:12px;" for="my-team-color">Your team color:</label>
         <input type="color" id="my-team-color" value="#3399ff" style="width:36px;height:28px;padding:0;border:2px solid #000;background:none;cursor:pointer;">
-        <span class="info-icon" data-info-title="Your team color" data-info-body="Overrides the kit color your XI plays in on the pitch — normally picked automatically from whichever real team most of your starting XI belongs to. Only affects your own side; a real connected opponent always picks their own color regardless.">ⓘ</span>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" id="my-team-color-auto" checked style="cursor:pointer;">Automatic
+        </label>
+        <span class="info-icon" data-info-title="Your team color" data-info-body="The kit color your XI plays in on the pitch. Left on Automatic it follows whichever real team most of your starting XI belongs to, and the swatch shows you what that currently works out to — change your squad and it updates. Pick a color yourself and it overrides that until you tick Automatic again. Only affects your own side; a real connected opponent always picks their own color regardless.">ⓘ</span>
       </div>
 
       <div id="formation-pitch">
@@ -711,11 +720,15 @@
           <option value="rating">Sort: Rating</option>
           <option value="name">Sort: Name</option>
           <option value="position">Sort: Position</option>
-          <option value="speed">Sort: Speed</option>
-          <option value="shotPower">Sort: Shot</option>
-          <option value="dribblePower">Sort: Dribble</option>
-          <option value="defensePower">Sort: Defense</option>
-          <option value="keeperPower">Sort: Keeper</option>
+          <!-- Values must match _pickListSorters' keys, which are generated
+               straight from NATIVE_STATS (see src/data/players.js). -->
+          <option value="kick">Sort: Kick</option>
+          <option value="control">Sort: Control</option>
+          <option value="technique">Sort: Technique</option>
+          <option value="pressure">Sort: Pressure</option>
+          <option value="physical">Sort: Physical</option>
+          <option value="agility">Sort: Agility</option>
+          <option value="intelligence">Sort: Intelligence</option>
         </select>
         <button id="squad-whole-team-btn" class="nes-btn is-compact" disabled>Select from here</button>
       </div>

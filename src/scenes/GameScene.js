@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { connectToRoom, getOrCreateRoomCode } from '../network/network.js';
 import { NORMAL_ACTION_POWER, STAT_FIELD_FOR_TECH } from '../data/techniques.js';
-import { createPlayerStats, applyRosterPlayerToStats, canActivate, techniquesFor } from '../data/players.js';
+import { createPlayerStats, applyRosterPlayerToStats, canActivate, techniquesFor, NATIVE_STATS, statMul } from '../data/players.js';
 import { loadRoster, getPlayerById, getGames } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
 
@@ -172,9 +172,61 @@ const KEEPER_CHASE_RANGE = 130;
 const ELEMENT_BEATS = { Fire:'Wood', Wood:'Air', Air:'Earth', Earth:'Fire' };
 const ELEMENT_EDGE  = 1.15; // power multiplier for the favourable side
 const ELEMENT_ICON  = { Fire:'🔥', Wood:'🌿', Air:'💨', Earth:'⚡' };
-// Same icons the stat grid uses for shotPower/dribblePower/defensePower/
-// keeperPower, reused here so a technique's category reads at a glance.
+// Raises each side's relevant stat to this power before the win-chance
+// ratio (see _prepareConfrontReveal) — stat differences on their own used to
+// barely move a duel: a median dribbler against a median defender (the
+// roster's two stat pools aren't centred the same, so even "average vs
+// average" isn't quite 50/50 to start with) was only 54/46, and even the
+// roster's best dribbler against its worst defender reached just 58/42.
+// 2.0 puts that same median-vs-median matchup at ~60/40, which is the target.
+// Re-calibrated down from 2.5 when the categories moved onto single native
+// stats (see STAT_FIELD_FOR_TECH): a native stat has a wider spread than the
+// two-stat average it replaced, so the same exponent would have overshot to
+// ~62/38. Deliberately applied only to the stat, not to technique power or
+// the element edge multiplier beside it, so spending PT on a supertechnique
+// (24 vs up to 110, untouched by this) still swings a confrontation far
+// more than any stat gap does — this makes stats matter more, not
+// techniques matter less. Scale-free: it's the ratio of the two sides'
+// stats that decides the roll, so it doesn't matter that these are raw game
+// numbers (~95) rather than the ~1.0 multipliers they used to be.
+const STAT_POWER_EXPONENT = 2.0;
+// Same icons the stat grid uses for the stats behind shot/dribble/defense/
+// keeper, reused here so a technique's category reads at a glance.
 const TECH_CAT_ICON = { shot:'⚡', dribble:'💨', defense:'🛡', keeper:'🧤' };
+
+// The two stats worth showing on a compact search-list card, per position —
+// there's no room there for all seven, and one fixed pair for everyone told
+// a keeper or a defender nothing about the one thing that actually matters
+// for their job. Each pick is the position's main duty plus one supporting
+// skill, carried over from the pairs chosen when these were still our own
+// five stats: a keeper reads the game and stands up to pressure; a defender
+// defends and carries the ball out; a midfielder controls play and has the
+// technique to use it; a forward finishes and beats their man. A position
+// missing from the roster (shouldn't happen, but the data isn't ours) falls
+// back to a neutral pair.
+const CARD_STAT_PAIR = {
+  GK: ['intelligence','pressure'],
+  DF: ['pressure','control'],
+  MF: ['control','technique'],
+  FW: ['kick','control'],
+};
+const STAT_ABBR = { kick:'KCK', control:'CTL', technique:'TEC', pressure:'PRE', physical:'PHY', agility:'AGI', intelligence:'INT' };
+// What each position's rating weighs, and how heavily. A plain average of
+// the seven is useless as a rating here: the source data conserves a
+// near-fixed total per character (high kick means low pressure and so on),
+// so the mean lands on 95 for 71% of the roster — every player "the same".
+// Weighing the stats that decide a given job instead makes the number mean
+// something: the same Axel Blaze who averages 96 flat rates 116 as a forward
+// (kick 121) and the roster spreads out across ~86-116.
+// Every position's rating is centred on this, so 100 reads as "a typical
+// player for this job" whatever the job is (see _ratingBaseline).
+const RATING_CENTRE = 100;
+const RATING_WEIGHTS = {
+  GK: { intelligence:.55, pressure:.25, physical:.20 },
+  DF: { pressure:.55, physical:.25, intelligence:.20 },
+  MF: { control:.45, technique:.30, intelligence:.25 },
+  FW: { kick:.55, control:.25, technique:.20 },
+};
 
 // AI difficulty (solo-vs-AI only). The whole ladder used to top out about
 // where "easy" now starts — the old hard is this easy, and every level above
@@ -764,6 +816,21 @@ export default class GameScene extends Phaser.Scene {
     const top=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
     return top?hexToInt(top[0]):fallback;
   }
+  /** Keeps the "Your team color" controls honest about which mode they're
+   *  in. A native colour input can't be blank, so while nothing has been
+   *  picked (`myTeamColor` null) the swatch previews what the automatic
+   *  pick currently works out to for your XI rather than showing some
+   *  fixed value that reads as a choice you made — change the squad and it
+   *  follows. Always your own XI, whichever side the pitch is showing,
+   *  since that's all this setting ever affects. */
+  _syncTeamColorUI(){
+    const swatch=document.getElementById('my-team-color');
+    const auto=document.getElementById('my-team-color-auto');
+    if(!swatch||!auto) return;
+    auto.checked=this.myTeamColor==null;
+    if(this.myTeamColor==null) swatch.value=this._css3(this._squadColor(this.squadSlots.filter(Boolean),0x3399ff));
+    else swatch.value=this.myTeamColor;
+  }
   /** A squad payload's kit color: whatever that player explicitly picked
    *  (payload.color, from the "Your team color" selector), or the usual
    *  auto-derived one if they never touched it — same fallback chain
@@ -794,7 +861,17 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-place-cancel-btn').addEventListener('click',()=>{ this._squadSel=null; this._pickPosFilter=null; this._renderPitch(); this._renderPickList(); });
     document.getElementById('pick-scope-clear').addEventListener('click',()=>{ this._pickPosFilter=null; this._renderPickListReset(); });
     document.getElementById('ai-level-select').addEventListener('change',e=>{ this.aiLevel=e.target.value; });
-    document.getElementById('my-team-color').addEventListener('input',e=>{ this.myTeamColor=e.target.value; });
+    // Touching the swatch is what makes the colour an explicit override —
+    // until then it's only previewing what Automatic works out to.
+    document.getElementById('my-team-color').addEventListener('input',e=>{
+      this.myTeamColor=e.target.value; this._syncTeamColorUI();
+    });
+    document.getElementById('my-team-color-auto').addEventListener('change',e=>{
+      // Unticking keeps whatever is on screen, so the colour doesn't jump
+      // the moment you take manual control of it.
+      this.myTeamColor=e.target.checked?null:document.getElementById('my-team-color').value;
+      this._syncTeamColorUI();
+    });
     document.getElementById('half-length-select').addEventListener('change',e=>{
       this.halfLengthS=parseInt(e.target.value,10)*60;
       // Nothing's ticking yet at this point (still in the squad editor), so
@@ -1072,6 +1149,9 @@ export default class GameScene extends Phaser.Scene {
     const hint=document.getElementById('squad-place-hint');
     hint.style.display=poolP?'flex':'none';
     if(poolP) document.getElementById('squad-place-hint-name').textContent=poolP.nickname||poolP.name;
+    // The automatic kit colour is derived from the XI, so its preview has to
+    // follow every change to it — this runs on all of them.
+    this._syncTeamColorUI();
   }
 
   /** Colour-coded GK/DF/MF/FW chip. `mismatch` marks a player sitting in a
@@ -1088,15 +1168,14 @@ export default class GameScene extends Phaser.Scene {
   }
   /** Overall rating chip for a pitch/bench pin — banded by strength so a
    *  squad's weak spots stand out without reading each number.
-   *  Thresholds are recalibrated to this roster's actual spread: the
-   *  official stat data conserves a near-fixed total per character (a
-   *  built-in game-balance choice), so ratings only really range ~68-73
-   *  rather than the wider spread a threshold like 85 assumed. 71+ is
-   *  the rare top ~6%, 70 the next ~20%, everything else (68-69) the
-   *  common ~74%. */
+   *  Thresholds track the centred rating's actual spread (see
+   *  _ratingBaseline): every position sits on 100, so 103+ is a notably
+   *  good player for their job, 98-102 the broad middle, below that a
+   *  weak one — and it means the same thing for a keeper as for a
+   *  forward, which is the point of centring. */
   _ratingBadge(p){
     const r=this._playerRating(p);
-    const band=r>=71?'hi':r>=70?'mid':'low';
+    const band=r>=103?'hi':r>=98?'mid':'low';
     return `<span class="rating-badge rating-${band}">${r}</span>`;
   }
 
@@ -1110,31 +1189,65 @@ export default class GameScene extends Phaser.Scene {
     return p.team?`${base} (${p.game})`:base;
   }
 
-  /** Stats are stored pre-scaled for the physics/AI code (they average
-   *  ~1.0, tuned to plug directly into speed multipliers, shot power,
-   *  etc.) — showing that raw multiplier to a player just reads as an
-   *  arbitrary decimal ("SHT 0.94"). Undoing the same ~0.0105 scale the
-   *  roster data was built with gets back a number in the games' own
-   *  stat range instead, for display only; nothing gameplay-facing
-   *  reads this. */
+  /** The roster stores the raw game numbers, so a stat sheet here shows
+   *  exactly what the games' own character pages show ("Kick 90") rather
+   *  than a rescaled invention of ours. Kept as a function anyway so the
+   *  display layer still has one place to change if that ever stops being
+   *  true. Display only; nothing gameplay-facing reads this. */
   _displayStat(v){
-    return Math.round(v/0.0105);
+    return Math.round(v);
   }
-  /** A single summary number from a player's 5 core stats — not a new
-   *  gameplay stat, just something readable for the cards, on a rough
-   *  0-99 scale (stats themselves average ~1.0, scaled up so a typical
-   *  player lands somewhere around 70 rather than reading as "1"). */
+
+  /** The two-stat line on a compact search-list card — see CARD_STAT_PAIR
+   *  for which pair each position gets and why. */
+  _cardStatLine(p){
+    const [a,b]=CARD_STAT_PAIR[p.position]||['control','physical'];
+    return `${STAT_ABBR[a]} ${this._displayStat(p.stats[a])} ${STAT_ABBR[b]} ${this._displayStat(p.stats[b])}`;
+  }
+  /** A single summary number for a player, in the same units as their own
+   *  stats so the two sit side by side sensibly. Not a gameplay stat —
+   *  nothing reads it but the cards and the "top players" randomizer. */
   _playerRating(p){
-    return Phaser.Math.Clamp(Math.round(this._ratingRaw(p)*70),30,99);
+    return Math.round(this._ratingRaw(p));
   }
-  /** Unrounded, unclamped version of _playerRating — the displayed
-   *  rating collapses almost everyone to the same 68-73 integer (the
-   *  official stat data conserves a near-fixed total per character), so
-   *  picking "the better players" needs the finer-grained number
-   *  underneath that display rounding throws away. */
+  /** Unrounded version of _playerRating — used for ranking, where the
+   *  fractions the display rounding throws away still break ties.
+   *  Weighted by position (see RATING_WEIGHTS): a plain average of the
+   *  seven is worthless as a rating, because the source data conserves a
+   *  near-fixed total per character, so it reads 95 for 71% of the
+   *  roster. Weighing what a given job actually needs is what makes the
+   *  number discriminate at all. */
   _ratingRaw(p){
-    const st=p.stats;
-    return (st.speed+st.shotPower+st.dribblePower+st.defensePower+st.keeperPower)/5;
+    return RATING_CENTRE+this._ratingWeighted(p)-this._ratingBaseline()[p.position||'MF'];
+  }
+  /** What a position's own weights say about this player, before centring. */
+  _ratingWeighted(p){
+    const w=RATING_WEIGHTS[p.position]||RATING_WEIGHTS.MF;
+    let total=0,sum=0;
+    for(const k in w){ total+=(p.stats[k]||0)*w[k]; sum+=w[k]; }
+    return sum?total/sum:0;
+  }
+  /** Median weighted score per position, so ratings can be centred on a
+   *  shared 100 and actually compared across positions. Weighing each job
+   *  by what it needs otherwise leaves the positions on different scales —
+   *  forwards came out 108-116 against keepers' 95-99, so every forward in
+   *  the game outranked every keeper and sorting by rating never showed a
+   *  keeper at all. Centring keeps each position's internal spread (and so
+   *  the order within it) while making 100 mean "typical for this job".
+   *  Computed once from the loaded roster rather than hardcoded, so it
+   *  can't drift out of date if the data is regenerated. */
+  _ratingBaseline(){
+    if(this._ratingBaselineCache) return this._ratingBaselineCache;
+    const byPos={};
+    for(const p of (this.rosterAll||[])) (byPos[p.position]=byPos[p.position]||[]).push(this._ratingWeighted(p));
+    const out={};
+    for(const pos in byPos){ const v=byPos[pos].sort((a,b)=>a-b); out[pos]=v[Math.floor(v.length/2)]; }
+    // Before the roster resolves there's nothing to centre against; falling
+    // back to 0 shift leaves the raw weighted number, which is still ordered
+    // correctly within a position.
+    const base=new Proxy(out,{get:(t,k)=>t[k]??RATING_CENTRE});
+    if(this.rosterAll?.length) this._ratingBaselineCache=base;
+    return base;
   }
   /** The better half (or whatever `frac` says) of `pool`, kept separate
    *  per position — so "top players" still gives a formation-fillable
@@ -1184,11 +1297,13 @@ export default class GameScene extends Phaser.Scene {
         <button onclick="document.getElementById('player-stat-panel').style.display='none'" style="margin-left:auto;background:none;border:none;color:white;font-size:20px;cursor:pointer">×</button>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px;">
-        <div>⚡ Shot <b>${this._displayStat(st.shotPower)}</b></div>
-        <div>💨 Dribble <b>${this._displayStat(st.dribblePower)}</b></div>
-        <div>🛡 Defense <b>${this._displayStat(st.defensePower)}</b></div>
-        <div>🧤 Keeper <b>${this._displayStat(st.keeperPower)}</b></div>
-        <div>🏃 Speed <b>${this._displayStat(st.speed)}</b></div>
+        <div>⚡ Kick <b>${this._displayStat(st.kick)}</b></div>
+        <div>💨 Control <b>${this._displayStat(st.control)}</b></div>
+        <div>✨ Technique <b>${this._displayStat(st.technique)}</b></div>
+        <div>🛡 Pressure <b>${this._displayStat(st.pressure)}</b></div>
+        <div>💪 Physical <b>${this._displayStat(st.physical)}</b></div>
+        <div>🏃 Agility <b>${this._displayStat(st.agility)}</b></div>
+        <div>🧠 Intelligence <b>${this._displayStat(st.intelligence)}</b></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px;">
         <div>🔋 PT <b>${ptLine}</b></div>
@@ -1364,11 +1479,7 @@ export default class GameScene extends Phaser.Scene {
       rating:  (a,b)=>this._playerRating(b)-this._playerRating(a)||byName(a,b),
       name:    byName,
       position:(a,b)=>(a.position||'').localeCompare(b.position||'')||byName(a,b),
-      speed:       (a,b)=>b.stats.speed-a.stats.speed||byName(a,b),
-      shotPower:   (a,b)=>b.stats.shotPower-a.stats.shotPower||byName(a,b),
-      dribblePower:(a,b)=>b.stats.dribblePower-a.stats.dribblePower||byName(a,b),
-      defensePower:(a,b)=>b.stats.defensePower-a.stats.defensePower||byName(a,b),
-      keeperPower: (a,b)=>b.stats.keeperPower-a.stats.keeperPower||byName(a,b),
+      ...Object.fromEntries(NATIVE_STATS.map(k=>[k,(a,b)=>b.stats[k]-a.stats[k]||byName(a,b)])),
     };
   }
   /** Search/filter/sort changes invalidate whatever page you were on —
@@ -1405,7 +1516,7 @@ export default class GameScene extends Phaser.Scene {
       const isSel=this._selMatchesPlayer(sel,p);
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'')+(isSel?' selected':'');
       const col=this._css3(this._rosterColor(p));
-      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">SPD ${this._displayStat(p.stats.speed)} SHT ${this._displayStat(p.stats.shotPower)}</div>`;
+      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">${this._cardStatLine(p)}</div>`;
       // A list card is, for selection purposes, exactly the pin it maps to
       // (pitch slot / bench / pool) — tap to select, tap the same card again
       // to see its full stats, tap a different target to swap/place.
@@ -1504,6 +1615,21 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _findGkId(ids){ return ids.find(id=>getPlayerById(id)?.position==='GK')||ids[0]; }
+
+  /** Every place that reassigns which roster player an on-pitch entry
+   *  represents after kickoff (a substitution, a reposition swap, or a
+   *  client mirroring the host's own subs/reposition over the network)
+   *  changes `e.id` — the stats lookups, PT/stamina and possession logic
+   *  all key off that and picked the change up immediately. The on-pitch
+   *  name, though, is a Text object created once in _buildTeam and never
+   *  touched again, so without this it kept showing whoever used to be
+   *  there: the substitute's stats were live but their name on the pitch
+   *  never was, which read as the substitution having silently done
+   *  nothing at all. */
+  _relabelEntry(e){
+    const p=getPlayerById(e.id);
+    if(p&&e.label) e.label.setText(p.nickname||p.name);
+  }
 
   _startMatch(payloadA,payloadB){
     this.formation.A=payloadA.formation||DEFAULT_FORMATION;
@@ -1898,6 +2024,7 @@ export default class GameScene extends Phaser.Scene {
     if(bIdx===-1||!entry) return;
     const rp=getPlayerById(req.inId); if(!rp) return;
     entry.id=req.inId;
+    this._relabelEntry(entry);
     if(entry.body) this.bodyOwner.set(entry.body,{role,id:req.inId});
     const st=createPlayerStats(); applyRosterPlayerToStats(st,rp); map.set(req.inId,st);
     bench.splice(bIdx,1,req.outId);
@@ -1945,6 +2072,7 @@ export default class GameScene extends Phaser.Scene {
     if(!eA||!eB) return;
     if(this._isOut(role,eA.id)||this._isOut(role,eB.id)) return; // a sent-off player can't be repositioned
     const tmp=eA.id; eA.id=eB.id; eB.id=tmp;
+    this._relabelEntry(eA); this._relabelEntry(eB);
     if(eA.body) this.bodyOwner.set(eA.body,{role,id:eA.id});
     if(eB.body) this.bodyOwner.set(eB.body,{role,id:eB.id});
   }
@@ -2472,9 +2600,9 @@ export default class GameScene extends Phaser.Scene {
     // Elemental edge — only one side can hold it, and only when both players
     // have a known element (the roster doesn't have one for everyone).
     const elEdge=this._elementEdge(as.element,ds.element);
-    const aP=(aTech?aTech.power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]]*powerMul*(elEdge>0?ELEMENT_EDGE:1)
+    const aP=(aTech?aTech.power:NORMAL_ACTION_POWER)*Math.pow(as[STAT_FIELD_FOR_TECH[atk]],STAT_POWER_EXPONENT)*powerMul*(elEdge>0?ELEMENT_EDGE:1)
       *this._aiStatMul(c.attackerRole);
-    const dP=(dTech?dTech.power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]]*(elEdge<0?ELEMENT_EDGE:1)
+    const dP=(dTech?dTech.power:NORMAL_ACTION_POWER)*Math.pow(ds[STAT_FIELD_FOR_TECH[def]],STAT_POWER_EXPONENT)*(elEdge<0?ELEMENT_EDGE:1)
       *this._aiStatMul(c.defenderRole);
     // Blocking a shot takes a real supertechnique — a normal challenge can't
     // stop it, only soften what happens after (see BLOCK_PASS_PENALTY).
@@ -2631,7 +2759,9 @@ export default class GameScene extends Phaser.Scene {
     const d=Phaser.Math.Distance.Between(eA.body.position.x,eA.body.position.y,eD.body.position.x,eD.body.position.y);
     if(d>=DUEL_HITBOX_RADIUS) return;
     const ds=this._statsFor(defenderRole,eD.id);
-    const foulChance=Phaser.Math.Clamp(FOUL_CHANCE_BASE/(ds?ds.defensePower:1),FOUL_CHANCE_MIN,FOUL_CHANCE_MAX);
+    // statMul because this one needs the absolute ~1.0 scale, not a ratio —
+    // dividing a probability by a raw game stat (~95) would floor it.
+    const foulChance=Phaser.Math.Clamp(FOUL_CHANCE_BASE/(ds?statMul(ds.pressure):1),FOUL_CHANCE_MIN,FOUL_CHANCE_MAX);
     if(Math.random()<foulChance) this._commitFoul(defenderRole,eD.id,attackerRole,now);
     else this._startConfront('duel',attackerRole,defenderRole,now);
   }
@@ -2917,7 +3047,11 @@ export default class GameScene extends Phaser.Scene {
         return;
       }
       if(e.body&&e.body.collisionFilter.mask!==(CAT_BALL|CAT_DEFAULT)) e.body.collisionFilter.mask=CAT_BALL|CAT_DEFAULT;
-      const st=this._statsFor(role,e.id), sp=(st?st.speed*this._fatigueMul(st):1)*this._aiSpeedMul(role);
+      // Agility is the games' own name for what used to be our `speed`, and
+      // it was already a 1:1 copy of it — statMul puts the raw game number
+      // back on the ~1.0 scale the movement code multiplies by, so pace is
+      // unchanged by the move to native stats.
+      const st=this._statsFor(role,e.id), sp=(st?statMul(st.agility)*this._fatigueMul(st):1)*this._aiSpeedMul(role);
       const t=byId.get(e.id);
       const chase=t?null:this._looseBallChase(e,activeId);
       // The sprint bonus itself shrinks as stamina drains, on top of the
@@ -3019,7 +3153,7 @@ export default class GameScene extends Phaser.Scene {
 
   _syncClientIds(rs){
     if(!rs.starterIds) return;
-    ['A','B'].forEach(role=>{ const team=role==='A'?this.teamA:this.teamB,ids=role==='A'?rs.starterIds.a:rs.starterIds.b,map=role==='A'?this.statsMapA:this.statsMapB; team.forEach((e,i)=>{ const nid=ids[i]; if(nid&&nid!==e.id){e.id=nid;if(!map.has(nid)){const rp=getPlayerById(nid);if(rp){const s=createPlayerStats();applyRosterPlayerToStats(s,rp);map.set(nid,s);}}}}); });
+    ['A','B'].forEach(role=>{ const team=role==='A'?this.teamA:this.teamB,ids=role==='A'?rs.starterIds.a:rs.starterIds.b,map=role==='A'?this.statsMapA:this.statsMapB; team.forEach((e,i)=>{ const nid=ids[i]; if(nid&&nid!==e.id){e.id=nid;this._relabelEntry(e);if(!map.has(nid)){const rp=getPlayerById(nid);if(rp){const s=createPlayerStats();applyRosterPlayerToStats(s,rp);map.set(nid,s);}}}}); });
     if(rs.benchIds){this.benchA=rs.benchIds.a||this.benchA;this.benchB=rs.benchIds.b||this.benchB;}
     // PT only truly regenerates on the host — mirror its authoritative
     // values into our local copy so a client's own PT bar and technique

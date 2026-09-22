@@ -53,6 +53,63 @@ test.describe('team color selector', () => {
     expect(info.teamColor).toBe('#00ff00');
   });
 
+  test('starts on Automatic, previewing the color that pick actually gives', async ({ page }) => {
+    // A native color input can't be blank, so the swatch has to show
+    // something — it shows what Automatic works out to for the current XI
+    // rather than a fixed value that reads as a choice nobody made.
+    await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+
+    await expect(page.locator('#my-team-color-auto')).toBeChecked();
+    expect(await page.evaluate(() => window.__scene.myTeamColor)).toBeNull();
+    const shown = await page.evaluate(() => ({
+      swatch: document.getElementById('my-team-color').value,
+      derived: window.__scene._css3(window.__scene._squadColor(window.__scene.squadSlots.filter(Boolean), 0x3399ff)),
+    }));
+    expect(shown.swatch).toBe(shown.derived);
+
+    // And it follows the squad, since that's what the pick is derived from.
+    await page.click('#randomize-top-btn');
+    const after = await page.evaluate(() => ({
+      swatch: document.getElementById('my-team-color').value,
+      derived: window.__scene._css3(window.__scene._squadColor(window.__scene.squadSlots.filter(Boolean), 0x3399ff)),
+    }));
+    expect(after.swatch).toBe(after.derived);
+  });
+
+  test('picking a color turns Automatic off, and a squad change no longer moves it', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+    await page.fill('#my-team-color', '#00ff00');
+    await page.dispatchEvent('#my-team-color', 'input');
+
+    await expect(page.locator('#my-team-color-auto')).not.toBeChecked();
+    await page.click('#randomize-top-btn');
+    expect(await page.evaluate(() => window.__scene.myTeamColor)).toBe('#00ff00');
+    expect(await page.inputValue('#my-team-color')).toBe('#00ff00');
+  });
+
+  test('ticking Automatic again hands it back, unticking holds the color on screen', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+    await page.fill('#my-team-color', '#00ff00');
+    await page.dispatchEvent('#my-team-color', 'input');
+
+    await page.check('#my-team-color-auto');
+    const back = await page.evaluate(() => ({
+      myTeamColor: window.__scene.myTeamColor,
+      swatch: document.getElementById('my-team-color').value,
+      derived: window.__scene._css3(window.__scene._squadColor(window.__scene.squadSlots.filter(Boolean), 0x3399ff)),
+    }));
+    expect(back.myTeamColor).toBeNull();
+    expect(back.swatch).toBe(back.derived);
+
+    // Taking manual control keeps what's on screen — the color shouldn't
+    // jump at the moment you go to adjust it.
+    await page.uncheck('#my-team-color-auto');
+    expect(await page.evaluate(() => window.__scene.myTeamColor)).toBe(back.derived);
+  });
+
   test('leaving it untouched still falls back to the auto-derived squad color', async ({ page }) => {
     await waitForRosterLoaded(page);
     await page.click('#randomize-top-btn');
@@ -68,6 +125,58 @@ test.describe('team color selector', () => {
       return { role: s.role, teamColor: s._css3(s.role === 'A' ? s.teamColorA : s.teamColorB) };
     });
     expect(info.teamColor).toBe(expectedColor);
+  });
+});
+
+test.describe('position-relevant stats on a search-list card', () => {
+  test('each position shows its own stat pair instead of a fixed SPD/SHT', async ({ page }) => {
+    // Regression coverage for the compact card: it used to always show
+    // SPD/SHT regardless of position, which told a keeper or a defender
+    // nothing about the stat that actually matters for their job.
+    await waitForRosterLoaded(page);
+
+    const result = await page.evaluate(() => {
+      const s = window.__scene;
+      const pairs = { GK: ['intelligence', 'pressure'], DF: ['pressure', 'control'], MF: ['control', 'technique'], FW: ['kick', 'control'] };
+      const abbr = { kick: 'KCK', control: 'CTL', technique: 'TEC', pressure: 'PRE', physical: 'PHY', agility: 'AGI', intelligence: 'INT' };
+      const out = {};
+      for (const pos of Object.keys(pairs)) {
+        const p = s.rosterAll.find((r) => r.position === pos);
+        if (!p) continue;
+        const [a, b] = pairs[pos];
+        const expected = `${abbr[a]} ${s._displayStat(p.stats[a])} ${abbr[b]} ${s._displayStat(p.stats[b])}`;
+        out[pos] = { actual: s._cardStatLine(p), expected };
+      }
+      return out;
+    });
+
+    for (const [pos, { actual, expected }] of Object.entries(result)) {
+      expect(actual, `position ${pos}`).toBe(expected);
+    }
+    // The four positions actually differ from each other — not just from
+    // matching their own formula, but from one another, confirming the
+    // pair really does vary by position rather than coincidentally
+    // matching a still-fixed line.
+    const lines = new Set(Object.values(result).map((r) => r.actual.split(' ')[0]));
+    expect(lines.size).toBeGreaterThan(1);
+  });
+
+  test('the card actually renders the position-specific line', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('button[data-view="players"]');
+    const gk = await page.evaluate(() => {
+      const s = window.__scene;
+      const p = s.rosterAll.find((r) => r.position === 'GK');
+      // Search by full name: nicknames aren't unique (several characters
+      // share a first name across positions), so filtering by one can put
+      // a different player's card first.
+      return { name: p.name, line: s._cardStatLine(p) };
+    });
+    await page.fill('#squad-search', gk.name);
+    await page.waitForTimeout(150);
+    const shown = await page.locator('#squad-pick-list .pick-card').first().innerText();
+    expect(shown).toContain(gk.line);
+    expect(shown).not.toMatch(/^KCK/m);
   });
 });
 
