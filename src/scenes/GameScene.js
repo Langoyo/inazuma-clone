@@ -1141,12 +1141,22 @@ export default class GameScene extends Phaser.Scene {
   /** Stats are stored pre-scaled for the physics/AI code (they average
    *  ~1.0, tuned to plug directly into speed multipliers, shot power,
    *  etc.) — showing that raw multiplier to a player just reads as an
-   *  arbitrary decimal ("SHT 0.94"). Undoing the same ~0.0105 scale the
-   *  roster data was built with gets back a number in the games' own
-   *  stat range instead, for display only; nothing gameplay-facing
-   *  reads this. */
+   *  arbitrary decimal ("SHT 0.94"). Scaled up for display instead, by
+   *  the exact same ×70 _playerRating uses on the raw 5-stat average
+   *  (see _ratingRaw) — deliberately the same factor, not a separately
+   *  tuned one, so the individual numbers on a stat sheet and the ⭐
+   *  summary next to them are directly comparable: eyeballing the
+   *  average of the five roughly gives back the star. They used to be
+   *  on two unrelated scales (this divided by ~0.0105, the rating
+   *  multiplied by 70) that both happened to land in a similar-looking
+   *  0-130ish range, which invited exactly that kind of mental math
+   *  while quietly giving a wrong answer — a player's stats could
+   *  average up around 100 here while their rating read 73. Confirmed
+   *  against the roster this still comfortably fits 0-99 (max ~89
+   *  across every stat), so nothing needs its own clamp. Display only;
+   *  nothing gameplay-facing reads this. */
   _displayStat(v){
-    return Math.round(v/0.0105);
+    return Math.round(v*70);
   }
   /** A single summary number from a player's 5 core stats — not a new
    *  gameplay stat, just something readable for the cards, on a rough

@@ -1812,3 +1812,29 @@ three new ones in `tests/ai-subs.spec.js` check the label directly
 after a manual sub, after a reposition (both entries, and that they
 actually swapped rather than both landing on the same name), and after
 `_syncClientIds` mirrors a host-side change.
+
+## Individual stats now share the rating's own scale
+
+Reported with the receipts: averaging the five stats shown on a
+player's sheet (Shot 131, Dribble 110, Defense 85, Keeper 89, Speed 85
+for one example) gave ~97-100, but the ⭐ rating next to them read 73.
+Both numbers come from the same underlying raw stats, but through two
+unrelated conversion factors: `_displayStat` divided the raw value by
+~0.0105 (≈×95.2, meant to recover something like the original games'
+own stat range), while `_playerRating` multiplied the raw 5-stat
+average by 70 (a deliberate 30-99 "summary" compression). Landing in
+a similar-looking numeric range was coincidental, not by design — nothing
+tied the two together, so eyeballing the stat sheet the obvious way
+(which is exactly what got reported) gave a plausible but wrong answer.
+
+`_displayStat` now uses the exact same ×70 as `_playerRating`, so the
+individual numbers and the star are directly comparable — verified
+against 4,000 players, the largest gap between an eyeballed average of
+the five displayed stats and the actual star is 0.6 (pure rounding,
+since the star rounds the raw average once while the five stats each
+round independently). Checked the resulting range holds up across the
+whole roster too: every stat still lands under 90 (max ~89), so nothing
+needed its own clamp.
+
+The compact `SPD`/`SHT` line on a search-list card reads the same
+scale automatically, same function.
