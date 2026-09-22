@@ -26,6 +26,12 @@ const WAYPOINT_RADIUS   = 20;
 const MIN_PATH_PT_DIST  = 18;
 const PLAYER_SEL_RADIUS = 36;
 const DRAG_THRESHOLD    = 14;
+// Squad editor / sub panel pins and cards: press and hold one to view its
+// stats, instead of the old double-tap (see _armPressGestures). The move
+// tolerance cancels the hold if it turns into a scroll/drag rather than a
+// still press.
+const LONG_PRESS_MS          = 500;
+const LONG_PRESS_MOVE_TOLERANCE = 10;
 const PASS_MARKER_MS    = 400; // how long the tap-to-pass marker stays on screen
 const CONFRONT_MS       = 20000;
 // Shots lose steam with distance: full power up close, easing down to a
@@ -88,7 +94,7 @@ const AI_SUB_CHECK_MS   = 8000; // how often the AI reconsiders its own lineup
 const AI_SUB_STAMINA    = 0.35; // fraction of maxStamina below which a player becomes a sub candidate
 const AI_MAX_SUBS       = 3;    // matches the real substitution limit
 const STATE_HZ          = 20;
-const SCROLL_SPEED      = 220;   // px/s when a scroll button is held
+const SCROLL_SPEED      = 340;   // px/s when a scroll button is held (was 220 — asked for faster)
 
 // Physics forces — the ball carrier is only slightly sharper than everyone
 // else now; off-ball players used to crawl (AUTO_STEER_FORCE/MAX_SPEED were
@@ -1094,7 +1100,8 @@ export default class GameScene extends Phaser.Scene {
         pin.innerHTML=`<div style="font-size:9px;opacity:.55">${roles[slot]}</div>`;
       }
       if(sel&&sel.type==='slot'&&sel.slot===slot) pin.classList.add('selected');
-      pin.addEventListener('click',()=>this._onSquadPinClick({type:'slot',slot}));
+      if(p) this._armPressGestures(pin,{onTap:()=>this._onSquadPinClick({type:'slot',slot}),onLongPress:()=>this._showPlayerStats(p)});
+      else pin.addEventListener('click',()=>this._onSquadPinClick({type:'slot',slot}));
       pitch.appendChild(pin);
     });
     const strip=document.getElementById('bench-strip'); strip.innerHTML='';
@@ -1113,7 +1120,7 @@ export default class GameScene extends Phaser.Scene {
         pin.innerHTML=`<div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>`
           +this._posBadge(p.position)+this._ratingBadge(p)+`<div class="pin-name">${p.nickname||p.name}</div>`;
         if(sel&&sel.type==='bench'&&sel.id===pid) pin.classList.add('selected');
-        pin.addEventListener('click',()=>this._onSquadPinClick({type:'bench',id:pid}));
+        this._armPressGestures(pin,{onTap:()=>this._onSquadPinClick({type:'bench',id:pid}),onLongPress:()=>this._showPlayerStats(p)});
       } else {
         pin.classList.add('empty');
         pin.innerHTML=`<div style="font-size:9px;opacity:.55">Bench</div>`;
@@ -1314,12 +1321,47 @@ export default class GameScene extends Phaser.Scene {
     el.style.display='block';
   }
 
+  /** Wires a click-and-hold gesture onto `el`: a normal tap fires `onTap`
+   *  exactly as a plain click listener would, while pressing and holding
+   *  for LONG_PRESS_MS fires `onLongPress` instead and swallows the click
+   *  the browser sends on release, so a long press never *also* triggers
+   *  the tap action. Used to view a player's stats from a pin or card
+   *  without spending the tap that arms/swaps/places it — replaced an
+   *  earlier "tap the same selection again" gesture, which only worked
+   *  once something was already armed and wasn't discoverable. The hold
+   *  cancels itself if the pointer moves more than
+   *  LONG_PRESS_MOVE_TOLERANCE (a scroll or the start of a drag), leaves,
+   *  or releases before the delay is up — same shape as _setupWasdPad's
+   *  press/release handling below. */
+  _armPressGestures(el,{onTap,onLongPress}){
+    let timer=null,longFired=false,start=null;
+    const cancel=()=>{ if(timer){ clearTimeout(timer); timer=null; } };
+    el.addEventListener('pointerdown',e=>{
+      longFired=false; start={x:e.clientX,y:e.clientY};
+      cancel();
+      timer=setTimeout(()=>{ longFired=true; timer=null; onLongPress(); },LONG_PRESS_MS);
+    });
+    el.addEventListener('pointermove',e=>{
+      if(!timer||!start) return;
+      if(Math.hypot(e.clientX-start.x,e.clientY-start.y)>LONG_PRESS_MOVE_TOLERANCE) cancel();
+    });
+    el.addEventListener('pointerup',cancel);
+    el.addEventListener('pointerleave',cancel);
+    el.addEventListener('pointercancel',cancel);
+    el.addEventListener('click',()=>{
+      if(longFired){ longFired=false; return; }
+      onTap();
+    });
+  }
   // Tap-to-swap: tap a pin (or a not-yet-picked player card) to select it,
-  // tap a different one to swap/place them, tap the same one again to view
-  // its stats. Replaces drag-and-drop, which was unreliable on touch (lost
-  // pointer capture, accidental scrolling). A 'pool' selection is a player
-  // from the search list who isn't in the squad yet — placing them onto a
-  // slot/bench spot works whether or not that spot is already occupied.
+  // tap a different one to swap/place them. A second tap on the pin already
+  // armed cancels the arm instead (see _onSquadPinClick) — viewing stats is
+  // now a press-and-hold on any pin/card, independent of arm state (see
+  // _armPressGestures and its call sites in _renderPitch/_renderPickList).
+  // Replaces drag-and-drop, which was unreliable on touch (lost pointer
+  // capture, accidental scrolling). A 'pool' selection is a player from the
+  // search list who isn't in the squad yet — placing them onto a slot/bench
+  // spot works whether or not that spot is already occupied.
   _squadSel=null;
   _pickPage=0;
   /** Position the list is currently narrowed to, set by tapping an empty
@@ -1334,10 +1376,10 @@ export default class GameScene extends Phaser.Scene {
       this._renderPitch(); this._renderPickList(); return;
     }
     if(this._squadSel.type===sel.type&&(sel.type==='slot'?this._squadSel.slot===sel.slot:this._squadSel.id===sel.id)){
-      const p=this._squadSelPlayer(sel);
+      // Tapping the pin already armed is a change of mind — cancel the arm.
+      // Viewing stats no longer lives here; press and hold instead.
       this._squadSel=null; this._pickPosFilter=null;
       this._renderPitch(); this._renderPickList();
-      if(p) this._showPlayerStats(p);
       return;
     }
     if(this._isEmptySpot(this._squadSel)&&this._isEmptySpot(sel)){
@@ -1518,9 +1560,9 @@ export default class GameScene extends Phaser.Scene {
       const col=this._css3(this._rosterColor(p));
       card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">${this._cardStatLine(p)}</div>`;
       // A list card is, for selection purposes, exactly the pin it maps to
-      // (pitch slot / bench / pool) — tap to select, tap the same card again
-      // to see its full stats, tap a different target to swap/place.
-      card.addEventListener('click',()=>this._onSquadPinClick(this._squadSelForPlayer(p)));
+      // (pitch slot / bench / pool) — tap to select/place, press and hold
+      // to see its full stats.
+      this._armPressGestures(card,{onTap:()=>this._onSquadPinClick(this._squadSelForPlayer(p)),onLongPress:()=>this._showPlayerStats(p)});
       list.appendChild(card);
     });
     document.getElementById('squad-whole-team-btn').disabled=!gf&&!tfTeam;
@@ -1954,19 +1996,24 @@ export default class GameScene extends Phaser.Scene {
         pin.addEventListener('click',()=>{ const p=getPlayerById(pin.dataset.benchId); if(p) this._showPlayerStats(p); });
       });
     } else {
+      // Both selectors only ever match an occupied pin (see the roster-id/
+      // bench-id template above), so there's always a player to show.
       listEl.querySelectorAll('.slot-pin[data-roster-id]').forEach(pin=>{
-        pin.addEventListener('click',()=>this._onSubPinClick({type:'slot',id:pin.dataset.rosterId}));
+        const p=getPlayerById(pin.dataset.rosterId);
+        this._armPressGestures(pin,{onTap:()=>this._onSubPinClick({type:'slot',id:pin.dataset.rosterId}),onLongPress:()=>p&&this._showPlayerStats(p)});
       });
       listEl.querySelectorAll('.bench-pin[data-bench-id]').forEach(pin=>{
-        pin.addEventListener('click',()=>this._onSubPinClick({type:'bench',id:pin.dataset.benchId}));
+        const p=getPlayerById(pin.dataset.benchId);
+        this._armPressGestures(pin,{onTap:()=>this._onSubPinClick({type:'bench',id:pin.dataset.benchId}),onLongPress:()=>p&&this._showPlayerStats(p)});
       });
     }
   }
   _onSubPinClick(sel){
     if(!this.subSel){ this.subSel=sel; this._renderSubPanel(); return; }
     if(this.subSel.id===sel.id){
-      const p=getPlayerById(sel.id); this.subSel=null; this._renderSubPanel();
-      if(p) this._showPlayerStats(p);
+      // Tapping the pin already armed cancels it — press and hold to view
+      // stats instead (see _armPressGestures).
+      this.subSel=null; this._renderSubPanel();
       return;
     }
     if(this.subSel.type==='slot'&&sel.type==='slot'){

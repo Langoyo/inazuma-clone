@@ -1980,3 +1980,57 @@ De 68-73 con el 71% idénticos a 73-107 repartidos. Cinco tests nuevos en
 siete presentes y enteras, ninguna de las cinco antiguas superviviente, todo
 lo que no debía tocarse intacto, elemento al 100%, y la valoración
 discriminando con las cuatro posiciones centradas en el mismo número.
+
+## Removed the dead root-level file copies
+
+`roster.json`, `GameScene.js`, `players.js`, `techniques.js`, `roster.js`,
+`network.js` and `AIController.js` at the repo root were stale duplicates
+nothing loaded — `index.html` only ever imports `/src/main.js`, and every
+real import chain runs through `src/scenes/GameScene.js` and its `src/`-tree
+siblings, never these. The root `roster.json` was additionally a stale copy
+of an earlier `public/roster.json`, predating the seven-native-stat
+migration — keeping it around risked someone opening the wrong file to
+"check the data" and drawing the wrong conclusion. Deleted; nothing else
+changed, confirmed via a full test run and a working dev server.
+
+## Press and hold a player to see their stats, not double-tap
+
+Double-tapping a pin/card was never discoverable, and existed as a second
+special case inside the same tap-to-arm/swap gesture: tap once to arm a
+selection, tap the same one again to view stats, tap a different one to
+swap or place. Replaced with press-and-hold, which is now completely
+independent of arm state — the squad editor's pins and cards, and the
+in-match Team panel's own-side pins, all use it. Tapping an already-armed
+selection now simply cancels the arm (a sensible replacement on its own,
+and simpler than what it replaces).
+
+New `_armPressGestures(el, {onTap, onLongPress})` starts a `LONG_PRESS_MS`
+(500ms) timer on `pointerdown`, cancels it on release/leave/cancel or if the
+pointer moves more than `LONG_PRESS_MOVE_TOLERANCE` (10px — so it yields to
+an actual drag/scroll rather than fighting it), and swallows the `click`
+the browser sends right after a completed hold so a long press never *also*
+fires the tap action. Same shape as `_setupWasdPad`'s existing press/release
+handling, reused rather than invented fresh.
+
+The read-only rival-formation view is untouched on purpose — a single tap
+already opens stats there with no arm state to disambiguate from, so adding
+a hold delay would only make it slower for no benefit.
+
+Updated the two existing info popups that described the old gesture
+("Building your squad", the in-match "Team panel" one) to say "press and
+hold" instead. Six new tests in `tests/long-press-stats.spec.js` cover: a
+quick second tap cancelling an arm instead of opening stats, holding a pin/
+card/bench-spot showing stats without disturbing whatever was or wasn't
+armed, the same in the in-match panel, and the info-popup text.
+
+## Camera pans faster
+
+`SCROLL_SPEED` 220 → 340 px/s (~55% faster). Joystick, the on-screen WASD
+pad and real keyboard/WASD all read this one constant in `_tickScroll`, so
+all three speed up together — there's no separate multiplier per input
+method to keep in sync. Purely a personal-UI convenience (never seen by an
+opponent, no gameplay-balance implication), so no calibration needed beyond
+confirming the formula: calling `_tickScroll(1000)` directly moves the
+camera exactly 340px, independent of the test environment's own frame
+pacing (which is what an earlier, wall-clock-timing verification attempt
+was actually measuring instead of the constant itself).
