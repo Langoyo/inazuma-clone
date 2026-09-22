@@ -1862,3 +1862,48 @@ Falls back to the old SPD/SHT pair for a player with no position on
 record. Two new tests: each position's line matches its own formula and
 the four differ from one another (not a still-fixed line that happens to
 pass), and an actual rendered card shows the position-specific text.
+
+## FW card now shows Shot + Dribble
+
+Follow-up to the position-relevant card stats above — asked to swap
+Speed out for Dribble on a forward's pair, since finishing (Shot) and
+close control (Dribble) read as more forward-defining than raw pace.
+`CARD_STAT_PAIR.FW` updated; the other three positions are untouched.
+
+## Stats now have more say in who wins a confrontation
+
+Follow-up to two things reported together: a delayed answer to "can we
+make stats matter more, like 60/40 instead of 50/50" and, underneath
+it, a genuine finding once I measured it. A confrontation's win chance
+is `attackerPower / (attackerPower + defenderPower)`, where each side's
+power is `techniquePower × theirStat × ...`. Since that's linear in the
+stat, the ratio of the two POWERS equals the ratio of the two STATS —
+and the roster's stats are tightly clustered (a whole position's spread
+is maybe 20-40%), so even a clearly-better player against a clearly-worse
+one barely moved off 50/50: a roster-median dribbler against a
+roster-median defender (the two stat pools aren't centred the same, so
+"average vs average" was never exactly 50/50 to begin with) won only
+~54% of the time, and the roster's best dribbler against its worst
+defender reached just ~58%. Stats existed, but a real gap in ability
+barely showed up in the outcome.
+
+Added `STAT_POWER_EXPONENT = 2.5`, raising each side's raw stat to that
+power before the ratio (`Math.pow(stat, 2.5)`) — deliberately only the
+stat, not the technique-power factor beside it or the element-edge
+multiplier, so spending PT on a supertechnique (power 24 for a normal
+action up to 110 for the strongest ones, untouched by this) still
+swings a confrontation far more than any stat gap does. 2.5 was picked
+by calibration, not guesswork: it turns that same median-vs-median
+matchup into ~60/40 (matching the target given) and the roster's
+best-vs-worst matchup into ~69/31 — clearly decisive without making a
+stat gap alone a foregone conclusion.
+
+Three new tests in `tests/confrontation-stats.spec.js`, each run over
+1,500-3,000 trials since a single confrontation is a coin flip by
+nature: the calibration case itself lands in the low-60s (not the old
+~54%), a worse-stat attacker armed with a real supertechnique still
+beats a better-stat defender with none most of the time (confirming
+the technique-over-stats hierarchy survived), and identical stats with
+no techniques on either side still land at an even 50/50 — a sanity
+check that `Math.pow` on a ratio of exactly 1 introduces no bias of its
+own.

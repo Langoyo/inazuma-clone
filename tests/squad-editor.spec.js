@@ -137,7 +137,7 @@ test.describe('position-relevant stats on a search-list card', () => {
 
     const result = await page.evaluate(() => {
       const s = window.__scene;
-      const pairs = { GK: ['keeperPower', 'defensePower'], DF: ['defensePower', 'dribblePower'], MF: ['dribblePower', 'shotPower'], FW: ['shotPower', 'speed'] };
+      const pairs = { GK: ['keeperPower', 'defensePower'], DF: ['defensePower', 'dribblePower'], MF: ['dribblePower', 'shotPower'], FW: ['shotPower', 'dribblePower'] };
       const abbr = { speed: 'SPD', shotPower: 'SHT', dribblePower: 'DRB', defensePower: 'DEF', keeperPower: 'KPR' };
       const out = {};
       for (const pos of Object.keys(pairs)) {

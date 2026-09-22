@@ -172,6 +172,20 @@ const KEEPER_CHASE_RANGE = 130;
 const ELEMENT_BEATS = { Fire:'Wood', Wood:'Air', Air:'Earth', Earth:'Fire' };
 const ELEMENT_EDGE  = 1.15; // power multiplier for the favourable side
 const ELEMENT_ICON  = { Fire:'🔥', Wood:'🌿', Air:'💨', Earth:'⚡' };
+// Raises each side's relevant stat to this power before the win-chance
+// ratio (see _prepareConfrontReveal) — stat differences on their own used to
+// barely move a duel: a median dribbler against a median defender (the
+// roster's two stat pools aren't centred the same, so even "average vs
+// average" isn't quite 50/50 to start with) was only 54/46, and even the
+// roster's best dribbler against its worst defender reached just 58/42.
+// 2.5 turns that same median-vs-median matchup into ~60/40 and the best-
+// vs-worst one into ~69/31 — decisive without being a foregone conclusion.
+// Deliberately applied only to the raw stat, not to technique power or the
+// element edge multiplier beside it, so spending PT on a supertechnique
+// (24 vs up to 110, untouched by this) still swings a confrontation far
+// more than any stat gap does — this makes stats matter more, not
+// techniques matter less.
+const STAT_POWER_EXPONENT = 2.5;
 // Same icons the stat grid uses for shotPower/dribblePower/defensePower/
 // keeperPower, reused here so a technique's category reads at a glance.
 const TECH_CAT_ICON = { shot:'⚡', dribble:'💨', defense:'🛡', keeper:'🧤' };
@@ -191,7 +205,7 @@ const CARD_STAT_PAIR = {
   GK: ['keeperPower','defensePower'],
   DF: ['defensePower','dribblePower'],
   MF: ['dribblePower','shotPower'],
-  FW: ['shotPower','speed'],
+  FW: ['shotPower','dribblePower'],
 };
 const STAT_ABBR = { speed:'SPD', shotPower:'SHT', dribblePower:'DRB', defensePower:'DEF', keeperPower:'KPR' };
 
@@ -2552,9 +2566,9 @@ export default class GameScene extends Phaser.Scene {
     // Elemental edge — only one side can hold it, and only when both players
     // have a known element (the roster doesn't have one for everyone).
     const elEdge=this._elementEdge(as.element,ds.element);
-    const aP=(aTech?aTech.power:NORMAL_ACTION_POWER)*as[STAT_FIELD_FOR_TECH[atk]]*powerMul*(elEdge>0?ELEMENT_EDGE:1)
+    const aP=(aTech?aTech.power:NORMAL_ACTION_POWER)*Math.pow(as[STAT_FIELD_FOR_TECH[atk]],STAT_POWER_EXPONENT)*powerMul*(elEdge>0?ELEMENT_EDGE:1)
       *this._aiStatMul(c.attackerRole);
-    const dP=(dTech?dTech.power:NORMAL_ACTION_POWER)*ds[STAT_FIELD_FOR_TECH[def]]*(elEdge<0?ELEMENT_EDGE:1)
+    const dP=(dTech?dTech.power:NORMAL_ACTION_POWER)*Math.pow(ds[STAT_FIELD_FOR_TECH[def]],STAT_POWER_EXPONENT)*(elEdge<0?ELEMENT_EDGE:1)
       *this._aiStatMul(c.defenderRole);
     // Blocking a shot takes a real supertechnique — a normal challenge can't
     // stop it, only soften what happens after (see BLOCK_PASS_PENALTY).
