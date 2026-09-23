@@ -4,6 +4,18 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Fix: closing the player stat popup also closed the Browse Players drawer
+On narrow screens, closing the player stat popup (the × button) would also
+close the Browse Players drawer sitting behind it — annoying mid-browse,
+since you'd have to reopen the drawer after every look at a player's stats.
+Root cause: `#player-stat-panel` is a fixed overlay rendered outside
+`#squad-columns` (so it can sit centred over the whole screen whether or not
+the drawer is open), so a click on its × button fell outside the drawer's
+own subtree and was caught by the "tap outside the drawer closes it"
+listener as if it were a genuine outside tap. Excluded the stat panel from
+that check in `GameScene.js`. Added a regression test
+(`tests/squad-editor.spec.js`) covering it.
+
 ## Borderless portrait chips
 The square frame around every pixel-art portrait (list cards, formation
 pins, stat sheet header, duel cards) had a 1-2px border. Dropped it — the

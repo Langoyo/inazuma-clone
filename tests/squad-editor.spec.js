@@ -433,4 +433,26 @@ test.describe('collapsible Formation / Browse Players sections', () => {
     await page.waitForTimeout(100);
     await expect(page.locator('#squad-players-view')).toHaveClass(/hidden-section/);
   });
+
+  test('closing the player stat popup does not also close the drawer behind it', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('button[data-view="players"]');
+    await page.waitForTimeout(100);
+    await expect(page.locator('#squad-players-view')).not.toHaveClass(/hidden-section/);
+
+    // The stat popup is a fixed overlay rendered outside #squad-columns, so
+    // opening/closing it is a click outside the drawer's own subtree — it
+    // used to fall through to the "tap outside closes the drawer" handler
+    // and take the drawer down with it.
+    const p = await page.evaluate(() => window.__scene.rosterAll.find(Boolean));
+    await page.evaluate((pl) => window.__scene._showPlayerStats(pl), p);
+    await page.waitForTimeout(100);
+    await expect(page.locator('#player-stat-panel')).toBeVisible();
+    await expect(page.locator('#squad-players-view')).not.toHaveClass(/hidden-section/);
+
+    await page.locator('#player-stat-panel button', { hasText: '×' }).click();
+    await page.waitForTimeout(100);
+    await expect(page.locator('#player-stat-panel')).toBeHidden();
+    await expect(page.locator('#squad-players-view')).not.toHaveClass(/hidden-section/);
+  });
 });

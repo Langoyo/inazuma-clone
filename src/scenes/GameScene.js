@@ -926,7 +926,12 @@ export default class GameScene extends Phaser.Scene {
       const path=e.composedPath();
       const columns=document.getElementById('squad-columns');
       const openToggle=document.querySelector('button[data-view="players"]');
-      if(path.includes(columns)||path.includes(openToggle)) return;
+      const statPanel=document.getElementById('player-stat-panel');
+      // The stat panel is a fixed overlay outside #squad-columns (so it can
+      // sit centred over the whole screen, drawer or not) — closing it via
+      // its × button is a click outside #squad-columns too, and without this
+      // check it fell through to here and closed the drawer as a side effect.
+      if(path.includes(columns)||path.includes(openToggle)||path.includes(statPanel)) return;
       this._toggleSquadSection('players');
     });
     document.getElementById('squad-save-btn').addEventListener('click',()=>this._saveSquad());
