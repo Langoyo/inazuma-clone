@@ -118,6 +118,11 @@
       border: 4px solid var(--grey); background: var(--panel);
       text-align: center; transition: transform 220ms ease, opacity 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
     }
+    .duel-portrait {
+      width: 64px; height: 64px; margin: 0 auto 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: bold; color: rgba(0,0,0,0.8); image-rendering: pixelated;
+    }
     .duel-card .duel-who  { font-size: 14px; font-weight: bold; }
     .duel-card .duel-move { font-size: 13px; color: var(--gold); margin-top: 6px; }
     .duel-card.winner {
@@ -364,9 +369,9 @@
     .slot-pin.empty   { background: rgba(255,255,255,0.12); border-style: dashed; }
     .slot-pin.selected, .bench-pin.selected { box-shadow: 0 0 0 3px var(--gold); border-color: var(--gold); z-index: 5; }
     .slot-pin .pin-avatar {
-      width: 28px; height: 28px; border-radius: 50%; display: flex;
+      width: 28px; height: 28px; display: flex;
       align-items: center; justify-content: center; font-size: 9px; font-weight: bold;
-      color: rgba(0,0,0,0.8); border: 1px solid rgba(0,0,0,0.5);
+      color: rgba(0,0,0,0.8);
     }
     .slot-pin .pin-name { font-size: 9px; color: white; line-height: 1.1; margin-top: 1px; max-width: 42px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
@@ -376,7 +381,7 @@
       border: 2px solid var(--grey); padding: 4px; cursor: pointer;
       touch-action: manipulation; user-select: none;
     }
-    .bench-pin .pin-avatar { width: 32px; height: 32px; border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: rgba(0,0,0,.8); border: 1px solid rgba(0,0,0,0.5); }
+    .bench-pin .pin-avatar { width: 32px; height: 32px; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: rgba(0,0,0,.8); }
     .bench-pin .pin-name   { font-size: 10px; color: rgba(255,255,255,0.95); margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
     /* ---- remove action, shown only while a squad player is selected */
@@ -469,7 +474,14 @@
     #squad-status { font-size: 13px; opacity: 0.9; }
 
     /* ---- avatar util */
-    .av { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; font-weight: bold; color: rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.35); }
+    .av { display: inline-flex; align-items: center; justify-content: center; font-weight: bold; color: rgba(0,0,0,0.8); }
+    /* ---- avatar chips (pick-list card, pitch/bench pin, stat sheet header,
+       duel card): square by design (see _avatarFill in GameScene.js) —
+       a circular crop cut hair/collars differently per portrait, since the
+       artwork isn't framed identically from one character to the next.
+       Only the token/pin/badge shapes around them (.slot-pin, .duel-card)
+       stay circular/their own shape; this is just the face inside. */
+    .av, .pin-avatar { image-rendering: pixelated; }
 
   </style>
 </head>
@@ -497,9 +509,9 @@
 
   <!-- Duel VS beat (shown for a moment once both moves are locked in) -->
   <div id="duel-reveal">
-    <div class="duel-card" id="duel-card-a"><div class="duel-who"></div><div class="duel-move"></div></div>
+    <div class="duel-card" id="duel-card-a"><div class="duel-portrait"></div><div class="duel-who"></div><div class="duel-move"></div></div>
     <div id="duel-vs">VS</div>
-    <div class="duel-card" id="duel-card-d"><div class="duel-who"></div><div class="duel-move"></div></div>
+    <div class="duel-card" id="duel-card-d"><div class="duel-portrait"></div><div class="duel-who"></div><div class="duel-move"></div></div>
   </div>
 
   <!-- Confrontation choice panel -->
@@ -528,7 +540,7 @@
     </div>
     <h2 style="margin-bottom:8px;">Formation</h2>
     <div class="preset-btns" id="formation-preset-btns"></div>
-    <h2 id="sub-panel-title">Squad <span class="info-icon" data-info-title="Team panel" data-info-body="Tap two pitch players to swap positions, or a pitch player then a bench one to substitute them.">ⓘ</span></h2>
+    <h2 id="sub-panel-title">Squad <span class="info-icon" data-info-title="Team panel" data-info-body="Tap two pitch players to swap positions, or a pitch player then a bench one to substitute them. Press and hold any player to see their stats.">ⓘ</span></h2>
     <div id="sub-panel-state"></div>
     <div id="sub-list-inner"></div>
     <button class="panel-close nes-btn" id="sub-cancel-btn">Close panel</button>
@@ -583,7 +595,7 @@
   <!-- ===================== SQUAD EDITOR (team select) ===================== -->
   <div id="squad-editor-panel" class="panel-overlay">
 
-    <h2 style="margin-bottom:10px;">Build your squad <span class="info-icon" data-info-title="Building your squad" data-info-body="Tap a player from the list, then tap a pitch or bench spot to place them there — works on an occupied spot too, and bumps whoever was there to the bench (or drops them if the bench is full). Tap two pitch/bench players to swap them instead. Tap the same player twice to see their stats. Bench holds up to 5.">ⓘ</span></h2>
+    <h2 style="margin-bottom:10px;">Build your squad <span class="info-icon" data-info-title="Building your squad" data-info-body="Tap a player from the list, then tap a pitch or bench spot to place them there — works on an occupied spot too, and bumps whoever was there to the bench (or drops them if the bench is full). Tap two pitch/bench players to swap them instead. Press and hold any player to see their stats. Bench holds up to 5.">ⓘ</span></h2>
 
     <!-- Switch between editing your own squad and the rival's (solo vs AI only —
          a real connected opponent always picks their own team regardless). -->
