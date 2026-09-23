@@ -2034,3 +2034,80 @@ confirming the formula: calling `_tickScroll(1000)` directly moves the
 camera exactly 340px, independent of the test environment's own frame
 pacing (which is what an earlier, wall-clock-timing verification attempt
 was actually measuring instead of the constant itself).
+
+## Pixel-art portraits, mapped and shown everywhere except the pitch itself
+
+The user added 5.454 pixel-art player portraits (256×256, transparent
+background), already committed as `src/data/player_images/{dump id}_{name
+slug}_pixel.png`, and wanted them in the search-list cards, the stat sheet,
+every formation pin (squad editor and the in-match team panel), and the
+duel cards — everywhere a player's identity is shown in the UI — but
+explicitly *not* replacing the plain coloured circles that represent
+players moving around the pitch during a live match.
+
+**Mapping.** The filenames' numeric prefix is the same dump id
+`scripts/migrate-roster-stats.mjs` already pulled the seven native stats
+from — so matching a roster player to their portrait reuses that exact
+groundwork, and is now *more* precise than the original stats migration:
+since `public/roster.json` already stores the dump's seven stats verbatim,
+a player now matches a dump entry by name + **exact** equality on all
+seven (no epsilon needed, unlike the original tolerance-based fingerprint).
+New `scripts/map-player-images.mjs`, same one-shot/`--write` pattern as the
+stats migration. Verified coverage before writing anything: 4,839 of 5,127
+players resolve to a single unambiguous dump id; 288 resolve to *several*
+ids with byte-identical stats — recurring cast (Mark Evans, Axel Blaze...)
+who reappear once per game they were in, always maxed out the same way, not
+a real ambiguity — broken by taking the lowest id (confirmed always has an
+image). **Result: 5,127/5,127 players got a portrait**, `image` field
+added pointing at the actual filename found on disk (never reconstructed
+from a guessed slug, so a naming-convention mismatch can't silently point
+at nothing).
+
+**Serving.** Moved from `src/data/player_images/` (where they were
+committed — Vite would treat them as ~5,000 individual module imports,
+not what we want) to `public/player_images/`, matching how
+`public/roster.json`/`teams.json` already serve as plain static files at
+`/roster.json` etc.
+
+**Rendering.** One new helper, `_avatarFill(p, col)`, is now the single
+place that decides "photo or colour-and-initials" for every avatar chip —
+six call sites in `GameScene.js` (both `_renderPitch` pins, `_showPlayerStats`,
+`_renderPickList`, `_renderSubPanel`, `_renderMiniPitch`) switched from
+inlining `background:${col}` + initials to calling it, so a player with a
+portrait gets `background-image` and empty text, one without still gets
+exactly the old flat colour + initials — the same fallback that's always
+been there, now reached whenever `p.image` is missing rather than as
+special-cased dead code.
+
+**Duel cards got a new field to carry, not new plumbing.**
+`_prepareConfrontReveal` builds `c.reveal.a`/`c.reveal.d` from data already
+in scope (`c.attackerId`/`c.defenderId`) — adding `id:` to each was a
+two-line change. That object already goes over the wire as-is via
+`sendState` for multiplayer, so both players see the same portraits with
+no networking changes. `_renderDuelReveal` resolves the id back to a
+roster player and paints a new `.duel-portrait` element (added to the
+static `#duel-card-a`/`#duel-card-d` template) the same way every other
+avatar chip does.
+
+**Square frame, not circular.** The portraits aren't drawn identically
+from character to character — some reach the edge of the 256×256 canvas,
+some have visible padding — so a circular crop would cut hair or collars
+differently per character depending on how each was composed. Dropped
+`border-radius: 50%` from the `.pin-avatar`/`.av` face itself, keeping
+every *token* shape around it exactly as it was (the pitch pin badge is
+still a circle, the duel card still a rectangle) — only the face inside
+changed shape. `image-rendering: pixelated` on both, so the art stays
+crisp rather than blurring when scaled.
+
+**What deliberately didn't change**: the actual on-pitch match sprites
+(`this.add.circle(...)` in `_buildTeam`) are Phaser `Arc` graphics objects
+with no texture slot to swap in the first place — there was nothing to
+touch here, confirmed by a new test asserting every live entry's `.gfx` is
+still an `Arc`.
+
+Nine new tests in `tests/player-images.spec.js`: portrait coverage and
+that a sampled few actually fetch; each of the four UI surfaces (card,
+pin, stat sheet, sub panel, duel) shows a `background-image` rather than
+flat colour for a player who has one; the fallback still works for a
+player who doesn't (including a defensively-passed `null`); and the
+pitch-sprite exclusion above.

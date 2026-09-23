@@ -815,6 +815,20 @@ export default class GameScene extends Phaser.Scene {
   _rosterColor(p){ return hexToInt(p&&p.teamColor)??(GAME_FALLBACK[p&&p.game]??0x999999); }
   _initials(p){ return (p.nickname||p.name||'?').split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase(); }
   _css3(intC){ return '#'+intC.toString(16).padStart(6,'0'); }
+  /** The avatar chip's fill and contents, for every place a player gets a
+   *  small square portrait — a pitch/bench pin, a pick-list card, the stat
+   *  sheet header, a duel card. A player with a pixel-art portrait
+   *  (`p.image`, from scripts/map-player-images.mjs — not every roster
+   *  entry resolved to one) gets it as the chip's background, filling the
+   *  square; `inner` stays empty since the art speaks for itself. Anyone
+   *  without one falls back to exactly what every avatar used to be: a
+   *  flat team-colour fill with their initials as text. Only this decision
+   *  lives in one place, so a future format for a chip doesn't have to
+   *  re-derive "image or colour+initials" on its own. */
+  _avatarFill(p,col){
+    if(p?.image) return {style:`background-image:url('${p.image}');background-size:cover;background-position:center;`,inner:''};
+    return {style:`background:${col};`,inner:p?this._initials(p):'?'};
+  }
 
   _squadColor(ids, fallback){
     const counts={};
@@ -1092,7 +1106,8 @@ export default class GameScene extends Phaser.Scene {
         // Badge the position right on the pin, flagged when it doesn't match
         // what the slot asks for — otherwise a keeper parked at centre-back
         // only shows up by opening their card one at a time.
-        pin.innerHTML=`<div class="pin-avatar" style="background:${col}">${this._initials(p)}</div>`
+        const av=this._avatarFill(p,col);
+        pin.innerHTML=`<div class="pin-avatar" style="${av.style}">${av.inner}</div>`
           +this._posBadge(p.position,p.position!==roles[slot])+this._ratingBadge(p)
           +`<div class="pin-name">${p.nickname||p.name}</div>`;
       } else {
@@ -1117,7 +1132,8 @@ export default class GameScene extends Phaser.Scene {
       if(p){
         pin.dataset.benchId=pid;
         const col=this._css3(this._rosterColor(p));
-        pin.innerHTML=`<div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>`
+        const av=this._avatarFill(p,col);
+        pin.innerHTML=`<div class="pin-avatar" style="${av.style}width:32px;height:32px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${av.inner}</div>`
           +this._posBadge(p.position)+this._ratingBadge(p)+`<div class="pin-name">${p.nickname||p.name}</div>`;
         if(sel&&sel.type==='bench'&&sel.id===pid) pin.classList.add('selected');
         this._armPressGestures(pin,{onTap:()=>this._onSquadPinClick({type:'bench',id:pid}),onLongPress:()=>this._showPlayerStats(p)});
@@ -1294,9 +1310,10 @@ export default class GameScene extends Phaser.Scene {
     const live=this.matchStarted?this._statsFor(this.role,p.id):null;
     const ptLine=live?`${Math.round(live.sp)}/${Math.round(live.maxSP)}`:`${p.maxSP||100} max`;
     const staLine=live?`${Math.round(live.stamina)}/${Math.round(live.maxStamina)}`:`${p.maxStamina||150} max`;
+    const avHead=this._avatarFill(p,col);
     el.innerHTML=`
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-        <span style="width:44px;height:44px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:bold;color:rgba(0,0,0,.8);flex-shrink:0">${this._initials(p)}</span>
+        <span class="pin-avatar" style="${avHead.style}width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:bold;color:rgba(0,0,0,.8);flex-shrink:0">${avHead.inner}</span>
         <div>
           <div style="font-weight:bold;font-size:15px">${p.name} <span style="opacity:.75;font-weight:normal;font-size:12px">· ⭐ ${this._playerRating(p)}</span></div>
           <div style="font-size:12px;opacity:.75;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${this._posBadge(p.position)}${this._elBadge(p.element)}<span>${this._teamLine(p)}</span></div>
@@ -1558,7 +1575,8 @@ export default class GameScene extends Phaser.Scene {
       const isSel=this._selMatchesPlayer(sel,p);
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'')+(isSel?' selected':'');
       const col=this._css3(this._rosterColor(p));
-      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:20px;height:20px;font-size:8px;background:${col};flex-shrink:0">${this._initials(p)}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">${this._cardStatLine(p)}</div>`;
+      const av=this._avatarFill(p,col);
+      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:24px;height:24px;font-size:8px;${av.style}flex-shrink:0">${av.inner}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">${this._cardStatLine(p)}</div>`;
       // A list card is, for selection purposes, exactly the pin it maps to
       // (pitch slot / bench / pool) — tap to select/place, press and hold
       // to see its full stats.
@@ -1977,9 +1995,10 @@ export default class GameScene extends Phaser.Scene {
       sideBench.map(id=>{
         const p=getPlayerById(id); if(!p) return '';
         const col=this._css3(this._rosterColor(p));
+        const av=this._avatarFill(p,col);
         const selCls=(!viewingRival&&this.subSel&&this.subSel.type==='bench'&&this.subSel.id===id)?' selected':'';
         return `<div class="bench-pin${selCls}" data-bench-id="${id}">
-          <div class="pin-avatar" style="background:${col};width:32px;height:32px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${this._initials(p)}</div>
+          <div class="pin-avatar" style="${av.style}width:32px;height:32px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${av.inner}</div>
           ${this._posBadge(p.position)}${this._ratingBadge(p)}
           <div class="pin-name">${p.nickname||p.name}</div>
         </div>`;
@@ -2050,8 +2069,9 @@ export default class GameScene extends Phaser.Scene {
       const selCls=(p&&sel&&sel.type==='slot'&&sel.id===entry.id)?' selected':'';
       if(p){
         const isOut=this._isOut(role,entry.id);
+        const av=this._avatarFill(p,col);
         return `<div class="slot-pin${selCls}" style="left:${left};top:${top};${isOut?'opacity:.4;pointer-events:none;':''}" data-roster-id="${entry.id}">
-          <div class="pin-avatar" style="background:${col}">${this._initials(p)}</div>
+          <div class="pin-avatar" style="${av.style}">${av.inner}</div>
           ${this._posBadge(p.position,p.position!==roles[slot])}${this._ratingBadge(p)}
           <div class="pin-name">${p.nickname||p.name}${isOut?' (OFF)':''}</div>
         </div>`;
@@ -2665,8 +2685,11 @@ export default class GameScene extends Phaser.Scene {
     c.pending={aWins,aTN,dTN,fx,aName:as.name,dName:ds.name,aTech};
     c.reveal={
       until:now+DUEL_REVEAL_MS, litAt:now+DUEL_REVEAL_LIT_MS, type:c.type,
-      a:{name:as.name,move:aTN,winner:aWins,element:as.element,edge:elEdge>0},
-      d:{name:ds.name,move:dTN,winner:!aWins,element:ds.element,edge:elEdge<0}
+      // ids ride along so _renderDuelReveal can show each side's portrait —
+      // this object goes over the wire as-is (see sendState), so a real
+      // opponent sees the same card either way.
+      a:{id:c.attackerId,name:as.name,move:aTN,winner:aWins,element:as.element,edge:elEdge>0},
+      d:{id:c.defenderId,name:ds.name,move:dTN,winner:!aWins,element:ds.element,edge:elEdge<0}
     };
   }
 
@@ -3267,6 +3290,10 @@ export default class GameScene extends Phaser.Scene {
       // the edge, so a surprising result reads as "they had the element"
       // rather than as a coin flip.
       const el=d.element?`<span class="duel-el${d.edge?' edge':''}">${ELEMENT_ICON[d.element]||''} ${d.element}${d.edge?' ▲':''}</span>`:'';
+      const rp=d.id?getPlayerById(d.id):null;
+      const av=this._avatarFill(rp,this._css3(rp?this._rosterColor(rp):0x999999));
+      card.querySelector('.duel-portrait').style.cssText=av.style;
+      card.querySelector('.duel-portrait').textContent=av.inner;
       card.querySelector('.duel-who').innerHTML=`${d.name}${el}`;
       card.querySelector('.duel-move').textContent=d.move==='Normal'?this._normalActionLabel(rv.type,pre==='a'):d.move;
       card.classList.toggle('winner',lit&&d.winner);
