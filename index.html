@@ -651,6 +651,12 @@
         <span id="squad-save-status"></span>
       </div>
 
+      <!-- Offline knockouts/leagues against the game's own real teams —
+           see #tournament-panel below. -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+        <button id="tournament-view-btn" class="nes-btn is-compact">🏆 Tournament</button>
+      </div>
+
       <!-- Half length (host's choice — the client mirrors whatever the host is running) -->
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <label style="font-size:12px;">Half length:</label>
@@ -766,6 +772,18 @@
       <button id="confirm-squad-btn" class="nes-btn is-primary" disabled>Confirm squad (0/11)</button>
       <div id="squad-status"></div>
     </div>
+  </div>
+
+  <!-- Offline tournaments — a separate overlay (like #fulltime-panel) rather
+       than a third column squeezed into #squad-columns, since it's a
+       different mode (picking/tracking a whole bracket or table) rather
+       than another view of the same squad you're building. Playing a
+       fixture just returns you to #squad-editor-panel with the rival side
+       already set to the opponent (see _playTournamentFixture). -->
+  <div id="tournament-panel" class="panel-overlay">
+    <h2>Tournaments <span class="info-icon" data-info-title="Offline tournaments" data-info-body="Play a knockout or a small league against the game's own real teams. You're always one of the entrants — every match that doesn't involve you is resolved instantly behind the scenes, so you only ever actually play your own games. Your XI for each fixture is whatever's set up under Formation when you confirm it.">ⓘ</span></h2>
+    <div id="tournament-body"></div>
+    <button id="tournament-back-btn" class="nes-btn is-compact" style="margin-top:16px;">← Back</button>
   </div>
 
   <!-- Camera scroll control: a joystick on touch devices, a WASD-styled

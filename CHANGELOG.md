@@ -4,6 +4,37 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Offline tournaments — knockouts and small leagues against the game's real teams
+Weighed three bigger features (tournaments, player accounts, online
+matchmaking) against the game's architecture (a 100% static client, no
+backend, Trystero-over-Nostr for the existing 1:1 P2P matches) before
+building anything — see the session's plan file for the full writeup.
+Landed the one that fit cleanly without any architectural change: offline
+tournaments.
+
+Entrants are the game's own real teams (every player already carries a
+`team`/`game` — Raimon alone spans six eras), not squads built from
+scratch — the setup screen is just "pick who else plays" from the same
+team/era list the squad editor's team filter already knows about. Every
+match that doesn't involve you (there are a lot of those once a bracket
+grows past a handful of teams) is resolved instantly by a lightweight
+simulated scoreline weighted by each side's average player rating — you
+only ever actually play your own fixtures, through the ordinary
+Formation/Confirm flow, with the rival side pre-armed with the opponent's
+real roster. New `src/data/tournament.js` holds the whole bracket/league
+engine as plain, framework-agnostic functions (knockout with automatic bye
+padding, round-robin standings, the instant-simulation logic) — no DOM, no
+Phaser, easy to test in isolation. State lives entirely in `localStorage`
+(`inazuma-clone:tournament:v1`), since the game does a full page reload
+after every match. New `tests/tournaments.spec.js` covers the bracket/
+league math directly and the UI flow end to end, including that a result
+survives a real page reload.
+
+One data wrinkle surfaced building this: about half of the ~340 team/era
+combinations in the roster have fewer than 11 named players (one-off rival
+teams from the show that only ever got a couple of characters drawn) — the
+entrant picker filters those out, since they can't actually field an XI.
+
 ## Fix: closing the player stat popup also closed the Browse Players drawer
 On narrow screens, closing the player stat popup (the × button) would also
 close the Browse Players drawer sitting behind it — annoying mid-browse,
