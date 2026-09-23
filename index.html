@@ -778,10 +778,11 @@
        than a third column squeezed into #squad-columns, since it's a
        different mode (picking/tracking a whole bracket or table) rather
        than another view of the same squad you're building. Playing a
-       fixture just returns you to #squad-editor-panel with the rival side
-       already set to the opponent (see _playTournamentFixture). -->
+       fixture starts the match directly (see _playTournamentFixture) —
+       your squad was locked in when the tournament started, so there's no
+       detour back through Formation to change it. -->
   <div id="tournament-panel" class="panel-overlay">
-    <h2>Tournaments <span class="info-icon" data-info-title="Offline tournaments" data-info-body="Play a knockout or a small league against the game's own real teams. You're always one of the entrants — every match that doesn't involve you is resolved instantly behind the scenes, so you only ever actually play your own games. Your XI for each fixture is whatever's set up under Formation when you confirm it.">ⓘ</span></h2>
+    <h2>Tournaments <span class="info-icon" data-info-title="Offline tournaments" data-info-body="Play a knockout or a small league against the game's own real teams. Pick how many teams play — your opponents are drawn at random from teams with enough named players to field a full XI. Your own squad, whatever's set up under Formation when you start, locks in for the whole tournament: it can't be changed once it's running. Every match that doesn't involve you is resolved instantly behind the scenes, so you only ever actually play your own games.">ⓘ</span></h2>
     <div id="tournament-body"></div>
     <button id="tournament-back-btn" class="nes-btn is-compact" style="margin-top:16px;">← Back</button>
   </div>

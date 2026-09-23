@@ -941,8 +941,8 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('tournament-back-btn').addEventListener('click',()=>this._closeTournamentPanel());
     // The setup form and the running bracket/table are both re-rendered
     // wholesale on every change (see _renderTournamentPanel), so their
-    // buttons/checkboxes are delegated here once rather than re-bound after
-    // every render.
+    // buttons are delegated here once rather than re-bound after every
+    // render.
     document.getElementById('tournament-body').addEventListener('click',e=>{
       const btn=e.target.closest('[data-tournament-action]'); if(!btn) return;
       const action=btn.dataset.tournamentAction;
@@ -953,9 +953,6 @@ export default class GameScene extends Phaser.Scene {
         this._playTournamentFixture(pending);
       }
       else if(action==='end'){ clearTournament(); this.activeTournament=null; this._renderTournamentPanel(); }
-    });
-    document.getElementById('tournament-body').addEventListener('change',e=>{
-      if(e.target.matches('.tournament-entrant-cb')) this._updateTournamentStartState();
     });
     // Give the rival a full, position-aware random XI up front — it plays
     // fine untouched, and is only ever used solo vs AI.
@@ -1752,30 +1749,40 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('tournament-panel').style.display='none';
     document.getElementById('squad-editor-panel').style.display='flex';
   }
-  _updateTournamentStartState(){
-    const n=document.querySelectorAll('.tournament-entrant-cb:checked').length;
-    const countEl=document.getElementById('tournament-entrant-count'); if(countEl) countEl.textContent=n;
-    const startBtn=document.getElementById('tournament-start-btn'); if(startBtn) startBtn.disabled=n<1;
-  }
+  /** Builds the tournament from the setup form: the player's *current*
+   *  squad (must already be a complete XI) is locked in as `mySquad` right
+   *  here, for every fixture of this tournament — there's no way back into
+   *  Formation to change it once it's running (see _playTournamentFixture,
+   *  which starts each match directly instead of routing through the
+   *  editor). Opponents are drawn at random from the viable team/era pool,
+   *  not picked individually. */
   _startTournamentFromForm(){
     const type=document.querySelector('input[name="tournament-type"]:checked')?.value||'knockout';
-    const opponents=[...document.querySelectorAll('.tournament-entrant-cb:checked')].map(cb=>cb.value);
-    if(!opponents.length) return;
+    const size=parseInt(document.querySelector('input[name="tournament-size"]:checked')?.value,10)||4;
+    const starterIds=this.squadSlots.filter(Boolean);
+    const errorEl=document.getElementById('tournament-start-error');
+    if(starterIds.length!==TEAM_SIZE){
+      if(errorEl) errorEl.textContent=`Build your squad under Formation first (${starterIds.length}/${TEAM_SIZE}).`;
+      return;
+    }
+    if(errorEl) errorEl.textContent='';
+    const mySquad={starterIds,benchIds:[...this.benchIds],formation:this.chosenFormation,color:this.myTeamColor};
+    const opponents=Phaser.Utils.Array.Shuffle(this._teamEraOptions().map(o=>o.value)).slice(0,size-1);
     const entrants=['me',...opponents];
-    this.activeTournament=type==='knockout'?makeKnockout(entrants):makeLeague(entrants);
+    this.activeTournament={...(type==='knockout'?makeKnockout(entrants):makeLeague(entrants)),mySquad};
     saveTournament(this.activeTournament);
     this._renderTournamentPanel();
   }
-  /** Sets the rival side up for the given fixture and drops back into the
-   *  normal squad editor to let the player review/confirm their own XI —
-   *  the match itself then starts through the ordinary solo-vs-AI path in
-   *  _confirmSquad, no separate match-start code needed. */
+  /** Sets the rival side up for the given fixture and starts the match
+   *  directly with the squad locked in at _startTournamentFromForm — no
+   *  detour through Formation/Confirm, so there's never a chance to swap
+   *  in a different XI partway through a tournament. */
   _playTournamentFixture(pending){
     const opponent=pending.a==='me'?pending.b:pending.a;
     this._setRivalToEntrant(opponent);
     this._tournamentPendingFixture=pending;
-    this._closeTournamentPanel();
-    this._renderPitch(); this._renderPickList();
+    document.getElementById('tournament-panel').style.display='none';
+    this._startMatch(this.activeTournament.mySquad,this._rivalSquadPayload());
   }
   /** Called from _showFullTime right after a tournament fixture's score is
    *  known. myGoals/oppGoals are already normalised for which network role
@@ -1786,6 +1793,9 @@ export default class GameScene extends Phaser.Scene {
     const updated=pending.kind==='knockout'
       ?recordKnockoutResult(this.activeTournament,pending.matchIdx,scoreA,scoreB)
       :recordLeagueResult(this.activeTournament,pending.fixtureIdx,scoreA,scoreB);
+    // recordKnockoutResult/recordLeagueResult/advanceAuto all update the
+    // tournament by spreading {...t, ...changes} — mySquad rides along
+    // through every one of those untouched, no need to re-attach it here.
     const res=advanceAuto(updated,'me',id=>this._entrantStrength(id));
     this.activeTournament=res.tournament;
     saveTournament(this.activeTournament);
@@ -1794,19 +1804,21 @@ export default class GameScene extends Phaser.Scene {
   _renderTournamentPanel(){
     const body=document.getElementById('tournament-body');
     if(!this.activeTournament){
-      const options=this._teamEraOptions();
       body.innerHTML=`
         <div style="max-width:480px;width:100%;">
-          <div style="display:flex;gap:16px;margin-bottom:12px;justify-content:center;">
+          <div style="display:flex;gap:16px;margin-bottom:14px;justify-content:center;">
             <label style="font-size:13px;"><input type="radio" name="tournament-type" value="knockout" checked> Knockout</label>
             <label style="font-size:13px;"><input type="radio" name="tournament-type" value="league"> League</label>
           </div>
-          <div style="font-size:12px;opacity:.75;margin-bottom:8px;text-align:center;">You're always entered — pick who else plays:</div>
-          <div id="tournament-entrant-list" style="max-height:260px;overflow-y:auto;text-align:left;padding:8px;background:var(--panel-2);border:2px solid #000;">
-            ${options.map(o=>`<label style="display:block;font-size:12px;padding:2px 0;"><input type="checkbox" class="tournament-entrant-cb" value="${o.value}"> ${o.label}</label>`).join('')}
+          <div style="font-size:12px;opacity:.75;margin-bottom:6px;text-align:center;">Number of teams (you + random opponents):</div>
+          <div style="display:flex;gap:16px;margin-bottom:14px;justify-content:center;">
+            <label style="font-size:13px;"><input type="radio" name="tournament-size" value="4" checked> 4</label>
+            <label style="font-size:13px;"><input type="radio" name="tournament-size" value="8"> 8</label>
+            <label style="font-size:13px;"><input type="radio" name="tournament-size" value="16"> 16</label>
           </div>
-          <div style="font-size:11px;opacity:.7;margin:6px 0;text-align:center;"><span id="tournament-entrant-count">0</span> selected</div>
-          <div style="text-align:center;"><button id="tournament-start-btn" class="nes-btn is-primary" data-tournament-action="start" disabled>Start tournament</button></div>
+          <div style="font-size:11px;opacity:.7;margin-bottom:10px;text-align:center;">Opponents are drawn at random from the game's real teams. Your own squad — whatever's currently set up under Formation — locks in for the whole tournament once it starts.</div>
+          <div style="text-align:center;"><button class="nes-btn is-primary" data-tournament-action="start">Start tournament</button></div>
+          <div id="tournament-start-error" style="font-size:11px;color:#ff6b6b;margin-top:8px;text-align:center;"></div>
         </div>`;
       return;
     }
@@ -1824,21 +1836,23 @@ export default class GameScene extends Phaser.Scene {
         <div style="${bWin?'font-weight:bold':''}">${m.bye?'<span style="opacity:.6">— bye —</span>':`${label(m.b)}${played?` <span style="opacity:.7">${m.scoreB}</span>`:''}`}</div>
       </div>`;
     };
+    const headerHtml=`<div style="font-size:12px;opacity:.75;margin-bottom:4px;">${t.type==='knockout'?'Knockout':'League'} — ${t.entrants.length} teams</div>
+      <div style="font-size:11px;opacity:.7;margin-bottom:10px;">Your squad: ${t.mySquad?.formation||'?'} (locked for this tournament)</div>`;
     let bodyHtml;
     if(t.type==='knockout'){
-      bodyHtml=`<div style="font-size:12px;opacity:.75;margin-bottom:10px;">Knockout — ${t.entrants.length} teams</div>
-        <div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:8px;max-width:100%;">
+      bodyHtml=`${headerHtml}<div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:8px;max-width:100%;">
           ${t.rounds.map((round,ri)=>`<div style="min-width:150px;flex:0 0 auto;">
             <div style="font-size:11px;opacity:.7;margin-bottom:6px;">Round ${ri+1}</div>
             ${round.map(matchRow).join('')}
           </div>`).join('')}
         </div>`;
     } else {
+      // Drawn as a real league table (nes.css's own pixel-art table style)
+      // rather than plain rows — ranked, with your row picked out in bold.
       const standings=leagueStandings(t);
-      bodyHtml=`<div style="font-size:12px;opacity:.75;margin-bottom:10px;">League — ${t.entrants.length} teams</div>
-        <table style="font-size:11px;border-collapse:collapse;width:100%;max-width:480px;">
-          <thead><tr style="opacity:.7;"><th style="text-align:left;padding:3px 6px;">Team</th><th style="padding:3px 6px;">P</th><th style="padding:3px 6px;">W</th><th style="padding:3px 6px;">D</th><th style="padding:3px 6px;">L</th><th style="padding:3px 6px;">GD</th><th style="padding:3px 6px;">Pts</th></tr></thead>
-          <tbody>${standings.map(r=>`<tr style="${r.id==='me'?'font-weight:bold':''}"><td style="text-align:left;padding:3px 6px;">${label(r.id)}</td><td style="padding:3px 6px;">${r.played}</td><td style="padding:3px 6px;">${r.won}</td><td style="padding:3px 6px;">${r.drawn}</td><td style="padding:3px 6px;">${r.lost}</td><td style="padding:3px 6px;">${r.gd}</td><td style="padding:3px 6px;">${r.points}</td></tr>`).join('')}</tbody>
+      bodyHtml=`${headerHtml}<table class="nes-table is-dark is-bordered is-centered" style="font-size:11px;width:100%;max-width:480px;margin:0 auto;">
+          <thead><tr><th>#</th><th style="text-align:left;">Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th></tr></thead>
+          <tbody>${standings.map((r,i)=>`<tr style="${r.id==='me'?'font-weight:bold':''}"><td>${i+1}</td><td style="text-align:left;">${label(r.id)}</td><td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.gd}</td><td>${r.points}</td></tr>`).join('')}</tbody>
         </table>`;
     }
     let actionHtml='';

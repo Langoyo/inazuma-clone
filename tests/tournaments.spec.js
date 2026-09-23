@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForRosterLoaded, startMatch } from './helpers.js';
+import { waitForRosterLoaded } from './helpers.js';
 
 // Coverage for offline tournaments (src/data/tournament.js + the
 // GameScene wiring around it): the pure bracket/league engine on its own,
@@ -82,9 +82,8 @@ test.describe('pure tournament logic', () => {
 });
 
 test.describe('tournament UI', () => {
-  test('the entrant picker only offers teams that can actually field a full XI', async ({ page }) => {
+  test('the pool of possible opponents only includes teams that can actually field a full XI', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#tournament-view-btn');
     const check = await page.evaluate(() => {
       const s = window.__scene;
       const options = s._teamEraOptions();
@@ -93,17 +92,38 @@ test.describe('tournament UI', () => {
     });
     expect(check.count).toBeGreaterThan(50);
     expect(check.tooSmall).toBe(0);
-    expect(await page.locator('.tournament-entrant-cb').count()).toBe(check.count);
+  });
+
+  test('starting a tournament without a complete squad shows an error and creates nothing', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('#tournament-view-btn');
+    await page.click('[data-tournament-action="start"]');
+    await expect(page.locator('#tournament-start-error')).toContainText('0/11');
+    expect(await page.evaluate(() => window.__scene.activeTournament)).toBeNull();
+  });
+
+  test('picking a size draws exactly that many teams, and your squad locks in at start', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+    const squadBefore = await page.evaluate(() => ({ starterIds: [...window.__scene.squadSlots], formation: window.__scene.chosenFormation }));
+    await page.click('#tournament-view-btn');
+    await page.check('input[name="tournament-size"][value="8"]');
+    await page.click('[data-tournament-action="start"]');
+
+    const t = await page.evaluate(() => window.__scene.activeTournament);
+    expect(t.entrants.length).toBe(8);
+    expect(t.entrants[0]).toBe('me');
+    expect(new Set(t.entrants).size).toBe(8); // no duplicate opponents
+    expect(t.mySquad.starterIds).toEqual(squadBefore.starterIds);
+    expect(t.mySquad.formation).toBe(squadBefore.formation);
+    await expect(page.locator('#tournament-body')).toContainText('locked for this tournament');
   });
 
   test('starting a knockout auto-resolves matches that do not involve you, leaving your own fixture up next', async ({ page }) => {
     await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
     await page.click('#tournament-view-btn');
-    const boxes = page.locator('.tournament-entrant-cb');
-    await boxes.nth(0).check();
-    await boxes.nth(1).check();
-    await boxes.nth(2).check();
-    await expect(page.locator('#tournament-entrant-count')).toHaveText('3');
+    await page.check('input[name="tournament-size"][value="4"]');
     await page.click('[data-tournament-action="start"]');
 
     const playBtn = page.locator('[data-tournament-action="play"]');
@@ -120,34 +140,68 @@ test.describe('tournament UI', () => {
     expect(otherMatchPlayed).toBe(true);
   });
 
-  test('playing your fixture arms the rival side with the opponent’s real roster', async ({ page }) => {
+  test('playing your fixture starts the match immediately with the locked squad and the opponent’s real roster — no Formation detour', async ({ page }) => {
     await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+    const lockedStarters = await page.evaluate(() => [...window.__scene.squadSlots]);
     await page.click('#tournament-view-btn');
-    const boxes = page.locator('.tournament-entrant-cb');
-    await boxes.nth(0).check();
+    await page.check('input[name="tournament-size"][value="4"]');
     await page.click('[data-tournament-action="start"]');
     await page.click('[data-tournament-action="play"]');
 
-    await expect(page.locator('#squad-editor-panel')).toBeVisible();
+    await page.waitForFunction(() => window.__scene.matchStarted === true, { timeout: 10000 });
     const state = await page.evaluate(() => ({
       pending: window.__scene._tournamentPendingFixture,
-      rivalCount: window.__scene.rivalSquadSlots.filter(Boolean).length,
+      teamACount: window.__scene.teamA.length,
+      teamBCount: window.__scene.teamB.length,
+      teamAIds: window.__scene.teamA.map((e) => e.id),
     }));
     expect(state.pending).not.toBeNull();
-    expect(state.rivalCount).toBe(11);
+    expect(state.teamACount).toBe(11);
+    expect(state.teamBCount).toBe(11);
+    expect(state.teamAIds).toEqual(lockedStarters);
+    // The tournament panel should already be out of the way, not left
+    // covering the match that just started.
+    await expect(page.locator('#tournament-panel')).toBeHidden();
+  });
+
+  test('changing your squad after locking it in does not affect the tournament — the same locked XI is used for the next fixture too', async ({ page }) => {
+    await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
+    const lockedStarters = await page.evaluate(() => [...window.__scene.squadSlots]);
+    await page.click('#tournament-view-btn');
+    await page.check('input[name="tournament-size"][value="8"]'); // more rounds to reach
+    await page.click('[data-tournament-action="start"]');
+    await page.click('[data-tournament-action="play"]');
+    await page.waitForFunction(() => window.__scene.matchStarted === true, { timeout: 10000 });
+
+    // Win the first fixture, then go build a totally different squad before
+    // playing the next one.
+    await page.evaluate(() => { document.querySelector('#scoreboard .score').textContent = '5-0'; });
+    await page.evaluate(() => window.__scene._showFullTime());
+    await page.waitForTimeout(150);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelectorAll('#squad-pick-list .pick-card').length > 0, { timeout: 15000 });
+    await page.click('#landing-play-btn');
+    await page.click('#mode-solo-btn');
+    await page.click('#randomize-squad-btn'); // a fresh, near-certainly different XI
+
+    await page.click('#tournament-view-btn');
+    await page.click('[data-tournament-action="play"]');
+    await page.waitForFunction(() => window.__scene.matchStarted === true, { timeout: 10000 });
+    const teamAIds = await page.evaluate(() => window.__scene.teamA.map((e) => e.id));
+    expect(teamAIds).toEqual(lockedStarters);
   });
 
   test('finishing your match records the result, advances the bracket, and survives a reload', async ({ page }) => {
     await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
     await page.click('#tournament-view-btn');
-    const boxes = page.locator('.tournament-entrant-cb');
-    await boxes.nth(0).check();
-    await boxes.nth(1).check();
-    await boxes.nth(2).check();
+    await page.check('input[name="tournament-size"][value="4"]');
     await page.click('[data-tournament-action="start"]');
     await page.click('[data-tournament-action="play"]');
+    await page.waitForFunction(() => window.__scene.matchStarted === true, { timeout: 10000 });
 
-    await startMatch(page);
     await page.evaluate(() => { document.querySelector('#scoreboard .score').textContent = '2-0'; });
     await page.evaluate(() => window.__scene._showFullTime());
     await page.waitForTimeout(150);
@@ -156,6 +210,7 @@ test.describe('tournament UI', () => {
     const myMatch = stored.rounds[0].find((m) => m.a === 'me' || m.b === 'me');
     expect(myMatch.winner).toBe('me');
     expect(myMatch.scoreA).not.toBeNull();
+    expect(stored.mySquad).toBeTruthy();
 
     // A real reload is what actually happens after full time in the game
     // (_returnToMenu) — confirm the tournament isn't just in-memory state
@@ -165,12 +220,13 @@ test.describe('tournament UI', () => {
     const afterReload = await page.evaluate(() => window.__scene.activeTournament);
     const myMatchAfter = afterReload.rounds[0].find((m) => m.a === 'me' || m.b === 'me');
     expect(myMatchAfter.winner).toBe('me');
+    expect(afterReload.mySquad).toBeTruthy();
   });
 
   test('abandoning a tournament clears it and returns to the setup form', async ({ page }) => {
     await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
     await page.click('#tournament-view-btn');
-    await page.locator('.tournament-entrant-cb').nth(0).check();
     await page.click('[data-tournament-action="start"]');
     await expect(page.locator('[data-tournament-action="end"]')).toBeVisible();
 
@@ -180,18 +236,21 @@ test.describe('tournament UI', () => {
     expect(stored).toBeNull();
   });
 
-  test('a league builds a standings table with a row per entrant', async ({ page }) => {
+  test('a league draws a standings table with a ranked row per entrant', async ({ page }) => {
     await waitForRosterLoaded(page);
+    await page.click('#randomize-top-btn');
     await page.click('#tournament-view-btn');
     await page.check('input[name="tournament-type"][value="league"]');
-    const boxes = page.locator('.tournament-entrant-cb');
-    await boxes.nth(0).check();
-    await boxes.nth(1).check();
-    await boxes.nth(2).check();
+    await page.check('input[name="tournament-size"][value="4"]');
     await page.click('[data-tournament-action="start"]');
 
-    const rowCount = await page.locator('#tournament-body table tbody tr').count();
-    expect(rowCount).toBe(4); // me + 3 opponents
-    await expect(page.locator('#tournament-body table')).toContainText('You');
+    const table = page.locator('#tournament-body table.nes-table');
+    await expect(table).toBeVisible();
+    const rowCount = await table.locator('tbody tr').count();
+    expect(rowCount).toBe(4); // me + 3 random opponents
+    await expect(table).toContainText('You');
+    // Ranked with a position column, not just a bare list.
+    const firstCell = await table.locator('tbody tr').first().locator('td').first().textContent();
+    expect(firstCell.trim()).toBe('1');
   });
 });

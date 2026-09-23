@@ -4,6 +4,25 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Tournaments: random opponents by team count, a locked squad, a drawn standings table
+Follow-up on the tournament feature after feedback:
+
+- **Pick a number of teams, not individual opponents.** The setup screen's
+  checkbox list is gone — pick 4/8/16 teams and the opponents are drawn at
+  random from the viable pool (still only teams that can field a full XI).
+- **Your squad locks in when the tournament starts**, not per fixture.
+  Whatever's set up under Formation at that moment is snapshotted into the
+  tournament itself (`mySquad`, alongside the bracket/table, so it survives
+  the reload after every match) and reused for every one of your games —
+  changing your live squad in between (or even starting a totally different
+  one) no longer has any effect on a running tournament. "Play next" now
+  starts the match immediately with that locked XI instead of detouring
+  through Formation/Confirm each time, since there's nothing left to
+  confirm.
+- **Standings are drawn as a real table**, not plain rows — switched to
+  nes.css's own pixel-art `nes-table` (dark variant, to match the rest of
+  the UI) with a ranked `#` column.
+
 ## Offline tournaments — knockouts and small leagues against the game's real teams
 Weighed three bigger features (tournaments, player accounts, online
 matchmaking) against the game's architecture (a 100% static client, no
