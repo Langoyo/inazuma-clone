@@ -4,6 +4,14 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Borderless portrait chips
+The square frame around every pixel-art portrait (list cards, formation
+pins, stat sheet header, duel cards) had a 1-2px border. Dropped it — the
+portraits read cleaner without one. Removed from `.slot-pin .pin-avatar`,
+`.bench-pin .pin-avatar`, `.av`, and `.duel-portrait` in `index.html`; the
+fallback flat-color+initials chips lose the same border since they share
+the markup.
+
 ## Real teams, horizontal field on PC, passes, numeric PT, formations
 
 ### Real teams — finally
