@@ -1,46 +1,60 @@
 import { test, expect } from '@playwright/test';
 import { waitForRosterLoaded } from './helpers.js';
 
-test.describe('random squad builders', () => {
-  test('"Random (top players)" only draws from the top-rated players at each position', async ({ page }) => {
+test.describe('random squad builder', () => {
+  test('the dice fills 11 starters + a bench, with at least a couple of star picks from the top-rated pool', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
 
     const result = await page.evaluate(() => {
       const s = window.__scene;
-      // Same call _randomize(true) itself makes — a pure function of the
-      // roster, so recomputing it here after the fact gives back the exact
-      // same pool to check membership against.
+      // Same pool _randomize() itself draws star picks from — a pure
+      // function of the roster, so recomputing it here after the fact
+      // gives back the exact same pool to check membership against.
       const topPool = new Set(s._topPercentileByPosition(s.rosterAll).map((p) => p.id));
-      const ids = s.squadSlots.filter(Boolean);
+      const starterIds = s.squadSlots.filter(Boolean);
       const benchIds = [...s.benchIds];
       return {
-        count: ids.length,
-        allInTopPool: ids.every((id) => topPool.has(id)),
-        benchAllInTopPool: benchIds.every((id) => topPool.has(id)),
+        starterCount: starterIds.length,
+        benchCount: benchIds.length,
+        starterTopCount: starterIds.filter((id) => topPool.has(id)).length,
+        uniqueCount: new Set([...starterIds, ...benchIds]).size,
       };
     });
 
-    expect(result.count).toBe(11);
-    expect(result.allInTopPool).toBe(true);
-    expect(result.benchAllInTopPool).toBe(true);
+    expect(result.starterCount).toBe(11);
+    expect(result.benchCount).toBeGreaterThan(0);
+    // _randomize() always places 2-3 deliberate star picks — an "ordinary"
+    // pick can coincidentally also land in the top pool, so this checks the
+    // guaranteed floor rather than an exact count.
+    expect(result.starterTopCount).toBeGreaterThanOrEqual(2);
+    // Nobody is placed twice (starters and bench are disjoint).
+    expect(result.uniqueCount).toBe(result.starterCount + result.benchCount);
   });
 
-  test('the plain "Random" button draws from the whole roster, unaffected', async ({ page }) => {
+  test('not every starter is a top-rated pick — it stays a mixed, surprising squad', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-squad-btn');
-
-    const count = await page.evaluate(() => window.__scene.squadSlots.filter(Boolean).length);
-    expect(count).toBe(11);
-    // Not asserting team composition here — by design it's a mixed pool,
-    // there's nothing specific to guarantee about it.
+    // A single roll could in principle land all-star by chance, so roll
+    // several times and check at least one comes back mixed — confirming
+    // the dice isn't secretly still "all top players" every time.
+    const anyMixed = await page.evaluate(() => {
+      const s = window.__scene;
+      for (let i = 0; i < 15; i++) {
+        s._randomize();
+        const topPool = new Set(s._topPercentileByPosition(s.rosterAll).map((p) => p.id));
+        const starterIds = s.squadSlots.filter(Boolean);
+        if (starterIds.some((id) => !topPool.has(id))) return true;
+      }
+      return false;
+    });
+    expect(anyMixed).toBe(true);
   });
 });
 
 test.describe('team color selector', () => {
   test('picking a color overrides the auto-derived kit color on the pitch', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await page.fill('#my-team-color', '#00ff00');
     await page.dispatchEvent('#my-team-color', 'input');
     await page.click('#confirm-squad-btn');
@@ -58,7 +72,7 @@ test.describe('team color selector', () => {
     // something — it shows what Automatic works out to for the current XI
     // rather than a fixed value that reads as a choice nobody made.
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
 
     await expect(page.locator('#my-team-color-auto')).toBeChecked();
     expect(await page.evaluate(() => window.__scene.myTeamColor)).toBeNull();
@@ -69,7 +83,7 @@ test.describe('team color selector', () => {
     expect(shown.swatch).toBe(shown.derived);
 
     // And it follows the squad, since that's what the pick is derived from.
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     const after = await page.evaluate(() => ({
       swatch: document.getElementById('my-team-color').value,
       derived: window.__scene._css3(window.__scene._squadColor(window.__scene.squadSlots.filter(Boolean), 0x3399ff)),
@@ -79,19 +93,19 @@ test.describe('team color selector', () => {
 
   test('picking a color turns Automatic off, and a squad change no longer moves it', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await page.fill('#my-team-color', '#00ff00');
     await page.dispatchEvent('#my-team-color', 'input');
 
     await expect(page.locator('#my-team-color-auto')).not.toBeChecked();
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     expect(await page.evaluate(() => window.__scene.myTeamColor)).toBe('#00ff00');
     expect(await page.inputValue('#my-team-color')).toBe('#00ff00');
   });
 
   test('ticking Automatic again hands it back, unticking holds the color on screen', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await page.fill('#my-team-color', '#00ff00');
     await page.dispatchEvent('#my-team-color', 'input');
 
@@ -112,7 +126,7 @@ test.describe('team color selector', () => {
 
   test('leaving it untouched still falls back to the auto-derived squad color', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     const expectedColor = await page.evaluate(() => {
       const s = window.__scene;
       return s._css3(s._squadColor(s.squadSlots.filter(Boolean), 0x3399ff));
@@ -221,7 +235,7 @@ test.describe('formations', () => {
 
   test('the Team panel picks up all ten as preset buttons', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await page.click('#confirm-squad-btn');
     await page.waitForTimeout(300);
     await page.click('#sub-button');
@@ -364,7 +378,7 @@ test.describe('tap a spot to fill it', () => {
     // is the start of a swap with another pin, which the list opening over
     // the pitch would get in the way of.
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await drawerHidden(page);
 
     await page.click('#formation-pitch .slot-pin[data-slot="0"]');

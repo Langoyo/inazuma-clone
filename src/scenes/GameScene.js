@@ -4,6 +4,8 @@ import { NORMAL_ACTION_POWER, STAT_FIELD_FOR_TECH } from '../data/techniques.js'
 import { createPlayerStats, applyRosterPlayerToStats, canActivate, techniquesFor, NATIVE_STATS, statMul } from '../data/players.js';
 import { loadRoster, getPlayerById, getGames } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
+import { makeSeededKnockout, makeLeague, recordKnockoutResult, recordLeagueResult, leagueStandings, advanceAuto, saveTournament, loadTournament, clearTournament } from '../data/tournament.js';
+import { playKick, playPass, playGoal, playWhistle, isSfxEnabled, setSfxEnabled } from '../audio/sfx.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────
 // The logical field is big — the VIEWPORT (what the canvas shows) is smaller.
@@ -580,12 +582,13 @@ export default class GameScene extends Phaser.Scene {
       // both players had actually confirmed. Resending now that a peer
       // definitely exists costs nothing and fixes that silently-dropped case.
       if(this.mySquadConfirmed) this.net.sendSquad(this.mySquadPayload);
+      else if(this.uiMode==='multiplayer') document.getElementById('squad-status').textContent='';
     });
     this.remoteState=null;
     this.remoteInput={targets:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,repositionRequest:null,formationChange:null,teamPanelRequest:null};
     this.net.onInput(d=>{ this.remoteInput=d; });
     this.net.onState(d=>this._incomingState(d));
-    this.net.onSquad(d=>{ this.remoteSquadPayload=d; if(this.role==='A'&&this.mySquadConfirmed&&!this.matchStarted) this._startMatch(this.mySquadPayload,d); });
+    this.net.onSquad(d=>{ this.remoteSquadPayload=d; this._tryStartMultiplayerMatch(); });
   }
 
   /** Leaves the current room and joins a different one — used when the
@@ -606,11 +609,14 @@ export default class GameScene extends Phaser.Scene {
    *  between solo-vs-AI and multiplayer (with room-code sharing/joining)
    *  before the squad editor itself appears. */
   _initLandingAndModeFlow(){
-    document.getElementById('landing-play-btn').addEventListener('click',()=>{
-      document.getElementById('landing-panel').style.display='none';
-      document.getElementById('mode-select-panel').style.display='flex';
-      document.getElementById('mode-own-code').textContent=this.roomCode;
+    const sfxBtn=document.getElementById('sfx-toggle-btn');
+    sfxBtn.textContent=isSfxEnabled()?'🔊':'🔇';
+    sfxBtn.addEventListener('click',()=>{
+      const next=!isSfxEnabled();
+      setSfxEnabled(next);
+      sfxBtn.textContent=next?'🔊':'🔇';
     });
+    document.getElementById('landing-play-btn').addEventListener('click',()=>this._showModeSelect());
     document.getElementById('mode-solo-btn').addEventListener('click',()=>{
       this.uiMode='solo';
       this._applyUiMode();
@@ -635,6 +641,29 @@ export default class GameScene extends Phaser.Scene {
       document.getElementById('mode-select-panel').style.display='none';
       document.getElementById('squad-editor-panel').style.display='flex';
     });
+    // Tournament is its own mode from the home screen, not a button tucked
+    // inside the squad editor — pick how many teams play *first*, then
+    // build your squad, then it's straight into the bracket/table. If one's
+    // already running (persisted across the page reload every match causes)
+    // this jumps straight to it instead of the setup form — see
+    // _renderTournamentPanel's own branch on activeTournament.
+    document.getElementById('mode-tournament-btn').addEventListener('click',()=>{
+      document.getElementById('mode-select-panel').style.display='none';
+      document.getElementById('tournament-panel').style.display='flex';
+      this._renderTournamentPanel();
+    });
+  }
+
+  /** Shared landing point for "Play" and for backing out of the tournament
+   *  setup screen — also keeps the Tournament button's label honest about
+   *  whether it's starting fresh or resuming what's already running. */
+  _showModeSelect(){
+    document.getElementById('landing-panel').style.display='none';
+    document.getElementById('tournament-panel').style.display='none';
+    document.getElementById('mode-select-panel').style.display='flex';
+    document.getElementById('mode-own-code').textContent=this.roomCode;
+    const hasActive=this.activeTournament&&!this.activeTournament.completedAt;
+    document.getElementById('mode-tournament-btn').textContent=hasActive?'🏆 Continue Tournament':'🏆 Tournament';
   }
 
   /** A real opponent always picks their own squad, so the "Rival Team" tab
@@ -642,8 +671,21 @@ export default class GameScene extends Phaser.Scene {
    *  multiplayer and would just be confusing to leave visible. */
   _applyUiMode(){
     const multi=this.uiMode==='multiplayer';
-    document.getElementById('squad-side-tabs').style.display=multi?'none':'flex';
-    if(multi&&this.editSide==='rival') this._setEditSide('me');
+    // Tournament mode fields the opponent from the game's own canon roster
+    // (see _entrantPool), exactly like multiplayer fields a real human —
+    // neither one has any use for the "Rival Team" tab, which only ever
+    // makes sense when you're hand-building an AI opponent yourself.
+    const noRivalTab=multi||this.uiMode==='tournament';
+    document.getElementById('squad-side-tabs').style.display=noRivalTab?'none':'flex';
+    if(noRivalTab&&this.editSide==='rival') this._setEditSide('me');
+    document.getElementById('squad-status').textContent=(multi&&!this.net.hasPeer())?'Connecting to opponent…':'';
+    // No AI plays in multiplayer, so its difficulty has nothing to affect.
+    document.getElementById('ai-difficulty-row').style.display=multi?'none':'flex';
+    // Half length is host-authoritative once a match is running (the guest
+    // just mirrors whatever the host picked — see _syncRoleFromNet's own
+    // note and the client-side clock sync in _incomingState) — only the
+    // host gets a selector that actually does something.
+    document.getElementById('half-length-row').style.display=(multi&&this.role!=='A')?'none':'flex';
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -765,6 +807,8 @@ export default class GameScene extends Phaser.Scene {
   _syncRoleFromNet(){
     if(this.matchStarted) return;
     this.role=this.net.isHost()?'A':'B';
+    this._applyUiMode();
+    this._tryStartMultiplayerMatch();
   }
 
   _onResize(gameSize){
@@ -868,8 +912,7 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('formation-select').addEventListener('change',e=>{
       this._edSetFormation(e.target.value); this._renderPitch();
     });
-    document.getElementById('randomize-squad-btn').addEventListener('click',()=>this._randomize());
-    document.getElementById('randomize-top-btn').addEventListener('click',()=>this._randomize(true));
+    document.getElementById('pitch-randomize-btn').addEventListener('click',()=>this._randomize());
     document.getElementById('squad-whole-team-btn').addEventListener('click',()=>this._useWholeTeam());
     document.getElementById('squad-search').addEventListener('input',()=>this._renderPickListReset());
     document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickListReset());
@@ -936,6 +979,22 @@ export default class GameScene extends Phaser.Scene {
     });
     document.getElementById('squad-save-btn').addEventListener('click',()=>this._saveSquad());
     document.getElementById('squad-load-btn').addEventListener('click',()=>this._loadSquad());
+    document.getElementById('tournament-back-btn').addEventListener('click',()=>this._closeTournamentPanel());
+    // The setup form and the running bracket/table are both re-rendered
+    // wholesale on every change (see _renderTournamentPanel), so their
+    // buttons are delegated here once rather than re-bound after every
+    // render.
+    document.getElementById('tournament-body').addEventListener('click',e=>{
+      const btn=e.target.closest('[data-tournament-action]'); if(!btn) return;
+      const action=btn.dataset.tournamentAction;
+      if(action==='setup-continue') this._confirmTournamentSetup();
+      else if(action==='play'){
+        const kind=btn.dataset.kind, idx=parseInt(btn.dataset.idx,10);
+        const pending=kind==='knockout'?{kind,matchIdx:idx,a:btn.dataset.a,b:btn.dataset.b}:{kind,fixtureIdx:idx,a:btn.dataset.a,b:btn.dataset.b};
+        this._playTournamentFixture(pending);
+      }
+      else if(action==='end'){ clearTournament(); this.activeTournament=null; this._renderTournamentPanel(); }
+    });
     // Give the rival a full, position-aware random XI up front — it plays
     // fine untouched, and is only ever used solo vs AI.
     this.editSide='rival'; this._fillSquadByPosition(this.rosterAll); this.editSide='me';
@@ -948,6 +1007,11 @@ export default class GameScene extends Phaser.Scene {
     this._applySquadSectionVisibility();
     this._renderPitch(); this._renderPickList();
     this._refreshSavedSquadUI();
+    // Tournament state lives entirely in localStorage (see tournament.js) —
+    // _returnToMenu does a full page reload after every match, which wipes
+    // any in-memory state a match's result would otherwise need to survive.
+    this.activeTournament=loadTournament();
+    this._tournamentPendingFixture=null;
   }
 
   // ---- saved squad (this browser only) ---------------------------------
@@ -1138,7 +1202,7 @@ export default class GameScene extends Phaser.Scene {
         pin.dataset.benchId=pid;
         const col=this._css3(this._rosterColor(p));
         const av=this._avatarFill(p,col);
-        pin.innerHTML=`<div class="pin-avatar" style="${av.style}width:32px;height:32px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${av.inner}</div>`
+        pin.innerHTML=`<div class="pin-avatar" style="${av.style}width:40px;height:40px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:rgba(0,0,0,.8)">${av.inner}</div>`
           +this._posBadge(p.position)+this._ratingBadge(p)+`<div class="pin-name">${p.nickname||p.name}</div>`;
         if(sel&&sel.type==='bench'&&sel.id===pid) pin.classList.add('selected');
         this._armPressGestures(pin,{onTap:()=>this._onSquadPinClick({type:'bench',id:pid}),onLongPress:()=>this._showPlayerStats(p)});
@@ -1318,7 +1382,7 @@ export default class GameScene extends Phaser.Scene {
     const avHead=this._avatarFill(p,col);
     el.innerHTML=`
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-        <span class="pin-avatar" style="${avHead.style}width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:bold;color:rgba(0,0,0,.8);flex-shrink:0">${avHead.inner}</span>
+        <span class="pin-avatar" style="${avHead.style}width:56px;height:56px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:bold;color:rgba(0,0,0,.8);flex-shrink:0">${avHead.inner}</span>
         <div>
           <div style="font-weight:bold;font-size:15px">${p.name} <span style="opacity:.75;font-weight:normal;font-size:12px">· ⭐ ${this._playerRating(p)}</span></div>
           <div style="font-size:12px;opacity:.75;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${this._posBadge(p.position)}${this._elBadge(p.element)}<span>${this._teamLine(p)}</span></div>
@@ -1581,7 +1645,7 @@ export default class GameScene extends Phaser.Scene {
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'')+(isSel?' selected':'');
       const col=this._css3(this._rosterColor(p));
       const av=this._avatarFill(p,col);
-      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:24px;height:24px;font-size:8px;${av.style}flex-shrink:0">${av.inner}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">${this._cardStatLine(p)}</div>`;
+      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:32px;height:32px;font-size:10px;${av.style}flex-shrink:0">${av.inner}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">${this._cardStatLine(p)}</div>`;
       // A list card is, for selection purposes, exactly the pin it maps to
       // (pitch slot / bench / pool) — tap to select/place, press and hold
       // to see its full stats.
@@ -1618,17 +1682,42 @@ export default class GameScene extends Phaser.Scene {
     this._renderPitch(); this._renderPickList();
   }
 
-  /** `topOnly` narrows the pool to the top 20% rated players at each
-   *  position (see _topPercentileByPosition) instead of the whole
-   *  roster, for a stronger, more competitive XI. (Used to mean "on a
-   *  real team" instead — but every player has one now, so that filter
-   *  stopped meaning anything.) */
-  _randomize(topOnly=false){
+  /** Rolls a random formation, then fills the XI with a blend: 2–3 slots
+   *  (chosen at random) get a top-rated player for their position (see
+   *  _topPercentileByPosition), the rest get an ordinary random one — a
+   *  few standout names in an otherwise unpredictable squad, rather than
+   *  either fully random (usually mediocre) or stacking every slot with a
+   *  star (no surprise left at all). Falls back to whichever pool actually
+   *  has a candidate left, same spirit as _fillSquadByPosition's own
+   *  backfill, so a thin position never leaves a slot empty. */
+  _randomize(){
     // Shape first, then fill it position by position — the slot roles depend
     // on the formation, so picking it afterwards would mismatch them.
     this._edSetFormation(Phaser.Utils.Array.GetRandom(Object.keys(FORMATIONS)));
     document.getElementById('formation-select').value=this._edFormation();
-    this._fillSquadByPosition(topOnly?this._topPercentileByPosition(this.rosterAll):this.rosterAll);
+
+    const roles=SLOT_ROLES[this._edFormation()]||SLOT_ROLES[DEFAULT_FORMATION];
+    const byPos={}, byPosTop={};
+    for(const p of this.rosterAll) (byPos[p.position]=byPos[p.position]||[]).push(p);
+    for(const p of this._topPercentileByPosition(this.rosterAll)) (byPosTop[p.position]=byPosTop[p.position]||[]).push(p);
+    Object.values(byPos).forEach(list=>Phaser.Utils.Array.Shuffle(list));
+    Object.values(byPosTop).forEach(list=>Phaser.Utils.Array.Shuffle(list));
+
+    // Both pools draw from the same players, so track who's already placed
+    // to avoid picking the same person for two slots.
+    const used=new Set();
+    const take=(map,pos)=>{ const l=map[pos]; while(l&&l.length){ const p=l.pop(); if(!used.has(p.id)){ used.add(p.id); return p.id; } } return null; };
+    const takeAny=map=>{ for(const l of Object.values(map)) while(l&&l.length){ const p=l.pop(); if(!used.has(p.id)){ used.add(p.id); return p.id; } } return null; };
+
+    const starCount=Phaser.Math.Between(2,3);
+    const starSlots=new Set(Phaser.Utils.Array.Shuffle([...Array(TEAM_SIZE).keys()]).slice(0,starCount));
+    const slots=roles.slice(0,TEAM_SIZE).map((role,i)=>
+      starSlots.has(i) ? (take(byPosTop,role)??take(byPos,role)) : (take(byPos,role)??take(byPosTop,role))
+    );
+    for(let i=0;i<TEAM_SIZE;i++) if(!slots[i]) slots[i]=takeAny(byPos)??takeAny(byPosTop);
+    this._edSetSlots(slots);
+    this._edSetBench(new Set(BENCH_COVER.map(pos=>take(byPos,pos)??takeAny(byPos)).filter(Boolean)));
+
     this._squadSel=null; this._pickPosFilter=null;
     this._renderPitch(); this._renderPickList();
   }
@@ -1636,16 +1725,256 @@ export default class GameScene extends Phaser.Scene {
   _confirmSquad(){
     const starterIds=this.squadSlots.filter(Boolean); if(starterIds.length!==TEAM_SIZE) return;
     const payload={starterIds,benchIds:[...this.benchIds],formation:this.chosenFormation,color:this.myTeamColor};
+    if(this.uiMode==='tournament'){ this._startTournamentWithSquad(payload); return; }
     this.mySquadPayload=payload; this.mySquadConfirmed=true;
     this.net.sendSquad(payload);
     document.getElementById('confirm-squad-btn').disabled=true;
+    if(this.uiMode==='solo'){ this._startMatch(payload,this._rivalSquadPayload()); return; }
+    this._tryStartMultiplayerMatch();
+    // Trystero's WebRTC data channel can drop a message sent right as it's
+    // still finishing setup (see onPeerConnect's own resend-on-connect
+    // above) — belt and suspenders against any such silently-lost squad,
+    // from either side, this keeps re-sending mine and re-checking every
+    // couple seconds until the match actually starts, instead of leaving
+    // both players stuck on a single send that never landed.
+    if(this._squadRetryTimer) clearInterval(this._squadRetryTimer);
+    this._squadRetryTimer=setInterval(()=>{
+      if(this.matchStarted){ clearInterval(this._squadRetryTimer); this._squadRetryTimer=null; return; }
+      this.net.sendSquad(this.mySquadPayload);
+      this._tryStartMultiplayerMatch();
+    },2000);
+  }
+  /** Re-checks whether a multiplayer match can start now. Safe (and meant)
+   *  to be called redundantly from any of the several events that could be
+   *  the "last domino" needed — confirming your own squad, the peer's
+   *  squad arriving over the network, or role finally settling from the
+   *  provisional pre-handshake guess to the real host/guest comparison —
+   *  instead of wiring the start-check to only one of them and hoping it's
+   *  always the one that happens last. In particular: a squad confirmed
+   *  while role was still the provisional guess, followed by a later flip
+   *  from that guess to the real answer, used to leave a stale "Waiting
+   *  for opponent…" on a client that had actually become the guest — this
+   *  re-derives the right status (or starts the match outright) the moment
+   *  role actually settles, not just on the next network message. */
+  _tryStartMultiplayerMatch(){
+    if(this.uiMode!=='multiplayer'||this.matchStarted||!this.mySquadConfirmed) return;
     if(this.role==='A'){
-      if(!this.net.hasPeer()) this._startMatch(payload,this._rivalSquadPayload());
-      else if(this.remoteSquadPayload) this._startMatch(payload,this.remoteSquadPayload);
+      if(this.remoteSquadPayload) this._startMatch(this.mySquadPayload,this.remoteSquadPayload);
       else document.getElementById('squad-status').textContent='Waiting for opponent…';
-    } else { document.getElementById('squad-status').textContent='Waiting for match to start…'; }
+    } else {
+      document.getElementById('squad-status').textContent='Waiting for match to start…';
+    }
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  // Tournaments (offline knockouts/leagues against the game's real teams)
+  // ════════════════════════════════════════════════════════════════════
+  /** Flat list of selectable team(+era) options for the tournament entrant
+   *  picker — same grouping _populateTeamFilter uses for the squad editor's
+   *  team dropdown (values in the same 'Team' / 'Team::Game' shape
+   *  _parseTeamFilter reads), just flattened instead of built into
+   *  <optgroup>s. Deliberately no pooled "All eras" option here, unlike the
+   *  dropdown: an entrant's roster needs to be one well-defined pool, and a
+   *  pooled option would silently overlap with its own per-era options.
+   *
+   *  Many one-off rival teams in the source data only have a handful of
+   *  named players (sometimes just one) — real for a cameo opponent, but
+   *  not enough to field an XI (see _fillSquadByPosition's own backfill,
+   *  which only papers over a *position* being thin, not the whole pool).
+   *  Anything under TEAM_SIZE players is left out of the picker entirely
+   *  rather than offered as a tournament entrant it can't actually be. */
+  _teamEraOptions(){
+    const gameOrder=getGames();
+    const byTeam=new Map();
+    this.rosterAll.forEach(p=>{
+      if(!p.team) return;
+      if(!byTeam.has(p.team)) byTeam.set(p.team,new Map());
+      const gm=byTeam.get(p.team);
+      gm.set(p.game,(gm.get(p.game)||0)+1);
+    });
+    const options=[];
+    [...byTeam.keys()].sort((a,b)=>a.localeCompare(b)).forEach(team=>{
+      const gameCounts=byTeam.get(team);
+      const allGames=[...gameCounts.keys()];
+      const viableGames=allGames.sort((a,b)=>gameOrder.indexOf(a)-gameOrder.indexOf(b)).filter(g=>gameCounts.get(g)>=TEAM_SIZE);
+      if(allGames.length<=1){
+        if(viableGames.length) options.push({value:team,label:team});
+        return;
+      }
+      viableGames.forEach(g=>options.push({value:`${team}::${g}`,label:`${team} (${g})`}));
+    });
+    return options;
+  }
+  _entrantLabel(entrantId){
+    if(entrantId==='me') return 'You';
+    const {team,game}=this._parseTeamFilter(entrantId);
+    return game?`${team} (${game})`:team;
+  }
+  _entrantPool(entrantId){
+    const {team,game}=this._parseTeamFilter(entrantId);
+    return this.rosterAll.filter(p=>p.team===team&&(!game||p.game===game));
+  }
+  /** Average player rating for a side — used only to weight the instant
+   *  simulation of matches that don't involve the player (see
+   *  advanceAuto/simulateResult in tournament.js); a real fixture is always
+   *  actually played, never scored off this number. */
+  _entrantStrength(entrantId){
+    const ids=entrantId==='me'?this.squadSlots.filter(Boolean):this._entrantPool(entrantId).map(p=>p.id);
+    if(!ids.length) return RATING_CENTRE;
+    const sum=ids.reduce((s,id)=>{ const p=getPlayerById(id); return s+(p?this._playerRating(p):RATING_CENTRE); },0);
+    return sum/ids.length;
+  }
+  /** Fields the rival side with `entrantId`'s actual roster — reuses the
+   *  exact same position-aware fill a random rival already gets (see
+   *  _fillSquadByPosition), just narrowed to one team's pool, so playing a
+   *  tournament fixture is nothing more than "arm the rival side with the
+   *  opponent, then go through the normal Formation/Confirm flow." */
+  _setRivalToEntrant(entrantId){
+    const pool=this._entrantPool(entrantId);
+    const prevSide=this.editSide;
+    this.editSide='rival';
+    this._fillSquadByPosition(pool);
+    this.editSide=prevSide;
+  }
+
+  /** The pre-squad setup screen (reached from the mode-select "🏆
+   *  Tournament" button) only records which type/size the player wants —
+   *  opponents aren't drawn and nothing starts yet. It then hands off to
+   *  the normal squad editor to build an XI, exactly like solo/multiplayer
+   *  do; the tournament actually starts once that squad is confirmed (see
+   *  _startTournamentWithSquad, called from _confirmSquad). */
+  _confirmTournamentSetup(){
+    this.pendingTournamentType=document.querySelector('input[name="tournament-type"]:checked')?.value||'knockout';
+    this.pendingTournamentSize=parseInt(document.querySelector('input[name="tournament-size"]:checked')?.value,10)||4;
+    this.uiMode='tournament';
+    this._applyUiMode();
+    document.getElementById('tournament-panel').style.display='none';
+    document.getElementById('squad-editor-panel').style.display='flex';
+  }
+  /** "← Back" out of the tournament panel — used both from the pre-squad
+   *  setup form and from a running tournament's view. Squad editor is no
+   *  longer the hub tournaments live behind (see _confirmTournamentSetup),
+   *  so this always returns to mode-select rather than the editor. */
+  _closeTournamentPanel(){
+    document.getElementById('tournament-panel').style.display='none';
+    this._showModeSelect();
+  }
+  /** Called from _confirmSquad once the type/size chosen on the setup
+   *  screen are in hand: locks the just-built squad in as `mySquad` for
+   *  every fixture of this tournament — there's no way back into Formation
+   *  to change it once it's running (see _playTournamentFixture, which
+   *  starts each match directly instead of routing through the editor).
+   *  Opponents are drawn at random from the viable team/era pool. Knockout
+   *  opponents are then seeded by strength (weakest first, so the
+   *  player's path gets tougher round by round — see makeSeededKnockout);
+   *  a league stays a flat random draw, same difficulty throughout. */
+  _startTournamentWithSquad(mySquad){
+    const type=this.pendingTournamentType||'knockout';
+    const size=this.pendingTournamentSize||4;
+    const opponents=Phaser.Utils.Array.Shuffle(this._teamEraOptions().map(o=>o.value)).slice(0,size-1);
+    const built=type==='knockout'
+      ?makeSeededKnockout(['me',...opponents.slice().sort((a,b)=>this._entrantStrength(b)-this._entrantStrength(a))])
+      :makeLeague(['me',...opponents]);
+    this.activeTournament={...built,mySquad};
+    saveTournament(this.activeTournament);
+    document.getElementById('squad-editor-panel').style.display='none';
+    document.getElementById('tournament-panel').style.display='flex';
+    this._renderTournamentPanel();
+  }
+  /** Sets the rival side up for the given fixture and starts the match
+   *  directly with the squad locked in at _startTournamentWithSquad — no
+   *  detour through Formation/Confirm, so there's never a chance to swap
+   *  in a different XI partway through a tournament. */
+  _playTournamentFixture(pending){
+    const opponent=pending.a==='me'?pending.b:pending.a;
+    this._setRivalToEntrant(opponent);
+    this._tournamentPendingFixture=pending;
+    document.getElementById('tournament-panel').style.display='none';
+    this._startMatch(this.activeTournament.mySquad,this._rivalSquadPayload());
+  }
+  /** Called from _showFullTime right after a tournament fixture's score is
+   *  known. myGoals/oppGoals are already normalised for which network role
+   *  was "me" — see _showFullTime's own mine/theirs. */
+  _recordTournamentResult(pending,myGoals,oppGoals){
+    const scoreA=pending.a==='me'?myGoals:oppGoals;
+    const scoreB=pending.b==='me'?myGoals:oppGoals;
+    const updated=pending.kind==='knockout'
+      ?recordKnockoutResult(this.activeTournament,pending.matchIdx,scoreA,scoreB)
+      :recordLeagueResult(this.activeTournament,pending.fixtureIdx,scoreA,scoreB);
+    // recordKnockoutResult/recordLeagueResult/advanceAuto all update the
+    // tournament by spreading {...t, ...changes} — mySquad rides along
+    // through every one of those untouched, no need to re-attach it here.
+    const res=advanceAuto(updated,'me',id=>this._entrantStrength(id));
+    this.activeTournament=res.tournament;
+    saveTournament(this.activeTournament);
+    this._tournamentPendingFixture=null;
+  }
+  _renderTournamentPanel(){
+    const body=document.getElementById('tournament-body');
+    if(!this.activeTournament){
+      body.innerHTML=`
+        <div style="max-width:480px;width:100%;">
+          <div style="display:flex;gap:16px;margin-bottom:14px;justify-content:center;">
+            <label style="font-size:13px;"><input type="radio" name="tournament-type" value="knockout" checked> Knockout</label>
+            <label style="font-size:13px;"><input type="radio" name="tournament-type" value="league"> League</label>
+          </div>
+          <div style="font-size:12px;opacity:.75;margin-bottom:6px;text-align:center;">Number of teams (you + random opponents):</div>
+          <div style="display:flex;gap:16px;margin-bottom:14px;justify-content:center;">
+            <label style="font-size:13px;"><input type="radio" name="tournament-size" value="4" checked> 4</label>
+            <label style="font-size:13px;"><input type="radio" name="tournament-size" value="8"> 8</label>
+            <label style="font-size:13px;"><input type="radio" name="tournament-size" value="16"> 16</label>
+          </div>
+          <div style="font-size:11px;opacity:.7;margin-bottom:10px;text-align:center;">Next, build your squad — it locks in for the whole tournament once it starts. Opponents are drawn at random from the game's real teams; in a knockout they get tougher each round you win, a league stays one flat difficulty throughout.</div>
+          <div style="text-align:center;"><button class="nes-btn is-primary" data-tournament-action="setup-continue">Continue</button></div>
+        </div>`;
+      return;
+    }
+    // Converge any matches that don't involve the player before rendering —
+    // idempotent and cheap, so simplest to just always do it here.
+    const res=advanceAuto(this.activeTournament,'me',id=>this._entrantStrength(id));
+    if(res.tournament!==this.activeTournament){ this.activeTournament=res.tournament; saveTournament(this.activeTournament); }
+    const t=this.activeTournament, pending=res.pending;
+    const label=id=>this._entrantLabel(id);
+    const matchRow=(m)=>{
+      const played=m.scoreA!=null;
+      const aWin=played&&m.scoreA>m.scoreB, bWin=played&&m.scoreB>m.scoreA;
+      return `<div style="font-size:12px;padding:4px 6px;margin-bottom:4px;background:var(--panel-2);border:1px solid rgba(255,255,255,.15);">
+        <div style="${aWin?'font-weight:bold':''}">${label(m.a)}${played?` <span style="opacity:.7">${m.scoreA}</span>`:''}</div>
+        <div style="${bWin?'font-weight:bold':''}">${m.bye?'<span style="opacity:.6">— bye —</span>':`${label(m.b)}${played?` <span style="opacity:.7">${m.scoreB}</span>`:''}`}</div>
+      </div>`;
+    };
+    const headerHtml=`<div style="font-size:12px;opacity:.75;margin-bottom:4px;">${t.type==='knockout'?'Knockout':'League'} — ${t.entrants.length} teams</div>
+      <div style="font-size:11px;opacity:.7;margin-bottom:10px;">Your squad: ${t.mySquad?.formation||'?'} (locked for this tournament)</div>`;
+    let bodyHtml;
+    if(t.type==='knockout'){
+      bodyHtml=`${headerHtml}<div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:8px;max-width:100%;">
+          ${t.rounds.map((round,ri)=>`<div style="min-width:150px;flex:0 0 auto;">
+            <div style="font-size:11px;opacity:.7;margin-bottom:6px;">Round ${ri+1}</div>
+            ${round.map(matchRow).join('')}
+          </div>`).join('')}
+        </div>`;
+    } else {
+      // Drawn as a real league table (nes.css's own pixel-art table style)
+      // rather than plain rows — ranked, with your row picked out in bold.
+      const standings=leagueStandings(t);
+      bodyHtml=`${headerHtml}<table class="nes-table is-dark is-bordered is-centered" style="font-size:11px;width:100%;max-width:480px;margin:0 auto;">
+          <thead><tr><th>#</th><th style="text-align:left;">Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th></tr></thead>
+          <tbody>${standings.map((r,i)=>`<tr style="${r.id==='me'?'font-weight:bold':''}"><td>${i+1}</td><td style="text-align:left;">${label(r.id)}</td><td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.gd}</td><td>${r.points}</td></tr>`).join('')}</tbody>
+        </table>`;
+    }
+    let actionHtml='';
+    if(pending){
+      const opponent=pending.a==='me'?pending.b:pending.a;
+      const idx=pending.kind==='knockout'?pending.matchIdx:pending.fixtureIdx;
+      actionHtml=`<button class="nes-btn is-primary" style="margin-top:14px;" data-tournament-action="play" data-kind="${pending.kind}" data-a="${pending.a}" data-b="${pending.b}" data-idx="${idx}">Play next: You vs ${label(opponent)}</button>`;
+    } else if(t.completedAt){
+      const championId=t.type==='knockout'?t.champion:leagueStandings(t)[0].id;
+      actionHtml=`<div style="margin-top:14px;font-size:14px;">🏆 ${t.type==='knockout'?'Champion':'Winner'}: <b>${label(championId)}</b></div>
+        <button class="nes-btn is-primary" style="margin-top:8px;" data-tournament-action="end">New tournament</button>`;
+    }
+    const abandonHtml=t.completedAt?'':`<div style="margin-top:10px;"><button class="nes-btn is-error is-compact" data-tournament-action="end">Abandon tournament</button></div>`;
+    body.innerHTML=`<div style="max-width:640px;width:100%;">${bodyHtml}${actionHtml}${abandonHtml}</div>`;
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // Match setup
@@ -1697,6 +2026,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _startMatch(payloadA,payloadB){
+    if(this._squadRetryTimer){ clearInterval(this._squadRetryTimer); this._squadRetryTimer=null; }
     this.formation.A=payloadA.formation||DEFAULT_FORMATION;
     this.formation.B=payloadB.formation||DEFAULT_FORMATION;
     // Ensure distinct team colors
@@ -2003,7 +2333,7 @@ export default class GameScene extends Phaser.Scene {
         const av=this._avatarFill(p,col);
         const selCls=(!viewingRival&&this.subSel&&this.subSel.type==='bench'&&this.subSel.id===id)?' selected':'';
         return `<div class="bench-pin${selCls}" data-bench-id="${id}">
-          <div class="pin-avatar" style="${av.style}width:32px;height:32px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${av.inner}</div>
+          <div class="pin-avatar" style="${av.style}width:40px;height:40px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:rgba(0,0,0,.8)">${av.inner}</div>
           ${this._posBadge(p.position)}${this._ratingBadge(p)}
           <div class="pin-name">${p.nickname||p.name}</div>
         </div>`;
@@ -2331,6 +2661,7 @@ export default class GameScene extends Phaser.Scene {
   }
   _doPass(role,target){
     const e=this._activeEntry(role); if(!e?.body) return;
+    playPass();
     const dx=target.x-e.body.position.x, dy=target.y-e.body.position.y, dist=Math.hypot(dx,dy)||1;
     this.possRole=null;
     // Offside is judged the instant the ball is played, not when it's
@@ -2543,6 +2874,7 @@ export default class GameScene extends Phaser.Scene {
   _startConfront(type,aRole,dRole,now,opts={}){
     const aId=aRole==='A'?this.activeIdA:this.activeIdB;
     if(type==='shot'){
+      playKick();
       const eAtk=this._activeEntry(aRole);
       const goalY=aRole==='A'?0:this.FIELD_H; // the goal aRole is shooting at
       const shotDist=eAtk?Math.abs(goalY-eAtk.body.position.y):0;
@@ -2773,6 +3105,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _onGoal(scorer){
+    playGoal();
     this.score[scorer]+=1;
     document.querySelector('#scoreboard .score').textContent=`${this.score.a} - ${this.score.b}`;
     // Standard kickoff rule: whoever conceded restarts with the ball,
@@ -2979,9 +3312,16 @@ export default class GameScene extends Phaser.Scene {
   _showFullTime(){
     if(this._fullTimeShown) return;
     this._fullTimeShown=true;
+    playWhistle();
     const scoreTxt=document.querySelector('#scoreboard .score').textContent;
     const [a,b]=scoreTxt.split('-').map(n=>parseInt(n,10)||0);
     const mine=this.role==='A'?a:b, theirs=this.role==='A'?b:a;
+    // Tournaments are offline-only (the fixture is set up locally, from the
+    // rival slot) and the pending fixture is only ever set on the host side
+    // (see _playTournamentFixture) — recorded here, before the reload
+    // _returnToMenu does in a few seconds, since nothing in memory survives
+    // that reload otherwise.
+    if(this._tournamentPendingFixture&&this.role==='A') this._recordTournamentResult(this._tournamentPendingFixture,mine,theirs);
     document.getElementById('fulltime-score').textContent=scoreTxt;
     document.getElementById('fulltime-verdict').textContent=mine>theirs?'You win!':mine<theirs?'You lose':'Draw';
     document.getElementById('confrontation-ui').style.display='none';
@@ -3183,7 +3523,11 @@ export default class GameScene extends Phaser.Scene {
 
   _incomingState(data){
     this.remoteState=data;
-    if(data.matchStarted&&!this.matchStarted){ this.matchStarted=true; document.getElementById('squad-editor-panel').style.display='none'; }
+    if(data.matchStarted&&!this.matchStarted){
+      this.matchStarted=true;
+      document.getElementById('squad-editor-panel').style.display='none';
+      if(this._squadRetryTimer){ clearInterval(this._squadRetryTimer); this._squadRetryTimer=null; }
+    }
     // Mirrors the host's authoritative team-panel state: whichever side
     // opened it (this one or the host's own), both screens show it —
     // matches the local optimistic show/hide in _openSubPanel/_closeSubPanel.
@@ -3214,7 +3558,13 @@ export default class GameScene extends Phaser.Scene {
     }
     this.activeIdA=this.remoteState.activeIdA; this.activeIdB=this.remoteState.activeIdB;
     this._highlightActive();
-    document.querySelector('#scoreboard .score').textContent=`${this.remoteState.score.a} - ${this.remoteState.score.b}`;
+    // _onGoal (which plays the goal sound) only ever runs host-side — the
+    // client has to notice the score actually going up for itself here, or
+    // it would sit through goals in silence.
+    const {a:scoreA,b:scoreB}=this.remoteState.score;
+    if(this._lastClientScore&&(scoreA>this._lastClientScore.a||scoreB>this._lastClientScore.b)) playGoal();
+    this._lastClientScore={a:scoreA,b:scoreB};
+    document.querySelector('#scoreboard .score').textContent=`${scoreA} - ${scoreB}`;
     this._renderClock(this.remoteState.clock);
     this.currentPossession=this.remoteState.possession;
     // After the sent-off pass above and the possession assignment, so it

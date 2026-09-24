@@ -52,7 +52,7 @@ test.describe('portraits show up in the UI instead of colour+initials', () => {
 
   test('a formation pin shows the portrait, keeping the pin token itself circular', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     const pin = page.locator('#formation-pitch .slot-pin:not(.empty)').first();
     const shapes = await pin.evaluate((el) => ({
       pinRadius: getComputedStyle(el).borderRadius,
@@ -66,7 +66,7 @@ test.describe('portraits show up in the UI instead of colour+initials', () => {
 
   test('the stat sheet header shows the portrait', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     const p = await page.evaluate(() => {
       const s = window.__scene;
       const id = s.squadSlots.find(Boolean);

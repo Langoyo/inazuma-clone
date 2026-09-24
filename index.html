@@ -119,9 +119,9 @@
       text-align: center; transition: transform 220ms ease, opacity 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
     }
     .duel-portrait {
-      width: 64px; height: 64px; margin: 0 auto 8px;
+      width: 84px; height: 84px; margin: 0 auto 8px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 20px; font-weight: bold; color: rgba(0,0,0,0.8); image-rendering: pixelated;
+      font-size: 26px; font-weight: bold; color: rgba(0,0,0,0.8); image-rendering: pixelated;
     }
     .duel-card .duel-who  { font-size: 14px; font-weight: bold; }
     .duel-card .duel-move { font-size: 13px; color: var(--gold); margin-top: 6px; }
@@ -361,7 +361,7 @@
     }
     .slot-pin {
       position: absolute; transform: translate(-50%,-50%);
-      width: 44px; height: 44px; border-radius: 50%;
+      width: 54px; height: 54px; border-radius: 50%;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       cursor: pointer; touch-action: manipulation; user-select: none;
       border: 2px solid rgba(255,255,255,0.8); transition: box-shadow 0.1s;
@@ -369,19 +369,19 @@
     .slot-pin.empty   { background: rgba(255,255,255,0.12); border-style: dashed; }
     .slot-pin.selected, .bench-pin.selected { box-shadow: 0 0 0 3px var(--gold); border-color: var(--gold); z-index: 5; }
     .slot-pin .pin-avatar {
-      width: 28px; height: 28px; display: flex;
-      align-items: center; justify-content: center; font-size: 9px; font-weight: bold;
+      width: 36px; height: 36px; display: flex;
+      align-items: center; justify-content: center; font-size: 11px; font-weight: bold;
       color: rgba(0,0,0,0.8);
     }
-    .slot-pin .pin-name { font-size: 9px; color: white; line-height: 1.1; margin-top: 1px; max-width: 42px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .slot-pin .pin-name { font-size: 9px; color: white; line-height: 1.1; margin-top: 1px; max-width: 50px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
     .bench-strip { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; }
     .bench-pin {
-      width: 54px; text-align: center; background: var(--panel);
+      width: 64px; text-align: center; background: var(--panel);
       border: 2px solid var(--grey); padding: 4px; cursor: pointer;
       touch-action: manipulation; user-select: none;
     }
-    .bench-pin .pin-avatar { width: 32px; height: 32px; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: rgba(0,0,0,.8); }
+    .bench-pin .pin-avatar { width: 40px; height: 40px; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: rgba(0,0,0,.8); }
     .bench-pin .pin-name   { font-size: 10px; color: rgba(255,255,255,0.95); margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
     /* ---- remove action, shown only while a squad player is selected */
@@ -557,6 +557,7 @@
 
   <!-- ===================== LANDING ===================== -->
   <div id="landing-panel" class="panel-overlay" style="display:flex;justify-content:center;text-align:center;">
+    <button id="sfx-toggle-btn" class="nes-btn is-compact" style="position:absolute;top:10px;right:10px;" title="Toggle sound effects">🔊</button>
     <!-- Text placeholder for now — swap for an <img> once there's a real logo. -->
     <div id="landing-logo">🏆</div>
     <h1 id="landing-title" style="font-size:22px;line-height:1.5;margin-bottom:10px;">Inazuma Showdown</h1>
@@ -572,6 +573,7 @@
     <div style="display:flex;gap:12px;margin-bottom:22px;flex-wrap:wrap;justify-content:center;">
       <button id="mode-solo-btn" class="nes-btn is-primary">🤖 Solo (vs AI)</button>
       <button id="mode-multi-btn" class="nes-btn is-warning">👥 Multiplayer</button>
+      <button id="mode-tournament-btn" class="nes-btn is-success">🏆 Tournament</button>
     </div>
     <div id="mode-multi-panel" style="display:none;max-width:380px;">
       <p style="font-size:11px;opacity:0.75;margin-bottom:14px;">
@@ -639,8 +641,6 @@
           <option value="5-4-1">5-4-1</option>
           <option value="4-3-1-2">4-3-1-2</option>
         </select>
-        <button id="randomize-squad-btn" class="nes-btn is-primary is-compact">🎲 Random</button>
-        <button id="randomize-top-btn" title="Only the top-rated players at each position — a stronger, more competitive XI" class="nes-btn is-warning is-compact">🎲 Random (top players)</button>
         <span id="squad-fill-count" style="font-size:11px;opacity:0.75;">0/11 filled</span>
       </div>
 
@@ -651,8 +651,11 @@
         <span id="squad-save-status"></span>
       </div>
 
-      <!-- Half length (host's choice — the client mirrors whatever the host is running) -->
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+      <!-- Half length. In multiplayer only the host's choice actually
+           applies (the client just mirrors whatever the host is running —
+           see _syncRoleFromNet/_applyUiMode), so the guest doesn't get a
+           selector that would silently do nothing. -->
+      <div id="half-length-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <label style="font-size:12px;">Half length:</label>
         <select id="half-length-select" class="pixel-select">
           <option value="2">2 min</option>
@@ -663,8 +666,9 @@
         </select>
       </div>
 
-      <!-- AI difficulty (only applies when playing alone against the AI) -->
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+      <!-- AI difficulty — meaningless once a real opponent is playing, so
+           it's hidden entirely in multiplayer (see _applyUiMode). -->
+      <div id="ai-difficulty-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <label style="font-size:12px;">AI difficulty:</label>
         <select id="ai-level-select" class="pixel-select">
           <option value="easy">Easy</option>
@@ -694,9 +698,16 @@
         <span class="info-icon" data-info-title="Your team color" data-info-body="The kit color your XI plays in on the pitch. Left on Automatic it follows whichever real team most of your starting XI belongs to, and the swatch shows you what that currently works out to — change your squad and it updates. Pick a color yourself and it overrides that until you tick Automatic again. Only affects your own side; a real connected opponent always picks their own color regardless.">ⓘ</span>
       </div>
 
-      <div id="formation-pitch">
-        <div class="pitch-line-h"></div>
-        <!-- .slot-pin elements injected here by JS -->
+      <!-- The dice sits as a sibling overlay, not a child of #formation-pitch
+           itself — _renderPitch() replaces that element's whole innerHTML on
+           every render (new formation, a placed player, ...), which would
+           wipe out a button placed inside it along with everything else. -->
+      <div id="formation-pitch-wrap" style="position:relative;">
+        <div id="formation-pitch">
+          <div class="pitch-line-h"></div>
+          <!-- .slot-pin elements injected here by JS -->
+        </div>
+        <button id="pitch-randomize-btn" class="nes-btn is-primary is-compact" style="position:absolute;top:8px;right:8px;z-index:10;padding:4px 8px;font-size:16px;line-height:1;" title="Randomize your XI — a couple of star picks, the rest a surprise">🎲</button>
       </div>
 
       <div style="font-size:11px;opacity:0.7;margin-bottom:4px;">Bench (<span id="bench-count">0</span>/5):</div>
@@ -766,6 +777,19 @@
       <button id="confirm-squad-btn" class="nes-btn is-primary" disabled>Confirm squad (0/11)</button>
       <div id="squad-status"></div>
     </div>
+  </div>
+
+  <!-- Offline tournaments — a separate overlay (like #fulltime-panel) rather
+       than a third column squeezed into #squad-columns, since it's a
+       different mode (picking/tracking a whole bracket or table) rather
+       than another view of the same squad you're building. Playing a
+       fixture starts the match directly (see _playTournamentFixture) —
+       your squad was locked in when the tournament started, so there's no
+       detour back through Formation to change it. -->
+  <div id="tournament-panel" class="panel-overlay">
+    <h2>Tournaments <span class="info-icon" data-info-title="Offline tournaments" data-info-body="Play a knockout or a small league against the game's own real teams. Pick how many teams play, then build your squad — it locks in for the whole tournament once it starts and can't be changed. Opponents are drawn at random from teams with enough named players to field a full XI: in a knockout they get tougher each round you win (your first match is the softest draw, the final is the hardest), while a league keeps one flat difficulty throughout. Every match that doesn't involve you is resolved instantly behind the scenes, so you only ever actually play your own games.">ⓘ</span></h2>
+    <div id="tournament-body"></div>
+    <button id="tournament-back-btn" class="nes-btn is-compact" style="margin-top:16px;">← Back</button>
   </div>
 
   <!-- Camera scroll control: a joystick on touch devices, a WASD-styled

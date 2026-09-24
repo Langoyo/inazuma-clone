@@ -18,9 +18,21 @@ export async function waitForRosterLoaded(page) {
   await page.click('#mode-solo-btn');
 }
 
+/** Same as waitForRosterLoaded, but stops at the mode-select screen instead
+ *  of committing to a mode — used by tests that need the Multiplayer or
+ *  Tournament button rather than Solo. */
+export async function waitForRosterAtModeSelect(page) {
+  await page.goto('/');
+  await page.waitForFunction(
+    () => document.querySelectorAll('#squad-pick-list .pick-card').length > 0,
+    { timeout: 15000 }
+  );
+  await page.click('#landing-play-btn');
+}
+
 /** Randomizes a squad and confirms it, leaving a live match in progress. */
-export async function startMatch(page, { topOnly = true } = {}) {
-  await page.click(topOnly ? '#randomize-top-btn' : '#randomize-squad-btn');
+export async function startMatch(page) {
+  await page.click('#pitch-randomize-btn');
   await page.click('#confirm-squad-btn');
   await page.waitForFunction(() => window.__scene?.matchStarted === true, { timeout: 10000 });
 }

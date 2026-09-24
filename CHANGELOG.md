@@ -4,6 +4,127 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Fix: multiplayer could still get stuck after both players confirmed
+Two more gaps in the same squad-confirm flow the earlier multiplayer fix
+touched:
+
+- **Stale status after a role flip.** `_confirmSquad` only ever checked
+  role and updated `#squad-status` at the moment of confirming. A player
+  confirming fast enough to still be on the provisional "alone in the
+  room" host guess would see "Waiting for opponent…" — correct at the
+  time, but if the real host/guest comparison later said they were
+  actually the guest, nothing ever revisited that text or the start-check
+  again. New `_tryStartMultiplayerMatch()` is now called from every event
+  that could be the "last domino" — confirming, the peer's squad arriving,
+  and role finally settling (`_syncRoleFromNet`) — instead of relying on
+  exactly one of them to always happen last.
+- **No recovery from a dropped squad message.** Trystero's data channel
+  has no delivery guarantee for a message sent right as it's still
+  finishing setup. Confirming now starts a retry loop that resends your
+  squad and re-checks every couple of seconds until the match actually
+  starts, so a single lost send no longer leaves both players stuck
+  forever.
+
+## Fix: landing screen hidden behind the canvas
+A stray inline `position:relative` on `#landing-panel` (added for the sfx
+toggle button) overrode `.panel-overlay`'s `position:fixed` via inline-style
+specificity, so the landing screen fell into normal document flow right
+after the canvas instead of covering it — the pitch/scoreboard showed
+through with no menu on top. Removed; `.panel-overlay`'s own fixed
+positioning already serves as the button's containing block.
+
+## One randomize dice, star picks mixed in; multiplayer-only settings hidden
+- **One "🎲" dice** on the formation pitch itself replaces the old
+  "Random" / "Random (top players)" button pair. It always mixes 2–3
+  deliberate top-rated "star" picks into an otherwise ordinary random XI,
+  instead of either a fully mediocre squad or every slot stacked with a
+  standout.
+- **Multiplayer match settings**: AI difficulty is hidden entirely (no AI
+  plays once a real opponent is connected), and Half length is shown only
+  to whichever player is currently host — it was already host-authoritative
+  gameplay-wise, so the guest's copy did nothing but invite confusion.
+
+## Fix multiplayer, tournament as its own mode, sound effects, bigger cards
+Four follow-ups after more playtesting:
+
+- **Fix: multiplayer started two independent solo matches instead of one
+  shared one.** `_confirmSquad` used to infer "I'm playing solo" from
+  `!net.hasPeer()`, but that's also just the normal state of multiplayer
+  before the WebRTC handshake finishes — whoever hit Confirm first (usually
+  both players, staring at the same screen) silently fell back to an
+  AI-generated opponent instead of waiting for the real one, so each player
+  ended up watching their own separate simulated match. Now it checks
+  `uiMode` instead, which the scene always knows unambiguously; multiplayer
+  correctly waits for the real peer's squad every time. Also shows
+  "Connecting to opponent…" while the handshake is still in progress.
+- **Tournament is now its own mode from the home screen**, not a button
+  tucked inside the squad editor: pick how many teams play first, then
+  build your squad (locking it in), then go straight into the bracket or
+  table. Leaving and coming back (even after the page reload every match
+  causes) resumes the running tournament directly — the "🏆 Tournament"
+  button becomes "🏆 Continue Tournament" whenever one's in progress.
+- **Knockout opponents now get tougher round by round.** Standard
+  single-elimination seeding: you get the weakest of the drawn opponents in
+  round 1, and can only face the strongest in the final if you keep
+  winning. Leagues are unchanged — one flat, uniformly random pool
+  throughout, as before.
+- **Synthesized sound effects** for kicks, passes, goals and the
+  kickoff/full-time whistle — short chiptune-style blips generated with the
+  Web Audio API (no audio files, matching the game's own pixel-art look), a
+  🔊/🔇 toggle on the landing screen persists the mute preference.
+- **Bigger player portraits** across the formation pitch, bench strip,
+  browse-players drawer, player-stat popup and the versus/duel screen.
+
+## Tournaments: random opponents by team count, a locked squad, a drawn standings table
+Follow-up on the tournament feature after feedback:
+
+- **Pick a number of teams, not individual opponents.** The setup screen's
+  checkbox list is gone — pick 4/8/16 teams and the opponents are drawn at
+  random from the viable pool (still only teams that can field a full XI).
+- **Your squad locks in when the tournament starts**, not per fixture.
+  Whatever's set up under Formation at that moment is snapshotted into the
+  tournament itself (`mySquad`, alongside the bracket/table, so it survives
+  the reload after every match) and reused for every one of your games —
+  changing your live squad in between (or even starting a totally different
+  one) no longer has any effect on a running tournament. "Play next" now
+  starts the match immediately with that locked XI instead of detouring
+  through Formation/Confirm each time, since there's nothing left to
+  confirm.
+- **Standings are drawn as a real table**, not plain rows — switched to
+  nes.css's own pixel-art `nes-table` (dark variant, to match the rest of
+  the UI) with a ranked `#` column.
+
+## Offline tournaments — knockouts and small leagues against the game's real teams
+Weighed three bigger features (tournaments, player accounts, online
+matchmaking) against the game's architecture (a 100% static client, no
+backend, Trystero-over-Nostr for the existing 1:1 P2P matches) before
+building anything — see the session's plan file for the full writeup.
+Landed the one that fit cleanly without any architectural change: offline
+tournaments.
+
+Entrants are the game's own real teams (every player already carries a
+`team`/`game` — Raimon alone spans six eras), not squads built from
+scratch — the setup screen is just "pick who else plays" from the same
+team/era list the squad editor's team filter already knows about. Every
+match that doesn't involve you (there are a lot of those once a bracket
+grows past a handful of teams) is resolved instantly by a lightweight
+simulated scoreline weighted by each side's average player rating — you
+only ever actually play your own fixtures, through the ordinary
+Formation/Confirm flow, with the rival side pre-armed with the opponent's
+real roster. New `src/data/tournament.js` holds the whole bracket/league
+engine as plain, framework-agnostic functions (knockout with automatic bye
+padding, round-robin standings, the instant-simulation logic) — no DOM, no
+Phaser, easy to test in isolation. State lives entirely in `localStorage`
+(`inazuma-clone:tournament:v1`), since the game does a full page reload
+after every match. New `tests/tournaments.spec.js` covers the bracket/
+league math directly and the UI flow end to end, including that a result
+survives a real page reload.
+
+One data wrinkle surfaced building this: about half of the ~340 team/era
+combinations in the roster have fewer than 11 named players (one-off rival
+teams from the show that only ever got a couple of characters drawn) — the
+entrant picker filters those out, since they can't actually field an XI.
+
 ## Fix: closing the player stat popup also closed the Browse Players drawer
 On narrow screens, closing the player stat popup (the × button) would also
 close the Browse Players drawer sitting behind it — annoying mid-browse,
