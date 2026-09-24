@@ -641,8 +641,6 @@
           <option value="5-4-1">5-4-1</option>
           <option value="4-3-1-2">4-3-1-2</option>
         </select>
-        <button id="randomize-squad-btn" class="nes-btn is-primary is-compact">🎲 Random</button>
-        <button id="randomize-top-btn" title="Only the top-rated players at each position — a stronger, more competitive XI" class="nes-btn is-warning is-compact">🎲 Random (top players)</button>
         <span id="squad-fill-count" style="font-size:11px;opacity:0.75;">0/11 filled</span>
       </div>
 
@@ -653,8 +651,11 @@
         <span id="squad-save-status"></span>
       </div>
 
-      <!-- Half length (host's choice — the client mirrors whatever the host is running) -->
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+      <!-- Half length. In multiplayer only the host's choice actually
+           applies (the client just mirrors whatever the host is running —
+           see _syncRoleFromNet/_applyUiMode), so the guest doesn't get a
+           selector that would silently do nothing. -->
+      <div id="half-length-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <label style="font-size:12px;">Half length:</label>
         <select id="half-length-select" class="pixel-select">
           <option value="2">2 min</option>
@@ -665,8 +666,9 @@
         </select>
       </div>
 
-      <!-- AI difficulty (only applies when playing alone against the AI) -->
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+      <!-- AI difficulty — meaningless once a real opponent is playing, so
+           it's hidden entirely in multiplayer (see _applyUiMode). -->
+      <div id="ai-difficulty-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <label style="font-size:12px;">AI difficulty:</label>
         <select id="ai-level-select" class="pixel-select">
           <option value="easy">Easy</option>
@@ -696,9 +698,16 @@
         <span class="info-icon" data-info-title="Your team color" data-info-body="The kit color your XI plays in on the pitch. Left on Automatic it follows whichever real team most of your starting XI belongs to, and the swatch shows you what that currently works out to — change your squad and it updates. Pick a color yourself and it overrides that until you tick Automatic again. Only affects your own side; a real connected opponent always picks their own color regardless.">ⓘ</span>
       </div>
 
-      <div id="formation-pitch">
-        <div class="pitch-line-h"></div>
-        <!-- .slot-pin elements injected here by JS -->
+      <!-- The dice sits as a sibling overlay, not a child of #formation-pitch
+           itself — _renderPitch() replaces that element's whole innerHTML on
+           every render (new formation, a placed player, ...), which would
+           wipe out a button placed inside it along with everything else. -->
+      <div id="formation-pitch-wrap" style="position:relative;">
+        <div id="formation-pitch">
+          <div class="pitch-line-h"></div>
+          <!-- .slot-pin elements injected here by JS -->
+        </div>
+        <button id="pitch-randomize-btn" class="nes-btn is-primary is-compact" style="position:absolute;top:8px;right:8px;z-index:10;padding:4px 8px;font-size:16px;line-height:1;" title="Randomize your XI — a couple of star picks, the rest a surprise">🎲</button>
       </div>
 
       <div style="font-size:11px;opacity:0.7;margin-bottom:4px;">Bench (<span id="bench-count">0</span>/5):</div>

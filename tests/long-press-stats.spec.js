@@ -22,7 +22,7 @@ const closeStats = (page) => page.evaluate(() => { document.getElementById('play
 test.describe('press and hold to view stats (squad editor)', () => {
   test('a quick tap on an armed pin cancels the arm, not shows stats', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     const pin = page.locator('#formation-pitch .slot-pin:not(.empty)').first();
 
     await pin.click();
@@ -36,7 +36,7 @@ test.describe('press and hold to view stats (squad editor)', () => {
 
   test('holding a pin shows its player\'s stats without arming or disarming it', async ({ page }) => {
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     const pin = page.locator('#formation-pitch .slot-pin:not(.empty)').first();
 
     const selBefore = await page.evaluate(() => window.__scene._squadSel);
@@ -68,7 +68,7 @@ test.describe('press and hold to view stats (squad editor)', () => {
     // bench-slots tests elsewhere), then hold it — should show stats for
     // whoever is there without losing the arm.
     await waitForRosterLoaded(page);
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     const benchPin = page.locator('#bench-strip .bench-pin:not(.empty)').first();
 
     await benchPin.click();

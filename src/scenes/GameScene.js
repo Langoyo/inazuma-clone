@@ -679,6 +679,13 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('squad-side-tabs').style.display=noRivalTab?'none':'flex';
     if(noRivalTab&&this.editSide==='rival') this._setEditSide('me');
     document.getElementById('squad-status').textContent=(multi&&!this.net.hasPeer())?'Connecting to opponent…':'';
+    // No AI plays in multiplayer, so its difficulty has nothing to affect.
+    document.getElementById('ai-difficulty-row').style.display=multi?'none':'flex';
+    // Half length is host-authoritative once a match is running (the guest
+    // just mirrors whatever the host picked — see _syncRoleFromNet's own
+    // note and the client-side clock sync in _incomingState) — only the
+    // host gets a selector that actually does something.
+    document.getElementById('half-length-row').style.display=(multi&&this.role!=='A')?'none':'flex';
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -800,6 +807,7 @@ export default class GameScene extends Phaser.Scene {
   _syncRoleFromNet(){
     if(this.matchStarted) return;
     this.role=this.net.isHost()?'A':'B';
+    this._applyUiMode();
   }
 
   _onResize(gameSize){
@@ -903,8 +911,7 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('formation-select').addEventListener('change',e=>{
       this._edSetFormation(e.target.value); this._renderPitch();
     });
-    document.getElementById('randomize-squad-btn').addEventListener('click',()=>this._randomize());
-    document.getElementById('randomize-top-btn').addEventListener('click',()=>this._randomize(true));
+    document.getElementById('pitch-randomize-btn').addEventListener('click',()=>this._randomize());
     document.getElementById('squad-whole-team-btn').addEventListener('click',()=>this._useWholeTeam());
     document.getElementById('squad-search').addEventListener('input',()=>this._renderPickListReset());
     document.getElementById('squad-game-filter').addEventListener('change',()=>this._renderPickListReset());
@@ -1674,17 +1681,42 @@ export default class GameScene extends Phaser.Scene {
     this._renderPitch(); this._renderPickList();
   }
 
-  /** `topOnly` narrows the pool to the top 20% rated players at each
-   *  position (see _topPercentileByPosition) instead of the whole
-   *  roster, for a stronger, more competitive XI. (Used to mean "on a
-   *  real team" instead — but every player has one now, so that filter
-   *  stopped meaning anything.) */
-  _randomize(topOnly=false){
+  /** Rolls a random formation, then fills the XI with a blend: 2–3 slots
+   *  (chosen at random) get a top-rated player for their position (see
+   *  _topPercentileByPosition), the rest get an ordinary random one — a
+   *  few standout names in an otherwise unpredictable squad, rather than
+   *  either fully random (usually mediocre) or stacking every slot with a
+   *  star (no surprise left at all). Falls back to whichever pool actually
+   *  has a candidate left, same spirit as _fillSquadByPosition's own
+   *  backfill, so a thin position never leaves a slot empty. */
+  _randomize(){
     // Shape first, then fill it position by position — the slot roles depend
     // on the formation, so picking it afterwards would mismatch them.
     this._edSetFormation(Phaser.Utils.Array.GetRandom(Object.keys(FORMATIONS)));
     document.getElementById('formation-select').value=this._edFormation();
-    this._fillSquadByPosition(topOnly?this._topPercentileByPosition(this.rosterAll):this.rosterAll);
+
+    const roles=SLOT_ROLES[this._edFormation()]||SLOT_ROLES[DEFAULT_FORMATION];
+    const byPos={}, byPosTop={};
+    for(const p of this.rosterAll) (byPos[p.position]=byPos[p.position]||[]).push(p);
+    for(const p of this._topPercentileByPosition(this.rosterAll)) (byPosTop[p.position]=byPosTop[p.position]||[]).push(p);
+    Object.values(byPos).forEach(list=>Phaser.Utils.Array.Shuffle(list));
+    Object.values(byPosTop).forEach(list=>Phaser.Utils.Array.Shuffle(list));
+
+    // Both pools draw from the same players, so track who's already placed
+    // to avoid picking the same person for two slots.
+    const used=new Set();
+    const take=(map,pos)=>{ const l=map[pos]; while(l&&l.length){ const p=l.pop(); if(!used.has(p.id)){ used.add(p.id); return p.id; } } return null; };
+    const takeAny=map=>{ for(const l of Object.values(map)) while(l&&l.length){ const p=l.pop(); if(!used.has(p.id)){ used.add(p.id); return p.id; } } return null; };
+
+    const starCount=Phaser.Math.Between(2,3);
+    const starSlots=new Set(Phaser.Utils.Array.Shuffle([...Array(TEAM_SIZE).keys()]).slice(0,starCount));
+    const slots=roles.slice(0,TEAM_SIZE).map((role,i)=>
+      starSlots.has(i) ? (take(byPosTop,role)??take(byPos,role)) : (take(byPos,role)??take(byPosTop,role))
+    );
+    for(let i=0;i<TEAM_SIZE;i++) if(!slots[i]) slots[i]=takeAny(byPos)??takeAny(byPosTop);
+    this._edSetSlots(slots);
+    this._edSetBench(new Set(BENCH_COVER.map(pos=>take(byPos,pos)??takeAny(byPos)).filter(Boolean)));
+
     this._squadSel=null; this._pickPosFilter=null;
     this._renderPitch(); this._renderPickList();
   }

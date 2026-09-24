@@ -21,7 +21,7 @@ test.describe('multiplayer squad-confirm race', () => {
     expect(await page.evaluate(() => window.__scene.uiMode)).toBe('multiplayer');
     expect(await page.evaluate(() => window.__scene.net.hasPeer())).toBe(false);
 
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await page.click('#confirm-squad-btn');
     await page.waitForTimeout(200);
 
@@ -38,7 +38,7 @@ test.describe('multiplayer squad-confirm race', () => {
     await page.click('#landing-play-btn');
     await page.click('#mode-multi-btn');
     await page.click('#mode-multi-start-btn');
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await page.click('#confirm-squad-btn');
     expect(await page.evaluate(() => window.__scene.matchStarted)).toBe(false);
 

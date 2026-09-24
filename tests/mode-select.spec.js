@@ -21,6 +21,9 @@ test.describe('landing page and mode select', () => {
     await expect(page.locator('#mode-select-panel')).toBeHidden();
     await expect(page.locator('#squad-editor-panel')).toBeVisible();
     await expect(page.locator('#squad-side-tabs')).toBeVisible();
+    // Both match-settings rows are meaningful solo — nothing to hide.
+    await expect(page.locator('#ai-difficulty-row')).toBeVisible();
+    await expect(page.locator('#half-length-row')).toBeVisible();
   });
 
   test('multiplayer mode shows your own room code and hides the rival tab', async ({ page }) => {
@@ -43,6 +46,33 @@ test.describe('landing page and mode select', () => {
     await expect(page.locator('#squad-side-tabs')).toBeHidden();
     expect(await page.evaluate(() => window.__scene.roomCode)).toBe(roomCode);
     expect(await page.evaluate(() => window.__scene.uiMode)).toBe('multiplayer');
+  });
+
+  test('multiplayer hides AI difficulty entirely, and half length only for the host', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForFunction(
+      () => document.querySelectorAll('#squad-pick-list .pick-card').length > 0,
+      { timeout: 15000 }
+    );
+    await page.click('#landing-play-btn');
+    await page.click('#mode-multi-btn');
+    await page.click('#mode-multi-start-btn');
+
+    // No AI plays in multiplayer, so its difficulty has nothing to affect.
+    await expect(page.locator('#ai-difficulty-row')).toBeHidden();
+    // Alone in the room, we're the provisional host — half length is ours to set.
+    expect(await page.evaluate(() => window.__scene.role)).toBe('A');
+    await expect(page.locator('#half-length-row')).toBeVisible();
+
+    // Simulate a peer whose id sorts first, flipping us to the guest — same
+    // technique networking.spec.js's own role-sync regression test uses.
+    await page.evaluate(() => {
+      const s = window.__scene;
+      s.net.isHost = () => false;
+      s._syncRoleFromNet();
+    });
+    expect(await page.evaluate(() => window.__scene.role)).toBe('B');
+    await expect(page.locator('#half-length-row')).toBeHidden();
   });
 });
 

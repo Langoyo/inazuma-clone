@@ -145,6 +145,11 @@ test.describe('tournament UI', () => {
     await expect(page.locator('#squad-editor-panel')).toBeVisible();
     await expect(page.locator('#squad-side-tabs')).toBeHidden();
     expect(await page.evaluate(() => window.__scene.uiMode)).toBe('tournament');
+    // Unlike multiplayer, tournament fixtures you don't control are still
+    // played out by the AI, and you're still the one setting half length —
+    // neither row is multiplayer-only, so both stay visible here.
+    await expect(page.locator('#ai-difficulty-row')).toBeVisible();
+    await expect(page.locator('#half-length-row')).toBeVisible();
 
     await expect(page.locator('#confirm-squad-btn')).toBeDisabled();
     expect(await page.evaluate(() => window.__scene.activeTournament)).toBeNull();
@@ -152,7 +157,7 @@ test.describe('tournament UI', () => {
 
   test('picking a size draws exactly that many teams, and your squad locks in once confirmed', async ({ page }) => {
     await openTournamentSetup(page, { size: '8' });
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     const squadBefore = await page.evaluate(() => ({ starterIds: [...window.__scene.squadSlots], formation: window.__scene.chosenFormation }));
     await page.click('#confirm-squad-btn');
 
@@ -167,7 +172,7 @@ test.describe('tournament UI', () => {
 
   test('a knockout draws opponents so your first-round rival is the weakest of the group, escalating from there', async ({ page }) => {
     await openTournamentSetup(page, { size: '8' });
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await page.click('#confirm-squad-btn');
 
     const check = await page.evaluate(() => {
@@ -183,7 +188,7 @@ test.describe('tournament UI', () => {
 
   test('starting a knockout auto-resolves matches that do not involve you, leaving your own fixture up next', async ({ page }) => {
     await openTournamentSetup(page, { size: '4' });
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await page.click('#confirm-squad-btn');
 
     const playBtn = page.locator('[data-tournament-action="play"]');
@@ -202,7 +207,7 @@ test.describe('tournament UI', () => {
 
   test('playing your fixture starts the match immediately with the locked squad and the opponent’s real roster — no Formation detour', async ({ page }) => {
     await openTournamentSetup(page, { size: '4' });
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     const lockedStarters = await page.evaluate(() => [...window.__scene.squadSlots]);
     await page.click('#confirm-squad-btn');
     await page.click('[data-tournament-action="play"]');
@@ -225,7 +230,7 @@ test.describe('tournament UI', () => {
 
   test('resuming an in-progress tournament goes straight to the bracket, never back through the squad editor', async ({ page }) => {
     await openTournamentSetup(page, { size: '8' }); // more rounds to reach
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     const lockedStarters = await page.evaluate(() => [...window.__scene.squadSlots]);
     await page.click('#confirm-squad-btn');
     await page.click('[data-tournament-action="play"]');
@@ -254,7 +259,7 @@ test.describe('tournament UI', () => {
 
   test('finishing your match records the result, advances the bracket, and survives a reload', async ({ page }) => {
     await openTournamentSetup(page, { size: '4' });
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await page.click('#confirm-squad-btn');
     await page.click('[data-tournament-action="play"]');
     await page.waitForFunction(() => window.__scene.matchStarted === true, { timeout: 10000 });
@@ -282,7 +287,7 @@ test.describe('tournament UI', () => {
 
   test('abandoning a tournament clears it and returns to the setup form', async ({ page }) => {
     await openTournamentSetup(page, { size: '4' });
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await page.click('#confirm-squad-btn');
     await expect(page.locator('[data-tournament-action="end"]')).toBeVisible();
 
@@ -294,7 +299,7 @@ test.describe('tournament UI', () => {
 
   test('a league draws a standings table with a ranked row per entrant', async ({ page }) => {
     await openTournamentSetup(page, { type: 'league', size: '4' });
-    await page.click('#randomize-top-btn');
+    await page.click('#pitch-randomize-btn');
     await page.click('#confirm-squad-btn');
 
     const table = page.locator('#tournament-body table.nes-table');

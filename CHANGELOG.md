@@ -4,6 +4,25 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Fix: landing screen hidden behind the canvas
+A stray inline `position:relative` on `#landing-panel` (added for the sfx
+toggle button) overrode `.panel-overlay`'s `position:fixed` via inline-style
+specificity, so the landing screen fell into normal document flow right
+after the canvas instead of covering it — the pitch/scoreboard showed
+through with no menu on top. Removed; `.panel-overlay`'s own fixed
+positioning already serves as the button's containing block.
+
+## One randomize dice, star picks mixed in; multiplayer-only settings hidden
+- **One "🎲" dice** on the formation pitch itself replaces the old
+  "Random" / "Random (top players)" button pair. It always mixes 2–3
+  deliberate top-rated "star" picks into an otherwise ordinary random XI,
+  instead of either a fully mediocre squad or every slot stacked with a
+  standout.
+- **Multiplayer match settings**: AI difficulty is hidden entirely (no AI
+  plays once a real opponent is connected), and Half length is shown only
+  to whichever player is currently host — it was already host-authoritative
+  gameplay-wise, so the guest's copy did nothing but invite confusion.
+
 ## Fix multiplayer, tournament as its own mode, sound effects, bigger cards
 Four follow-ups after more playtesting:
 
