@@ -4,7 +4,8 @@ import { NORMAL_ACTION_POWER, STAT_FIELD_FOR_TECH } from '../data/techniques.js'
 import { createPlayerStats, applyRosterPlayerToStats, canActivate, techniquesFor, NATIVE_STATS, statMul } from '../data/players.js';
 import { loadRoster, getPlayerById, getGames } from '../data/roster.js';
 import { decideAIMove } from '../ai/AIController.js';
-import { makeKnockout, makeLeague, recordKnockoutResult, recordLeagueResult, leagueStandings, advanceAuto, saveTournament, loadTournament, clearTournament } from '../data/tournament.js';
+import { makeSeededKnockout, makeLeague, recordKnockoutResult, recordLeagueResult, leagueStandings, advanceAuto, saveTournament, loadTournament, clearTournament } from '../data/tournament.js';
+import { playKick, playPass, playGoal, playWhistle, isSfxEnabled, setSfxEnabled } from '../audio/sfx.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────
 // The logical field is big — the VIEWPORT (what the canvas shows) is smaller.
@@ -581,6 +582,7 @@ export default class GameScene extends Phaser.Scene {
       // both players had actually confirmed. Resending now that a peer
       // definitely exists costs nothing and fixes that silently-dropped case.
       if(this.mySquadConfirmed) this.net.sendSquad(this.mySquadPayload);
+      else if(this.uiMode==='multiplayer') document.getElementById('squad-status').textContent='';
     });
     this.remoteState=null;
     this.remoteInput={targets:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,repositionRequest:null,formationChange:null,teamPanelRequest:null};
@@ -607,11 +609,14 @@ export default class GameScene extends Phaser.Scene {
    *  between solo-vs-AI and multiplayer (with room-code sharing/joining)
    *  before the squad editor itself appears. */
   _initLandingAndModeFlow(){
-    document.getElementById('landing-play-btn').addEventListener('click',()=>{
-      document.getElementById('landing-panel').style.display='none';
-      document.getElementById('mode-select-panel').style.display='flex';
-      document.getElementById('mode-own-code').textContent=this.roomCode;
+    const sfxBtn=document.getElementById('sfx-toggle-btn');
+    sfxBtn.textContent=isSfxEnabled()?'🔊':'🔇';
+    sfxBtn.addEventListener('click',()=>{
+      const next=!isSfxEnabled();
+      setSfxEnabled(next);
+      sfxBtn.textContent=next?'🔊':'🔇';
     });
+    document.getElementById('landing-play-btn').addEventListener('click',()=>this._showModeSelect());
     document.getElementById('mode-solo-btn').addEventListener('click',()=>{
       this.uiMode='solo';
       this._applyUiMode();
@@ -636,6 +641,29 @@ export default class GameScene extends Phaser.Scene {
       document.getElementById('mode-select-panel').style.display='none';
       document.getElementById('squad-editor-panel').style.display='flex';
     });
+    // Tournament is its own mode from the home screen, not a button tucked
+    // inside the squad editor — pick how many teams play *first*, then
+    // build your squad, then it's straight into the bracket/table. If one's
+    // already running (persisted across the page reload every match causes)
+    // this jumps straight to it instead of the setup form — see
+    // _renderTournamentPanel's own branch on activeTournament.
+    document.getElementById('mode-tournament-btn').addEventListener('click',()=>{
+      document.getElementById('mode-select-panel').style.display='none';
+      document.getElementById('tournament-panel').style.display='flex';
+      this._renderTournamentPanel();
+    });
+  }
+
+  /** Shared landing point for "Play" and for backing out of the tournament
+   *  setup screen — also keeps the Tournament button's label honest about
+   *  whether it's starting fresh or resuming what's already running. */
+  _showModeSelect(){
+    document.getElementById('landing-panel').style.display='none';
+    document.getElementById('tournament-panel').style.display='none';
+    document.getElementById('mode-select-panel').style.display='flex';
+    document.getElementById('mode-own-code').textContent=this.roomCode;
+    const hasActive=this.activeTournament&&!this.activeTournament.completedAt;
+    document.getElementById('mode-tournament-btn').textContent=hasActive?'🏆 Continue Tournament':'🏆 Tournament';
   }
 
   /** A real opponent always picks their own squad, so the "Rival Team" tab
@@ -643,8 +671,14 @@ export default class GameScene extends Phaser.Scene {
    *  multiplayer and would just be confusing to leave visible. */
   _applyUiMode(){
     const multi=this.uiMode==='multiplayer';
-    document.getElementById('squad-side-tabs').style.display=multi?'none':'flex';
-    if(multi&&this.editSide==='rival') this._setEditSide('me');
+    // Tournament mode fields the opponent from the game's own canon roster
+    // (see _entrantPool), exactly like multiplayer fields a real human —
+    // neither one has any use for the "Rival Team" tab, which only ever
+    // makes sense when you're hand-building an AI opponent yourself.
+    const noRivalTab=multi||this.uiMode==='tournament';
+    document.getElementById('squad-side-tabs').style.display=noRivalTab?'none':'flex';
+    if(noRivalTab&&this.editSide==='rival') this._setEditSide('me');
+    document.getElementById('squad-status').textContent=(multi&&!this.net.hasPeer())?'Connecting to opponent…':'';
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -937,7 +971,6 @@ export default class GameScene extends Phaser.Scene {
     });
     document.getElementById('squad-save-btn').addEventListener('click',()=>this._saveSquad());
     document.getElementById('squad-load-btn').addEventListener('click',()=>this._loadSquad());
-    document.getElementById('tournament-view-btn').addEventListener('click',()=>this._openTournamentPanel());
     document.getElementById('tournament-back-btn').addEventListener('click',()=>this._closeTournamentPanel());
     // The setup form and the running bracket/table are both re-rendered
     // wholesale on every change (see _renderTournamentPanel), so their
@@ -946,7 +979,7 @@ export default class GameScene extends Phaser.Scene {
     document.getElementById('tournament-body').addEventListener('click',e=>{
       const btn=e.target.closest('[data-tournament-action]'); if(!btn) return;
       const action=btn.dataset.tournamentAction;
-      if(action==='start') this._startTournamentFromForm();
+      if(action==='setup-continue') this._confirmTournamentSetup();
       else if(action==='play'){
         const kind=btn.dataset.kind, idx=parseInt(btn.dataset.idx,10);
         const pending=kind==='knockout'?{kind,matchIdx:idx,a:btn.dataset.a,b:btn.dataset.b}:{kind,fixtureIdx:idx,a:btn.dataset.a,b:btn.dataset.b};
@@ -1161,7 +1194,7 @@ export default class GameScene extends Phaser.Scene {
         pin.dataset.benchId=pid;
         const col=this._css3(this._rosterColor(p));
         const av=this._avatarFill(p,col);
-        pin.innerHTML=`<div class="pin-avatar" style="${av.style}width:32px;height:32px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${av.inner}</div>`
+        pin.innerHTML=`<div class="pin-avatar" style="${av.style}width:40px;height:40px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:rgba(0,0,0,.8)">${av.inner}</div>`
           +this._posBadge(p.position)+this._ratingBadge(p)+`<div class="pin-name">${p.nickname||p.name}</div>`;
         if(sel&&sel.type==='bench'&&sel.id===pid) pin.classList.add('selected');
         this._armPressGestures(pin,{onTap:()=>this._onSquadPinClick({type:'bench',id:pid}),onLongPress:()=>this._showPlayerStats(p)});
@@ -1341,7 +1374,7 @@ export default class GameScene extends Phaser.Scene {
     const avHead=this._avatarFill(p,col);
     el.innerHTML=`
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-        <span class="pin-avatar" style="${avHead.style}width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:bold;color:rgba(0,0,0,.8);flex-shrink:0">${avHead.inner}</span>
+        <span class="pin-avatar" style="${avHead.style}width:56px;height:56px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:bold;color:rgba(0,0,0,.8);flex-shrink:0">${avHead.inner}</span>
         <div>
           <div style="font-weight:bold;font-size:15px">${p.name} <span style="opacity:.75;font-weight:normal;font-size:12px">· ⭐ ${this._playerRating(p)}</span></div>
           <div style="font-size:12px;opacity:.75;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${this._posBadge(p.position)}${this._elBadge(p.element)}<span>${this._teamLine(p)}</span></div>
@@ -1604,7 +1637,7 @@ export default class GameScene extends Phaser.Scene {
       card.className='pick-card'+(inSquad.has(p.id)?' in-squad':'')+(isSel?' selected':'');
       const col=this._css3(this._rosterColor(p));
       const av=this._avatarFill(p,col);
-      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:24px;height:24px;font-size:8px;${av.style}flex-shrink:0">${av.inner}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">${this._cardStatLine(p)}</div>`;
+      card.innerHTML=`<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;"><span class="av" style="width:32px;height:32px;font-size:10px;${av.style}flex-shrink:0">${av.inner}</span>${this._posBadge(p.position)}<span class="pick-name">${p.nickname||p.name}</span><span style="margin-left:auto;font-size:10px;font-weight:bold;color:#ffd966;">${this._playerRating(p)}</span></div><div style="font-size:10px;opacity:.7">${this._elBadge(p.element,false)} ${this._teamLine(p)}</div><div style="font-size:10px;opacity:.6">${this._cardStatLine(p)}</div>`;
       // A list card is, for selection purposes, exactly the pin it maps to
       // (pitch slot / bench / pool) — tap to select/place, press and hold
       // to see its full stats.
@@ -1659,11 +1692,12 @@ export default class GameScene extends Phaser.Scene {
   _confirmSquad(){
     const starterIds=this.squadSlots.filter(Boolean); if(starterIds.length!==TEAM_SIZE) return;
     const payload={starterIds,benchIds:[...this.benchIds],formation:this.chosenFormation,color:this.myTeamColor};
+    if(this.uiMode==='tournament'){ this._startTournamentWithSquad(payload); return; }
     this.mySquadPayload=payload; this.mySquadConfirmed=true;
     this.net.sendSquad(payload);
     document.getElementById('confirm-squad-btn').disabled=true;
     if(this.role==='A'){
-      if(!this.net.hasPeer()) this._startMatch(payload,this._rivalSquadPayload());
+      if(this.uiMode==='solo') this._startMatch(payload,this._rivalSquadPayload());
       else if(this.remoteSquadPayload) this._startMatch(payload,this.remoteSquadPayload);
       else document.getElementById('squad-status').textContent='Waiting for opponent…';
     } else { document.getElementById('squad-status').textContent='Waiting for match to start…'; }
@@ -1740,41 +1774,52 @@ export default class GameScene extends Phaser.Scene {
     this.editSide=prevSide;
   }
 
-  _openTournamentPanel(){
+  /** The pre-squad setup screen (reached from the mode-select "🏆
+   *  Tournament" button) only records which type/size the player wants —
+   *  opponents aren't drawn and nothing starts yet. It then hands off to
+   *  the normal squad editor to build an XI, exactly like solo/multiplayer
+   *  do; the tournament actually starts once that squad is confirmed (see
+   *  _startTournamentWithSquad, called from _confirmSquad). */
+  _confirmTournamentSetup(){
+    this.pendingTournamentType=document.querySelector('input[name="tournament-type"]:checked')?.value||'knockout';
+    this.pendingTournamentSize=parseInt(document.querySelector('input[name="tournament-size"]:checked')?.value,10)||4;
+    this.uiMode='tournament';
+    this._applyUiMode();
+    document.getElementById('tournament-panel').style.display='none';
+    document.getElementById('squad-editor-panel').style.display='flex';
+  }
+  /** "← Back" out of the tournament panel — used both from the pre-squad
+   *  setup form and from a running tournament's view. Squad editor is no
+   *  longer the hub tournaments live behind (see _confirmTournamentSetup),
+   *  so this always returns to mode-select rather than the editor. */
+  _closeTournamentPanel(){
+    document.getElementById('tournament-panel').style.display='none';
+    this._showModeSelect();
+  }
+  /** Called from _confirmSquad once the type/size chosen on the setup
+   *  screen are in hand: locks the just-built squad in as `mySquad` for
+   *  every fixture of this tournament — there's no way back into Formation
+   *  to change it once it's running (see _playTournamentFixture, which
+   *  starts each match directly instead of routing through the editor).
+   *  Opponents are drawn at random from the viable team/era pool. Knockout
+   *  opponents are then seeded by strength (weakest first, so the
+   *  player's path gets tougher round by round — see makeSeededKnockout);
+   *  a league stays a flat random draw, same difficulty throughout. */
+  _startTournamentWithSquad(mySquad){
+    const type=this.pendingTournamentType||'knockout';
+    const size=this.pendingTournamentSize||4;
+    const opponents=Phaser.Utils.Array.Shuffle(this._teamEraOptions().map(o=>o.value)).slice(0,size-1);
+    const built=type==='knockout'
+      ?makeSeededKnockout(['me',...opponents.slice().sort((a,b)=>this._entrantStrength(b)-this._entrantStrength(a))])
+      :makeLeague(['me',...opponents]);
+    this.activeTournament={...built,mySquad};
+    saveTournament(this.activeTournament);
     document.getElementById('squad-editor-panel').style.display='none';
     document.getElementById('tournament-panel').style.display='flex';
     this._renderTournamentPanel();
   }
-  _closeTournamentPanel(){
-    document.getElementById('tournament-panel').style.display='none';
-    document.getElementById('squad-editor-panel').style.display='flex';
-  }
-  /** Builds the tournament from the setup form: the player's *current*
-   *  squad (must already be a complete XI) is locked in as `mySquad` right
-   *  here, for every fixture of this tournament — there's no way back into
-   *  Formation to change it once it's running (see _playTournamentFixture,
-   *  which starts each match directly instead of routing through the
-   *  editor). Opponents are drawn at random from the viable team/era pool,
-   *  not picked individually. */
-  _startTournamentFromForm(){
-    const type=document.querySelector('input[name="tournament-type"]:checked')?.value||'knockout';
-    const size=parseInt(document.querySelector('input[name="tournament-size"]:checked')?.value,10)||4;
-    const starterIds=this.squadSlots.filter(Boolean);
-    const errorEl=document.getElementById('tournament-start-error');
-    if(starterIds.length!==TEAM_SIZE){
-      if(errorEl) errorEl.textContent=`Build your squad under Formation first (${starterIds.length}/${TEAM_SIZE}).`;
-      return;
-    }
-    if(errorEl) errorEl.textContent='';
-    const mySquad={starterIds,benchIds:[...this.benchIds],formation:this.chosenFormation,color:this.myTeamColor};
-    const opponents=Phaser.Utils.Array.Shuffle(this._teamEraOptions().map(o=>o.value)).slice(0,size-1);
-    const entrants=['me',...opponents];
-    this.activeTournament={...(type==='knockout'?makeKnockout(entrants):makeLeague(entrants)),mySquad};
-    saveTournament(this.activeTournament);
-    this._renderTournamentPanel();
-  }
   /** Sets the rival side up for the given fixture and starts the match
-   *  directly with the squad locked in at _startTournamentFromForm — no
+   *  directly with the squad locked in at _startTournamentWithSquad — no
    *  detour through Formation/Confirm, so there's never a chance to swap
    *  in a different XI partway through a tournament. */
   _playTournamentFixture(pending){
@@ -1816,9 +1861,8 @@ export default class GameScene extends Phaser.Scene {
             <label style="font-size:13px;"><input type="radio" name="tournament-size" value="8"> 8</label>
             <label style="font-size:13px;"><input type="radio" name="tournament-size" value="16"> 16</label>
           </div>
-          <div style="font-size:11px;opacity:.7;margin-bottom:10px;text-align:center;">Opponents are drawn at random from the game's real teams. Your own squad — whatever's currently set up under Formation — locks in for the whole tournament once it starts.</div>
-          <div style="text-align:center;"><button class="nes-btn is-primary" data-tournament-action="start">Start tournament</button></div>
-          <div id="tournament-start-error" style="font-size:11px;color:#ff6b6b;margin-top:8px;text-align:center;"></div>
+          <div style="font-size:11px;opacity:.7;margin-bottom:10px;text-align:center;">Next, build your squad — it locks in for the whole tournament once it starts. Opponents are drawn at random from the game's real teams; in a knockout they get tougher each round you win, a league stays one flat difficulty throughout.</div>
+          <div style="text-align:center;"><button class="nes-btn is-primary" data-tournament-action="setup-continue">Continue</button></div>
         </div>`;
       return;
     }
@@ -2225,7 +2269,7 @@ export default class GameScene extends Phaser.Scene {
         const av=this._avatarFill(p,col);
         const selCls=(!viewingRival&&this.subSel&&this.subSel.type==='bench'&&this.subSel.id===id)?' selected':'';
         return `<div class="bench-pin${selCls}" data-bench-id="${id}">
-          <div class="pin-avatar" style="${av.style}width:32px;height:32px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:rgba(0,0,0,.8)">${av.inner}</div>
+          <div class="pin-avatar" style="${av.style}width:40px;height:40px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:rgba(0,0,0,.8)">${av.inner}</div>
           ${this._posBadge(p.position)}${this._ratingBadge(p)}
           <div class="pin-name">${p.nickname||p.name}</div>
         </div>`;
@@ -2553,6 +2597,7 @@ export default class GameScene extends Phaser.Scene {
   }
   _doPass(role,target){
     const e=this._activeEntry(role); if(!e?.body) return;
+    playPass();
     const dx=target.x-e.body.position.x, dy=target.y-e.body.position.y, dist=Math.hypot(dx,dy)||1;
     this.possRole=null;
     // Offside is judged the instant the ball is played, not when it's
@@ -2765,6 +2810,7 @@ export default class GameScene extends Phaser.Scene {
   _startConfront(type,aRole,dRole,now,opts={}){
     const aId=aRole==='A'?this.activeIdA:this.activeIdB;
     if(type==='shot'){
+      playKick();
       const eAtk=this._activeEntry(aRole);
       const goalY=aRole==='A'?0:this.FIELD_H; // the goal aRole is shooting at
       const shotDist=eAtk?Math.abs(goalY-eAtk.body.position.y):0;
@@ -2995,6 +3041,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _onGoal(scorer){
+    playGoal();
     this.score[scorer]+=1;
     document.querySelector('#scoreboard .score').textContent=`${this.score.a} - ${this.score.b}`;
     // Standard kickoff rule: whoever conceded restarts with the ball,
@@ -3201,6 +3248,7 @@ export default class GameScene extends Phaser.Scene {
   _showFullTime(){
     if(this._fullTimeShown) return;
     this._fullTimeShown=true;
+    playWhistle();
     const scoreTxt=document.querySelector('#scoreboard .score').textContent;
     const [a,b]=scoreTxt.split('-').map(n=>parseInt(n,10)||0);
     const mine=this.role==='A'?a:b, theirs=this.role==='A'?b:a;
@@ -3442,7 +3490,13 @@ export default class GameScene extends Phaser.Scene {
     }
     this.activeIdA=this.remoteState.activeIdA; this.activeIdB=this.remoteState.activeIdB;
     this._highlightActive();
-    document.querySelector('#scoreboard .score').textContent=`${this.remoteState.score.a} - ${this.remoteState.score.b}`;
+    // _onGoal (which plays the goal sound) only ever runs host-side — the
+    // client has to notice the score actually going up for itself here, or
+    // it would sit through goals in silence.
+    const {a:scoreA,b:scoreB}=this.remoteState.score;
+    if(this._lastClientScore&&(scoreA>this._lastClientScore.a||scoreB>this._lastClientScore.b)) playGoal();
+    this._lastClientScore={a:scoreA,b:scoreB};
+    document.querySelector('#scoreboard .score').textContent=`${scoreA} - ${scoreB}`;
     this._renderClock(this.remoteState.clock);
     this.currentPossession=this.remoteState.possession;
     // After the sent-off pass above and the possession assignment, so it

@@ -4,6 +4,37 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Fix multiplayer, tournament as its own mode, sound effects, bigger cards
+Four follow-ups after more playtesting:
+
+- **Fix: multiplayer started two independent solo matches instead of one
+  shared one.** `_confirmSquad` used to infer "I'm playing solo" from
+  `!net.hasPeer()`, but that's also just the normal state of multiplayer
+  before the WebRTC handshake finishes — whoever hit Confirm first (usually
+  both players, staring at the same screen) silently fell back to an
+  AI-generated opponent instead of waiting for the real one, so each player
+  ended up watching their own separate simulated match. Now it checks
+  `uiMode` instead, which the scene always knows unambiguously; multiplayer
+  correctly waits for the real peer's squad every time. Also shows
+  "Connecting to opponent…" while the handshake is still in progress.
+- **Tournament is now its own mode from the home screen**, not a button
+  tucked inside the squad editor: pick how many teams play first, then
+  build your squad (locking it in), then go straight into the bracket or
+  table. Leaving and coming back (even after the page reload every match
+  causes) resumes the running tournament directly — the "🏆 Tournament"
+  button becomes "🏆 Continue Tournament" whenever one's in progress.
+- **Knockout opponents now get tougher round by round.** Standard
+  single-elimination seeding: you get the weakest of the drawn opponents in
+  round 1, and can only face the strongest in the final if you keep
+  winning. Leagues are unchanged — one flat, uniformly random pool
+  throughout, as before.
+- **Synthesized sound effects** for kicks, passes, goals and the
+  kickoff/full-time whistle — short chiptune-style blips generated with the
+  Web Audio API (no audio files, matching the game's own pixel-art look), a
+  🔊/🔇 toggle on the landing screen persists the mute preference.
+- **Bigger player portraits** across the formation pitch, bench strip,
+  browse-players drawer, player-stat popup and the versus/duel screen.
+
 ## Tournaments: random opponents by team count, a locked squad, a drawn standings table
 Follow-up on the tournament feature after feedback:
 

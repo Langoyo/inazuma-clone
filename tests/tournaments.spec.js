@@ -1,5 +1,19 @@
 import { test, expect } from '@playwright/test';
-import { waitForRosterLoaded } from './helpers.js';
+import { waitForRosterLoaded, waitForRosterAtModeSelect } from './helpers.js';
+
+/** Tournament is its own mode from the home screen now (not a button tucked
+ *  inside the squad editor): pick type/size on the setup form *first*, hit
+ *  Continue, then the squad editor opens for you to build your XI — the
+ *  tournament itself only starts once that squad is confirmed. This drives
+ *  exactly that sequence, leaving the caller in the squad editor ready to
+ *  build a squad and click #confirm-squad-btn. */
+async function openTournamentSetup(page, { type = 'knockout', size = '4' } = {}) {
+  await waitForRosterAtModeSelect(page);
+  await page.click('#mode-tournament-btn');
+  if (type !== 'knockout') await page.check(`input[name="tournament-type"][value="${type}"]`);
+  await page.check(`input[name="tournament-size"][value="${size}"]`);
+  await page.click('[data-tournament-action="setup-continue"]');
+}
 
 // Coverage for offline tournaments (src/data/tournament.js + the
 // GameScene wiring around it): the pure bracket/league engine on its own,
@@ -65,6 +79,27 @@ test.describe('pure tournament logic', () => {
     expect(standings.map((r) => r.id)).toEqual(['me', 'A', 'B']);
   });
 
+  test('makeSeededKnockout gives the top seed the weakest opponent first, and only meets the runner-up seed in the final', async ({ page }) => {
+    await page.goto('/');
+    const result = await page.evaluate(async () => {
+      const mod = await import('/src/data/tournament.js');
+      // entrantIdsBySeed[0] is the favorable draw (the player, in the real
+      // game) — S1..S8 stand in for seed 1 (best) through seed 8 (weakest).
+      const seeds = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8'];
+      const t = mod.makeSeededKnockout(seeds);
+      const round0 = t.rounds[0];
+      const myMatch = round0.find((m) => m.a === 'S1' || m.b === 'S1');
+      const myOpponentR1 = myMatch.a === 'S1' ? myMatch.b : myMatch.a;
+      // If S1 and S2 both win their side of the bracket, do they only meet
+      // in the final (i.e. never share a round-0 pair)?
+      const s2InMyRound0Pair = myMatch.a === 'S2' || myMatch.b === 'S2';
+      return { myOpponentR1, s2InMyRound0Pair, roundCount: round0.length };
+    });
+    expect(result.myOpponentR1).toBe('S8'); // weakest seed
+    expect(result.s2InMyRound0Pair).toBe(false);
+    expect(result.roundCount).toBe(4);
+  });
+
   test('simulateResult trends toward the stronger side on average', async ({ page }) => {
     await page.goto('/');
     const avg = await page.evaluate(async () => {
@@ -94,21 +129,32 @@ test.describe('tournament UI', () => {
     expect(check.tooSmall).toBe(0);
   });
 
-  test('starting a tournament without a complete squad shows an error and creates nothing', async ({ page }) => {
-    await waitForRosterLoaded(page);
-    await page.click('#tournament-view-btn');
-    await page.click('[data-tournament-action="start"]');
-    await expect(page.locator('#tournament-start-error')).toContainText('0/11');
+  test('mode-select leads into the type/size setup form before the squad editor, unlike solo/multiplayer', async ({ page }) => {
+    await waitForRosterAtModeSelect(page);
+    await expect(page.locator('#mode-tournament-btn')).toHaveText('🏆 Tournament');
+    await page.click('#mode-tournament-btn');
+    await expect(page.locator('#tournament-panel')).toBeVisible();
+    await expect(page.locator('#squad-editor-panel')).toBeHidden();
+    await expect(page.locator('input[name="tournament-type"]')).toHaveCount(2);
+    await expect(page.locator('input[name="tournament-size"]')).toHaveCount(3);
+  });
+
+  test('continuing from the setup form opens the squad editor with no rival tab, and it stays disabled until your squad is complete', async ({ page }) => {
+    await openTournamentSetup(page, { size: '4' });
+    await expect(page.locator('#tournament-panel')).toBeHidden();
+    await expect(page.locator('#squad-editor-panel')).toBeVisible();
+    await expect(page.locator('#squad-side-tabs')).toBeHidden();
+    expect(await page.evaluate(() => window.__scene.uiMode)).toBe('tournament');
+
+    await expect(page.locator('#confirm-squad-btn')).toBeDisabled();
     expect(await page.evaluate(() => window.__scene.activeTournament)).toBeNull();
   });
 
-  test('picking a size draws exactly that many teams, and your squad locks in at start', async ({ page }) => {
-    await waitForRosterLoaded(page);
+  test('picking a size draws exactly that many teams, and your squad locks in once confirmed', async ({ page }) => {
+    await openTournamentSetup(page, { size: '8' });
     await page.click('#randomize-top-btn');
     const squadBefore = await page.evaluate(() => ({ starterIds: [...window.__scene.squadSlots], formation: window.__scene.chosenFormation }));
-    await page.click('#tournament-view-btn');
-    await page.check('input[name="tournament-size"][value="8"]');
-    await page.click('[data-tournament-action="start"]');
+    await page.click('#confirm-squad-btn');
 
     const t = await page.evaluate(() => window.__scene.activeTournament);
     expect(t.entrants.length).toBe(8);
@@ -119,12 +165,26 @@ test.describe('tournament UI', () => {
     await expect(page.locator('#tournament-body')).toContainText('locked for this tournament');
   });
 
-  test('starting a knockout auto-resolves matches that do not involve you, leaving your own fixture up next', async ({ page }) => {
-    await waitForRosterLoaded(page);
+  test('a knockout draws opponents so your first-round rival is the weakest of the group, escalating from there', async ({ page }) => {
+    await openTournamentSetup(page, { size: '8' });
     await page.click('#randomize-top-btn');
-    await page.click('#tournament-view-btn');
-    await page.check('input[name="tournament-size"][value="4"]');
-    await page.click('[data-tournament-action="start"]');
+    await page.click('#confirm-squad-btn');
+
+    const check = await page.evaluate(() => {
+      const s = window.__scene;
+      const t = s.activeTournament;
+      const myMatch = t.rounds[0].find((m) => m.a === 'me' || m.b === 'me');
+      const myOpponent = myMatch.a === 'me' ? myMatch.b : myMatch.a;
+      const strengths = t.entrants.filter((id) => id !== 'me').map((id) => s._entrantStrength(id));
+      return { myOpponentStrength: s._entrantStrength(myOpponent), weakestStrength: Math.min(...strengths) };
+    });
+    expect(check.myOpponentStrength).toBeCloseTo(check.weakestStrength, 5);
+  });
+
+  test('starting a knockout auto-resolves matches that do not involve you, leaving your own fixture up next', async ({ page }) => {
+    await openTournamentSetup(page, { size: '4' });
+    await page.click('#randomize-top-btn');
+    await page.click('#confirm-squad-btn');
 
     const playBtn = page.locator('[data-tournament-action="play"]');
     await expect(playBtn).toBeVisible();
@@ -141,12 +201,10 @@ test.describe('tournament UI', () => {
   });
 
   test('playing your fixture starts the match immediately with the locked squad and the opponent’s real roster — no Formation detour', async ({ page }) => {
-    await waitForRosterLoaded(page);
+    await openTournamentSetup(page, { size: '4' });
     await page.click('#randomize-top-btn');
     const lockedStarters = await page.evaluate(() => [...window.__scene.squadSlots]);
-    await page.click('#tournament-view-btn');
-    await page.check('input[name="tournament-size"][value="4"]');
-    await page.click('[data-tournament-action="start"]');
+    await page.click('#confirm-squad-btn');
     await page.click('[data-tournament-action="play"]');
 
     await page.waitForFunction(() => window.__scene.matchStarted === true, { timeout: 10000 });
@@ -165,28 +223,29 @@ test.describe('tournament UI', () => {
     await expect(page.locator('#tournament-panel')).toBeHidden();
   });
 
-  test('changing your squad after locking it in does not affect the tournament — the same locked XI is used for the next fixture too', async ({ page }) => {
-    await waitForRosterLoaded(page);
+  test('resuming an in-progress tournament goes straight to the bracket, never back through the squad editor', async ({ page }) => {
+    await openTournamentSetup(page, { size: '8' }); // more rounds to reach
     await page.click('#randomize-top-btn');
     const lockedStarters = await page.evaluate(() => [...window.__scene.squadSlots]);
-    await page.click('#tournament-view-btn');
-    await page.check('input[name="tournament-size"][value="8"]'); // more rounds to reach
-    await page.click('[data-tournament-action="start"]');
+    await page.click('#confirm-squad-btn');
     await page.click('[data-tournament-action="play"]');
     await page.waitForFunction(() => window.__scene.matchStarted === true, { timeout: 10000 });
 
-    // Win the first fixture, then go build a totally different squad before
-    // playing the next one.
     await page.evaluate(() => { document.querySelector('#scoreboard .score').textContent = '5-0'; });
     await page.evaluate(() => window.__scene._showFullTime());
     await page.waitForTimeout(150);
     await page.reload();
     await page.waitForFunction(() => document.querySelectorAll('#squad-pick-list .pick-card').length > 0, { timeout: 15000 });
     await page.click('#landing-play-btn');
-    await page.click('#mode-solo-btn');
-    await page.click('#randomize-squad-btn'); // a fresh, near-certainly different XI
 
-    await page.click('#tournament-view-btn');
+    // The button reflects that a tournament is already running, and jumps
+    // straight to it — never back through the squad editor, so there's no
+    // way to swap in a different XI mid-tournament.
+    await expect(page.locator('#mode-tournament-btn')).toHaveText('🏆 Continue Tournament');
+    await page.click('#mode-tournament-btn');
+    await expect(page.locator('#squad-editor-panel')).toBeHidden();
+    await expect(page.locator('[data-tournament-action="play"]')).toBeVisible();
+
     await page.click('[data-tournament-action="play"]');
     await page.waitForFunction(() => window.__scene.matchStarted === true, { timeout: 10000 });
     const teamAIds = await page.evaluate(() => window.__scene.teamA.map((e) => e.id));
@@ -194,11 +253,9 @@ test.describe('tournament UI', () => {
   });
 
   test('finishing your match records the result, advances the bracket, and survives a reload', async ({ page }) => {
-    await waitForRosterLoaded(page);
+    await openTournamentSetup(page, { size: '4' });
     await page.click('#randomize-top-btn');
-    await page.click('#tournament-view-btn');
-    await page.check('input[name="tournament-size"][value="4"]');
-    await page.click('[data-tournament-action="start"]');
+    await page.click('#confirm-squad-btn');
     await page.click('[data-tournament-action="play"]');
     await page.waitForFunction(() => window.__scene.matchStarted === true, { timeout: 10000 });
 
@@ -224,10 +281,9 @@ test.describe('tournament UI', () => {
   });
 
   test('abandoning a tournament clears it and returns to the setup form', async ({ page }) => {
-    await waitForRosterLoaded(page);
+    await openTournamentSetup(page, { size: '4' });
     await page.click('#randomize-top-btn');
-    await page.click('#tournament-view-btn');
-    await page.click('[data-tournament-action="start"]');
+    await page.click('#confirm-squad-btn');
     await expect(page.locator('[data-tournament-action="end"]')).toBeVisible();
 
     await page.click('[data-tournament-action="end"]');
@@ -237,12 +293,9 @@ test.describe('tournament UI', () => {
   });
 
   test('a league draws a standings table with a ranked row per entrant', async ({ page }) => {
-    await waitForRosterLoaded(page);
+    await openTournamentSetup(page, { type: 'league', size: '4' });
     await page.click('#randomize-top-btn');
-    await page.click('#tournament-view-btn');
-    await page.check('input[name="tournament-type"][value="league"]');
-    await page.check('input[name="tournament-size"][value="4"]');
-    await page.click('[data-tournament-action="start"]');
+    await page.click('#confirm-squad-btn');
 
     const table = page.locator('#tournament-body table.nes-table');
     await expect(table).toBeVisible();

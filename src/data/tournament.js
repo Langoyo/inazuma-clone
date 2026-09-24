@@ -111,6 +111,35 @@ export function recordKnockoutResult(t, matchIdx, scoreA, scoreB, rng = Math.ran
   return withRoundAdvanced({ ...t, rounds });
 }
 
+/** 1-based standard single-elimination seed order: seed 1 meets seed N
+ *  (weakest) in round 1, and can only meet seed 2 (strongest of the rest)
+ *  in the final if both keep winning — the classic bracket-seeding pattern
+ *  ("1v8, 4v5, 2v7, 3v6" for size 8) that makes a favorable seed's path
+ *  get harder round by round instead of being a flat coin flip. */
+function seedPositions(size) {
+  if (size === 1) return [1];
+  const prev = seedPositions(size / 2);
+  const out = [];
+  for (const s of prev) { out.push(s); out.push(size + 1 - s); }
+  return out;
+}
+
+/** Builds a knockout bracket from entrants already ordered by seed
+ *  (entrantIdsBySeed[0] = seed 1, the favorable draw) instead of shuffling
+ *  them — used for the player's tournaments so their opponents escalate in
+ *  difficulty round by round. `entrantIdsBySeed.length` must already be a
+ *  power of two (the UI only offers 4/8/16), so unlike makeKnockout this
+ *  never needs bye-padding. */
+export function makeSeededKnockout(entrantIdsBySeed) {
+  const size = entrantIdsBySeed.length;
+  const order = seedPositions(size);
+  const round0 = [];
+  for (let i = 0; i < size / 2; i++) {
+    round0.push(makeMatch(entrantIdsBySeed[order[2 * i] - 1], entrantIdsBySeed[order[2 * i + 1] - 1]));
+  }
+  return { type: 'knockout', entrants: entrantIdsBySeed.slice(), rounds: [round0], createdAt: Date.now(), completedAt: null, champion: null };
+}
+
 // ════════════════════════════════════════════════════════════════════
 // League (round-robin)
 // ════════════════════════════════════════════════════════════════════

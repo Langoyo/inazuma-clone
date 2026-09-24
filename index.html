@@ -119,9 +119,9 @@
       text-align: center; transition: transform 220ms ease, opacity 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
     }
     .duel-portrait {
-      width: 64px; height: 64px; margin: 0 auto 8px;
+      width: 84px; height: 84px; margin: 0 auto 8px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 20px; font-weight: bold; color: rgba(0,0,0,0.8); image-rendering: pixelated;
+      font-size: 26px; font-weight: bold; color: rgba(0,0,0,0.8); image-rendering: pixelated;
     }
     .duel-card .duel-who  { font-size: 14px; font-weight: bold; }
     .duel-card .duel-move { font-size: 13px; color: var(--gold); margin-top: 6px; }
@@ -361,7 +361,7 @@
     }
     .slot-pin {
       position: absolute; transform: translate(-50%,-50%);
-      width: 44px; height: 44px; border-radius: 50%;
+      width: 54px; height: 54px; border-radius: 50%;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       cursor: pointer; touch-action: manipulation; user-select: none;
       border: 2px solid rgba(255,255,255,0.8); transition: box-shadow 0.1s;
@@ -369,19 +369,19 @@
     .slot-pin.empty   { background: rgba(255,255,255,0.12); border-style: dashed; }
     .slot-pin.selected, .bench-pin.selected { box-shadow: 0 0 0 3px var(--gold); border-color: var(--gold); z-index: 5; }
     .slot-pin .pin-avatar {
-      width: 28px; height: 28px; display: flex;
-      align-items: center; justify-content: center; font-size: 9px; font-weight: bold;
+      width: 36px; height: 36px; display: flex;
+      align-items: center; justify-content: center; font-size: 11px; font-weight: bold;
       color: rgba(0,0,0,0.8);
     }
-    .slot-pin .pin-name { font-size: 9px; color: white; line-height: 1.1; margin-top: 1px; max-width: 42px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .slot-pin .pin-name { font-size: 9px; color: white; line-height: 1.1; margin-top: 1px; max-width: 50px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
     .bench-strip { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; }
     .bench-pin {
-      width: 54px; text-align: center; background: var(--panel);
+      width: 64px; text-align: center; background: var(--panel);
       border: 2px solid var(--grey); padding: 4px; cursor: pointer;
       touch-action: manipulation; user-select: none;
     }
-    .bench-pin .pin-avatar { width: 32px; height: 32px; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: rgba(0,0,0,.8); }
+    .bench-pin .pin-avatar { width: 40px; height: 40px; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: rgba(0,0,0,.8); }
     .bench-pin .pin-name   { font-size: 10px; color: rgba(255,255,255,0.95); margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
     /* ---- remove action, shown only while a squad player is selected */
@@ -556,7 +556,8 @@
   </div>
 
   <!-- ===================== LANDING ===================== -->
-  <div id="landing-panel" class="panel-overlay" style="display:flex;justify-content:center;text-align:center;">
+  <div id="landing-panel" class="panel-overlay" style="display:flex;justify-content:center;text-align:center;position:relative;">
+    <button id="sfx-toggle-btn" class="nes-btn is-compact" style="position:absolute;top:10px;right:10px;" title="Toggle sound effects">🔊</button>
     <!-- Text placeholder for now — swap for an <img> once there's a real logo. -->
     <div id="landing-logo">🏆</div>
     <h1 id="landing-title" style="font-size:22px;line-height:1.5;margin-bottom:10px;">Inazuma Showdown</h1>
@@ -572,6 +573,7 @@
     <div style="display:flex;gap:12px;margin-bottom:22px;flex-wrap:wrap;justify-content:center;">
       <button id="mode-solo-btn" class="nes-btn is-primary">🤖 Solo (vs AI)</button>
       <button id="mode-multi-btn" class="nes-btn is-warning">👥 Multiplayer</button>
+      <button id="mode-tournament-btn" class="nes-btn is-success">🏆 Tournament</button>
     </div>
     <div id="mode-multi-panel" style="display:none;max-width:380px;">
       <p style="font-size:11px;opacity:0.75;margin-bottom:14px;">
@@ -649,12 +651,6 @@
         <button id="squad-save-btn" class="nes-btn is-primary is-compact">💾 Save squad</button>
         <button id="squad-load-btn" class="nes-btn is-compact" disabled>📂 Load saved</button>
         <span id="squad-save-status"></span>
-      </div>
-
-      <!-- Offline knockouts/leagues against the game's own real teams —
-           see #tournament-panel below. -->
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
-        <button id="tournament-view-btn" class="nes-btn is-compact">🏆 Tournament</button>
       </div>
 
       <!-- Half length (host's choice — the client mirrors whatever the host is running) -->
@@ -782,7 +778,7 @@
        your squad was locked in when the tournament started, so there's no
        detour back through Formation to change it. -->
   <div id="tournament-panel" class="panel-overlay">
-    <h2>Tournaments <span class="info-icon" data-info-title="Offline tournaments" data-info-body="Play a knockout or a small league against the game's own real teams. Pick how many teams play — your opponents are drawn at random from teams with enough named players to field a full XI. Your own squad, whatever's set up under Formation when you start, locks in for the whole tournament: it can't be changed once it's running. Every match that doesn't involve you is resolved instantly behind the scenes, so you only ever actually play your own games.">ⓘ</span></h2>
+    <h2>Tournaments <span class="info-icon" data-info-title="Offline tournaments" data-info-body="Play a knockout or a small league against the game's own real teams. Pick how many teams play, then build your squad — it locks in for the whole tournament once it starts and can't be changed. Opponents are drawn at random from teams with enough named players to field a full XI: in a knockout they get tougher each round you win (your first match is the softest draw, the final is the hardest), while a league keeps one flat difficulty throughout. Every match that doesn't involve you is resolved instantly behind the scenes, so you only ever actually play your own games.">ⓘ</span></h2>
     <div id="tournament-body"></div>
     <button id="tournament-back-btn" class="nes-btn is-compact" style="margin-top:16px;">← Back</button>
   </div>
