@@ -4,6 +4,31 @@ import { joinRoom } from 'trystero';
 // Change it to something unique when you publish the real game.
 const APP_ID = 'inazuma-clone-proto-v1';
 
+// Trystero's Nostr strategy signals over a handful of public relays picked
+// from its own ~25-entry default list — but that pick isn't random per
+// session, it's a shuffle *seeded by APP_ID* (see trystero's own
+// getRelays/utils.js), so it's the same handful for every single player of
+// this game, every time. If any of those happen to be down, expired, or
+// blocking unrecognized apps, EVERY match here fails the same way and
+// looks like an app bug ("both players confirm and nothing happens") —
+// which is exactly what a real two-player session hit: the browser
+// console showed one relay's DNS not resolving, another's TLS cert
+// expired, and a third explicitly rejecting the connection ("not on
+// white-list"). None of that is fixable from application code; the fix is
+// to stop relying on Trystero's derived subset and hand it a relay list of
+// our own instead — pinned here, easy to update if one of these ever goes
+// down too, and reused by any peer running the same client code.
+const RELAY_URLS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.nostr.band',
+  'wss://relay.primal.net',
+  'wss://offchain.pub',
+  'wss://nostr.mom',
+  'wss://relay.snort.social',
+  'wss://nostr21.com',
+];
+
 /**
  * Connects to a P2P "room" using a code shared between the two players
  * (e.g. the URL's ?room=ABCD).
@@ -18,7 +43,7 @@ const APP_ID = 'inazuma-clone-proto-v1';
  *  - sendSquad / onSquad: each player sends their chosen starter + bench
  */
 export function connectToRoom(roomCode) {
-  const room = joinRoom({ appId: APP_ID }, roomCode);
+  const room = joinRoom({ appId: APP_ID, relayUrls: RELAY_URLS }, roomCode);
 
   const [sendInput, onInput] = room.makeAction('input');
   const [sendState, onState] = room.makeAction('state');

@@ -4,6 +4,21 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Fix: multiplayer couldn't connect at all — pin our own Nostr relays
+The actual root cause of "both players confirm and the game doesn't
+start": Trystero's Nostr signaling strategy picks 5 relays out of its own
+~25-entry default list, but that pick is a shuffle *seeded by our app ID*,
+not random per session — so every single player of this game was always
+handed the exact same 5 relays. A real two-player session's browser
+console showed why that's fatal: one of those relays' DNS didn't resolve,
+another's TLS certificate had expired, and a third explicitly rejected the
+connection ("not on white-list"). With none of the 5 working, the WebRTC
+handshake could never complete for anyone — no app-code fix could have
+touched this, since the peers never actually connected in the first place.
+Fixed by handing Trystero our own `relayUrls` (`src/network/network.js`)
+— eight well-known, currently reliable public relays — instead of relying
+on its derived subset.
+
 ## Fix: multiplayer could still get stuck after both players confirmed
 Two more gaps in the same squad-confirm flow the earlier multiplayer fix
 touched:
