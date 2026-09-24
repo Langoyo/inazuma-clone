@@ -588,7 +588,7 @@ export default class GameScene extends Phaser.Scene {
     this.remoteInput={targets:[],shootRequest:false,passTarget:null,confrontationChoice:null,subRequest:null,repositionRequest:null,formationChange:null,teamPanelRequest:null};
     this.net.onInput(d=>{ this.remoteInput=d; });
     this.net.onState(d=>this._incomingState(d));
-    this.net.onSquad(d=>{ this.remoteSquadPayload=d; if(this.role==='A'&&this.mySquadConfirmed&&!this.matchStarted) this._startMatch(this.mySquadPayload,d); });
+    this.net.onSquad(d=>{ this.remoteSquadPayload=d; this._tryStartMultiplayerMatch(); });
   }
 
   /** Leaves the current room and joins a different one — used when the
@@ -808,6 +808,7 @@ export default class GameScene extends Phaser.Scene {
     if(this.matchStarted) return;
     this.role=this.net.isHost()?'A':'B';
     this._applyUiMode();
+    this._tryStartMultiplayerMatch();
   }
 
   _onResize(gameSize){
@@ -1728,11 +1729,41 @@ export default class GameScene extends Phaser.Scene {
     this.mySquadPayload=payload; this.mySquadConfirmed=true;
     this.net.sendSquad(payload);
     document.getElementById('confirm-squad-btn').disabled=true;
+    if(this.uiMode==='solo'){ this._startMatch(payload,this._rivalSquadPayload()); return; }
+    this._tryStartMultiplayerMatch();
+    // Trystero's WebRTC data channel can drop a message sent right as it's
+    // still finishing setup (see onPeerConnect's own resend-on-connect
+    // above) — belt and suspenders against any such silently-lost squad,
+    // from either side, this keeps re-sending mine and re-checking every
+    // couple seconds until the match actually starts, instead of leaving
+    // both players stuck on a single send that never landed.
+    if(this._squadRetryTimer) clearInterval(this._squadRetryTimer);
+    this._squadRetryTimer=setInterval(()=>{
+      if(this.matchStarted){ clearInterval(this._squadRetryTimer); this._squadRetryTimer=null; return; }
+      this.net.sendSquad(this.mySquadPayload);
+      this._tryStartMultiplayerMatch();
+    },2000);
+  }
+  /** Re-checks whether a multiplayer match can start now. Safe (and meant)
+   *  to be called redundantly from any of the several events that could be
+   *  the "last domino" needed — confirming your own squad, the peer's
+   *  squad arriving over the network, or role finally settling from the
+   *  provisional pre-handshake guess to the real host/guest comparison —
+   *  instead of wiring the start-check to only one of them and hoping it's
+   *  always the one that happens last. In particular: a squad confirmed
+   *  while role was still the provisional guess, followed by a later flip
+   *  from that guess to the real answer, used to leave a stale "Waiting
+   *  for opponent…" on a client that had actually become the guest — this
+   *  re-derives the right status (or starts the match outright) the moment
+   *  role actually settles, not just on the next network message. */
+  _tryStartMultiplayerMatch(){
+    if(this.uiMode!=='multiplayer'||this.matchStarted||!this.mySquadConfirmed) return;
     if(this.role==='A'){
-      if(this.uiMode==='solo') this._startMatch(payload,this._rivalSquadPayload());
-      else if(this.remoteSquadPayload) this._startMatch(payload,this.remoteSquadPayload);
+      if(this.remoteSquadPayload) this._startMatch(this.mySquadPayload,this.remoteSquadPayload);
       else document.getElementById('squad-status').textContent='Waiting for opponent…';
-    } else { document.getElementById('squad-status').textContent='Waiting for match to start…'; }
+    } else {
+      document.getElementById('squad-status').textContent='Waiting for match to start…';
+    }
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -1995,6 +2026,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _startMatch(payloadA,payloadB){
+    if(this._squadRetryTimer){ clearInterval(this._squadRetryTimer); this._squadRetryTimer=null; }
     this.formation.A=payloadA.formation||DEFAULT_FORMATION;
     this.formation.B=payloadB.formation||DEFAULT_FORMATION;
     // Ensure distinct team colors
@@ -3491,7 +3523,11 @@ export default class GameScene extends Phaser.Scene {
 
   _incomingState(data){
     this.remoteState=data;
-    if(data.matchStarted&&!this.matchStarted){ this.matchStarted=true; document.getElementById('squad-editor-panel').style.display='none'; }
+    if(data.matchStarted&&!this.matchStarted){
+      this.matchStarted=true;
+      document.getElementById('squad-editor-panel').style.display='none';
+      if(this._squadRetryTimer){ clearInterval(this._squadRetryTimer); this._squadRetryTimer=null; }
+    }
     // Mirrors the host's authoritative team-panel state: whichever side
     // opened it (this one or the host's own), both screens show it —
     // matches the local optimistic show/hide in _openSubPanel/_closeSubPanel.

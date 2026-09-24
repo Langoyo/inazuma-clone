@@ -4,6 +4,27 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Fix: multiplayer could still get stuck after both players confirmed
+Two more gaps in the same squad-confirm flow the earlier multiplayer fix
+touched:
+
+- **Stale status after a role flip.** `_confirmSquad` only ever checked
+  role and updated `#squad-status` at the moment of confirming. A player
+  confirming fast enough to still be on the provisional "alone in the
+  room" host guess would see "Waiting for opponent…" — correct at the
+  time, but if the real host/guest comparison later said they were
+  actually the guest, nothing ever revisited that text or the start-check
+  again. New `_tryStartMultiplayerMatch()` is now called from every event
+  that could be the "last domino" — confirming, the peer's squad arriving,
+  and role finally settling (`_syncRoleFromNet`) — instead of relying on
+  exactly one of them to always happen last.
+- **No recovery from a dropped squad message.** Trystero's data channel
+  has no delivery guarantee for a message sent right as it's still
+  finishing setup. Confirming now starts a retry loop that resends your
+  squad and re-checks every couple of seconds until the match actually
+  starts, so a single lost send no longer leaves both players stuck
+  forever.
+
 ## Fix: landing screen hidden behind the canvas
 A stray inline `position:relative` on `#landing-panel` (added for the sfx
 toggle button) overrode `.panel-overlay`'s `position:fixed` via inline-style
