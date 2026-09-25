@@ -1,33 +1,30 @@
-import { joinRoom } from 'trystero';
+import { joinRoom } from 'trystero/torrent';
 
 // APP_ID identifies your app inside Trystero's public signaling network.
 // Change it to something unique when you publish the real game.
 const APP_ID = 'inazuma-clone-proto-v1';
 
-// Trystero's Nostr strategy signals over a handful of public relays picked
-// from its own ~25-entry default list — but that pick isn't random per
-// session, it's a shuffle *seeded by APP_ID* (see trystero's own
-// getRelays/utils.js), so it's the same handful for every single player of
-// this game, every time. If any of those happen to be down, expired, or
-// blocking unrecognized apps, EVERY match here fails the same way and
-// looks like an app bug ("both players confirm and nothing happens") —
-// which is exactly what a real two-player session hit: the browser
-// console showed one relay's DNS not resolving, another's TLS cert
-// expired, and a third explicitly rejecting the connection ("not on
-// white-list"). None of that is fixable from application code; the fix is
-// to stop relying on Trystero's derived subset and hand it a relay list of
-// our own instead — pinned here, easy to update if one of these ever goes
-// down too, and reused by any peer running the same client code.
-const RELAY_URLS = [
-  'wss://relay.damus.io',
-  'wss://nos.lol',
-  'wss://relay.nostr.band',
-  'wss://relay.primal.net',
-  'wss://offchain.pub',
-  'wss://nostr.mom',
-  'wss://relay.snort.social',
-  'wss://nostr21.com',
-];
+// Trystero supports several public signaling backends for the initial
+// "how do two anonymous browsers find each other" handshake, before a
+// direct WebRTC connection takes over. This used to be Nostr (relays from
+// the social-network protocol, repurposed as a message bus) — pinning our
+// own relay list there fixed one real outage, but a second real two-player
+// test immediately hit a wall of *different* relay failures (502s,
+// timeouts, and tellingly, one relay explicitly rejecting the connection
+// as "not in our web of trust"). That last one is the real signal: Nostr
+// relay operators increasingly lock things down against exactly the
+// traffic pattern Trystero produces — anonymous, ephemeral-keypair,
+// high-frequency messages that look like bot/spam traffic to anything
+// enforcing an identity policy. A different hand-picked relay list was
+// never going to fix that, just relocate it.
+//
+// BitTorrent trackers (this strategy) are purpose-built for the opposite
+// of that: anonymously connecting browser peers over WebRTC with no
+// identity or trust layer to run afoul of — it's the same signaling job
+// WebTorrent and its ecosystem already run in production on. Using
+// Trystero's own default tracker list here rather than pinning one of our
+// own, same reasoning as before: they're the ones the library's own
+// maintainer curates and tests against.
 
 /**
  * Connects to a P2P "room" using a code shared between the two players
@@ -43,7 +40,7 @@ const RELAY_URLS = [
  *  - sendSquad / onSquad: each player sends their chosen starter + bench
  */
 export function connectToRoom(roomCode) {
-  const room = joinRoom({ appId: APP_ID, relayUrls: RELAY_URLS }, roomCode);
+  const room = joinRoom({ appId: APP_ID }, roomCode);
 
   const [sendInput, onInput] = room.makeAction('input');
   const [sendState, onState] = room.makeAction('state');

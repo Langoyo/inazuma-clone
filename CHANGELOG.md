@@ -4,6 +4,28 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Multiplayer signaling: switched from Nostr relays to BitTorrent trackers
+Pinning our own Nostr relay list (previous entry) fixed one real outage,
+but a second real two-player test immediately hit a wall of *different*
+relay failures — 502/503 errors, timeouts, and, tellingly, one relay
+(`offchain.pub`) explicitly rejecting the connection as "pubkey is not in
+our web of trust." That last one is the real signal: Nostr relay operators
+are increasingly locking down against exactly the traffic pattern Trystero
+produces — anonymous, ephemeral-keypair, high-frequency messages that look
+like bot/spam traffic to anything enforcing an identity policy. A
+different hand-picked relay list was never going to fix that, just
+relocate it.
+
+Switched `src/network/network.js` from `trystero` (the Nostr strategy) to
+`trystero/torrent` — BitTorrent trackers, purpose-built for anonymously
+connecting browser peers over WebRTC with no identity/trust layer to run
+afoul of, the same signaling backbone WebTorrent and its ecosystem already
+run in production on. Using Trystero's own default tracker list rather
+than pinning a custom one, same reasoning as before: they're the ones the
+library's own maintainer curates and tests against. Nothing else in
+`network.js` (or any caller) needed to change — `joinRoom`'s shape is the
+same across every Trystero strategy.
+
 ## Fix: multiplayer couldn't connect at all — pin our own Nostr relays
 The actual root cause of "both players confirm and the game doesn't
 start": Trystero's Nostr signaling strategy picks 5 relays out of its own
