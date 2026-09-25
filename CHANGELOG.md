@@ -4,6 +4,28 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Fix: WebRTC connections still failing after signaling was fixed — add a TURN server
+Firebase signaling (previous entry) fixed the "two browsers finding each
+other" half of the problem, but a real two-player test still hit
+`Connection failed` from WebRTC itself, one step later: Trystero's
+default ICE servers are STUN-only (a handful of Google/Twilio addresses),
+and STUN alone can't get a direct connection through every real-world NAT
+type (many home/mobile networks need an actual relay). Added a free TURN
+account (metered.ca) — `src/network/network.js` now fetches short-lived
+TURN credentials once, up front, and passes them into Trystero's
+`rtcConfig`. This has to happen *before* the app's first `joinRoom` call,
+not just kicked off in the background: Trystero pre-builds a pool of
+WebRTC offers using whatever ICE servers are current at that first call
+(see `trystero/strategy.js`'s `offerPool`), so mutating the config
+afterward wouldn't reach connections already in that pool. Implemented
+with a top-level `await` in `network.js` (bounded by a 4s timeout, falling
+back to a plain STUN default on any failure so a slow/unreachable TURN
+endpoint delays the app briefly rather than ever hanging it) — this
+needed bumping Vite's build target to `es2022` (`vite.config.js`), since
+the default predates top-level await support; es2022's browser floor
+(Chrome/Edge 94+, Firefox 93+, Safari 16.4+) is already implied by this
+game's existing WebRTC/Web Audio use.
+
 ## Multiplayer signaling: our own Firebase Realtime Database, not a public relay
 Two public signaling backends were tried and both failed for real players
 — pinning a Nostr relay list (one entry down), then switching to

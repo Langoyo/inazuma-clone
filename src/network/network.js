@@ -22,6 +22,50 @@ import { joinRoom } from 'trystero/firebase';
 // what's happening if this ever needs debugging again.
 const FIREBASE_DB_URL = 'https://inazuma-showdown-default-rtdb.europe-west1.firebasedatabase.app/';
 
+// Fixing signaling (above) got the two browsers finding each other, but
+// the actual WebRTC connection still failed for a real two-player test —
+// a different problem. Trystero's own default ICE servers are STUN-only
+// (a handful of Google/Twilio addresses, see node_modules/trystero/src/
+// peer.js), and STUN alone only helps two peers discover their public
+// address; it can't get through every NAT type real home/mobile networks
+// use. Getting through those needs a TURN server, which relays the actual
+// connection when a direct path isn't possible — hence a free TURN
+// account (metered.ca) instead of relying on defaults that were never
+// going to cover this.
+//
+// This is fetched once, up front, rather than passed as a fixed
+// credential: Metered's TURN credentials are short-lived and generated
+// per request, and Trystero pre-builds a pool of WebRTC offers using
+// whatever rtcConfig is current the moment the room is first joined (see
+// strategy.js's offerPool) — mutating it after the fact wouldn't reach
+// connections already in that pool. A generous timeout with a STUN-only
+// fallback means a slow/unreachable TURN endpoint delays the app briefly
+// rather than ever hanging it, or leaves same-network/lucky-NAT matches
+// working exactly as before even if TURN is unavailable.
+const METERED_TURN_URL =
+  'https://inazuma-showdown.metered.live/api/v1/turn/credentials?apiKey=922b1bfcaf59dce7f9f41bbf80f490d95b0f';
+const FALLBACK_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms)),
+  ]);
+}
+
+async function fetchIceServers() {
+  try {
+    const res = await withTimeout(fetch(METERED_TURN_URL), 4000);
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn('[net] could not fetch TURN credentials, falling back to STUN-only (may fail behind strict NATs):', err);
+    return FALLBACK_ICE_SERVERS;
+  }
+}
+
+const ICE_SERVERS = await fetchIceServers();
+
 /**
  * Connects to a P2P "room" using a code shared between the two players
  * (e.g. the URL's ?room=ABCD).
@@ -36,7 +80,7 @@ const FIREBASE_DB_URL = 'https://inazuma-showdown-default-rtdb.europe-west1.fire
  *  - sendSquad / onSquad: each player sends their chosen starter + bench
  */
 export function connectToRoom(roomCode) {
-  const room = joinRoom({ appId: FIREBASE_DB_URL }, roomCode);
+  const room = joinRoom({ appId: FIREBASE_DB_URL, rtcConfig: { iceServers: ICE_SERVERS } }, roomCode);
 
   const [sendInput, onInput] = room.makeAction('input');
   const [sendState, onState] = room.makeAction('state');
