@@ -809,6 +809,42 @@
   <!-- Player stat panel (shown on tap in squad editor / sub panel) -->
   <div id="player-stat-panel"></div>
 
+  <!-- Temporary WebRTC diagnostics while chasing real "Connection failed"
+       multiplayer reports with no further detail than that. Has to be a
+       plain classic script running before the module graph below, not
+       code inside src/network/network.js itself: the WebRTC library that
+       module chain pulls in (trystero -> simple-peer -> webrtc-polyfill)
+       captures window.RTCPeerConnection into its own module-level const
+       the moment IT first evaluates, so wrapping window.RTCPeerConnection
+       from inside that same import chain is always too late — this runs
+       first instead, before any of those modules have even started
+       loading, so the wrapped version is what gets captured. Trystero
+       only exposes a peer's underlying connection once it's already
+       connected (room.getPeers()), no help for a connection stuck failing
+       to ever reach that point — this instead logs every connection
+       attempt (including Trystero's own pre-built offer pool) and,
+       critically, icecandidateerror: which specific STUN/TURN server a
+       candidate failed against, and why. Safe to leave in — it only
+       observes, never changes behavior. -->
+  <script>
+    (function(){
+      var Native = window.RTCPeerConnection;
+      if (!Native || Native.__wrappedForDiagnostics) return;
+      function DiagnosticRTCPeerConnection(config){
+        var pc = new Native(config);
+        console.log('[net] RTCPeerConnection created —', (config && config.iceServers ? config.iceServers.length : 0), 'ice server entries');
+        pc.addEventListener('icecandidateerror', function(e){
+          console.warn('[net] ICE candidate error:', {url: e.url, address: e.address, port: e.port, errorCode: e.errorCode, errorText: e.errorText});
+        });
+        pc.addEventListener('iceconnectionstatechange', function(){ console.log('[net] iceConnectionState ->', pc.iceConnectionState); });
+        pc.addEventListener('icegatheringstatechange', function(){ console.log('[net] iceGatheringState ->', pc.iceGatheringState); });
+        pc.addEventListener('connectionstatechange', function(){ console.log('[net] connectionState ->', pc.connectionState); });
+        return pc;
+      }
+      DiagnosticRTCPeerConnection.__wrappedForDiagnostics = true;
+      window.RTCPeerConnection = DiagnosticRTCPeerConnection;
+    })();
+  </script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
