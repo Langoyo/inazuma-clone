@@ -4,6 +4,27 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Multiplayer signaling: our own Firebase Realtime Database, not a public relay
+Two public signaling backends were tried and both failed for real players
+— pinning a Nostr relay list (one entry down), then switching to
+BitTorrent trackers (next entry down), still no connection. Both are
+infrastructure we don't own, at the mercy of operators increasingly
+locking down against exactly the traffic pattern Trystero produces
+(anonymous, ephemeral, automated).
+
+Switched `src/network/network.js` to `trystero/firebase`, pointed at a
+Firebase Realtime Database project we actually own. This project's first
+small step into having *any* backend — but scoped deliberately narrow:
+the actual match (positions, input, 20 times a second) still runs direct
+peer-to-peer over WebRTC exactly as before, this only replaces the brief
+up-front handshake where two browsers find each other. That handshake is
+a handful of tiny writes per connection, not per frame, so it stays
+comfortably inside Firebase's free tier — and its own console Data tab
+gives an actual window into what's happening if a connectivity report
+ever needs debugging again, unlike an opaque public relay's WebSocket
+errors. `joinRoom`'s shape is identical across every Trystero strategy,
+so no caller needed to change.
+
 ## Multiplayer signaling: switched from Nostr relays to BitTorrent trackers
 Pinning our own Nostr relay list (previous entry) fixed one real outage,
 but a second real two-player test immediately hit a wall of *different*

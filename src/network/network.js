@@ -1,30 +1,26 @@
-import { joinRoom } from 'trystero/torrent';
-
-// APP_ID identifies your app inside Trystero's public signaling network.
-// Change it to something unique when you publish the real game.
-const APP_ID = 'inazuma-clone-proto-v1';
+import { joinRoom } from 'trystero/firebase';
 
 // Trystero supports several public signaling backends for the initial
 // "how do two anonymous browsers find each other" handshake, before a
-// direct WebRTC connection takes over. This used to be Nostr (relays from
-// the social-network protocol, repurposed as a message bus) — pinning our
-// own relay list there fixed one real outage, but a second real two-player
-// test immediately hit a wall of *different* relay failures (502s,
-// timeouts, and tellingly, one relay explicitly rejecting the connection
-// as "not in our web of trust"). That last one is the real signal: Nostr
-// relay operators increasingly lock things down against exactly the
-// traffic pattern Trystero produces — anonymous, ephemeral-keypair,
-// high-frequency messages that look like bot/spam traffic to anything
-// enforcing an identity policy. A different hand-picked relay list was
-// never going to fix that, just relocate it.
-//
-// BitTorrent trackers (this strategy) are purpose-built for the opposite
-// of that: anonymously connecting browser peers over WebRTC with no
-// identity or trust layer to run afoul of — it's the same signaling job
-// WebTorrent and its ecosystem already run in production on. Using
-// Trystero's own default tracker list here rather than pinning one of our
-// own, same reasoning as before: they're the ones the library's own
-// maintainer curates and tests against.
+// direct WebRTC connection takes over — the actual match (positions,
+// input, 20 times a second) stays direct peer-to-peer either way, this
+// only affects that brief up-front handshake. Two public options were
+// tried and both failed for real players:
+//  - Nostr relays (social-network protocol repurposed as a message bus):
+//    pinning our own relay list fixed one real outage, but a second real
+//    two-player test hit a wall of *different* relay failures (502s,
+//    timeouts, and a relay explicitly rejecting the connection as "not in
+//    our web of trust" — a policy block, not downtime).
+//  - BitTorrent trackers (purpose-built for anonymous WebRTC peers, no
+//    identity layer): still failed to connect for a real player.
+// Both are infrastructure we don't control, at the mercy of operators
+// increasingly locking down against exactly this traffic pattern
+// (anonymous, ephemeral, automated). This uses a Firebase Realtime
+// Database project we actually own instead — signaling is just a handful
+// of tiny writes per connection (not per frame), well within its free
+// tier, and its own console/Data tab is somewhere we can actually see
+// what's happening if this ever needs debugging again.
+const FIREBASE_DB_URL = 'https://inazuma-showdown-default-rtdb.europe-west1.firebasedatabase.app/';
 
 /**
  * Connects to a P2P "room" using a code shared between the two players
@@ -40,7 +36,7 @@ const APP_ID = 'inazuma-clone-proto-v1';
  *  - sendSquad / onSquad: each player sends their chosen starter + bench
  */
 export function connectToRoom(roomCode) {
-  const room = joinRoom({ appId: APP_ID }, roomCode);
+  const room = joinRoom({ appId: FIREBASE_DB_URL }, roomCode);
 
   const [sendInput, onInput] = room.makeAction('input');
   const [sendState, onState] = room.makeAction('state');
