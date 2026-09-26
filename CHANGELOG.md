@@ -4,6 +4,36 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Fix: TURN servers were fetched correctly but never actually reached the connection
+Adding a TURN server (previous entry) didn't fix real two-player testing —
+still `Uncaught Error: Connection failed`, even with valid TURN credentials
+confirmed reaching the app (visible in `[net] RTCPeerConnection created`
+diagnostic logs). Root cause, found by wrapping the native
+`RTCPeerConnection` constructor to log what it's actually being called
+with: a version mismatch between Trystero and the WebRTC library it uses
+underneath. Trystero's own `peer.js` passes `iceServers` as a *top-level*
+option to `@thaunknown/simple-peer`, but the resolved simple-peer version
+only reads a *nested* `opts.config.iceServers` — so it silently ignored
+both Trystero's defaults and our TURN config, and every connection fell
+back to simple-peer's own hardcoded STUN-only default (Google + Twilio),
+exactly matching what the diagnostic logs showed ("1 ice server entries",
+ICE candidate errors against those two hosts specifically). Not something
+fixable from `network.js`, since that option never reaches the real
+connection either way.
+
+Worked around by patching `config.iceServers` directly inside a plain
+classic `<script>` in `index.html`, wrapping the native
+`RTCPeerConnection` constructor — the one point guaranteed to be what the
+browser actually uses, bypassing the broken Trystero→simple-peer
+plumbing entirely. It reads `window.__iceServers`, a global
+`network.js` now sets right after its TURN fetch resolves. This has to be
+a classic script (not a `<script type="module">`), and has to run before
+`main.js`'s module graph: `webrtc-polyfill` (a dependency's dependency)
+captures the native `RTCPeerConnection` into its own module-scope
+constant the moment it's evaluated, which happens before any of
+`network.js`'s own top-level code runs — wrapping the constructor from
+inside `network.js` would already be too late.
+
 ## Fix: WebRTC connections still failing after signaling was fixed — add a TURN server
 Firebase signaling (previous entry) fixed the "two browsers finding each
 other" half of the problem, but a real two-player test still hit

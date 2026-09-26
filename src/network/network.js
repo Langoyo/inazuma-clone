@@ -65,6 +65,12 @@ async function fetchIceServers() {
 }
 
 const ICE_SERVERS = await fetchIceServers();
+// Exposed for index.html's RTCPeerConnection wrapper to actually use — see
+// the comment there for why: Trystero's rtcConfig option doesn't reach a
+// real connection in the currently-resolved trystero/simple-peer version
+// pairing, so the fetched TURN servers have to be patched in at the point
+// the browser's own RTCPeerConnection gets constructed instead.
+if (typeof window !== 'undefined') window.__iceServers = ICE_SERVERS;
 
 /**
  * Connects to a P2P "room" using a code shared between the two players
