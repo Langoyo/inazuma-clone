@@ -4,6 +4,116 @@ Every feature, data source, bug fix and design decision that went into
 this project, roughly in the order it happened. For what the project is
 and how to run it, see [`README.md`](./README.md).
 
+## Fix: TURN servers were fetched correctly but never actually reached the connection
+Adding a TURN server (previous entry) didn't fix real two-player testing —
+still `Uncaught Error: Connection failed`, even with valid TURN credentials
+confirmed reaching the app (visible in `[net] RTCPeerConnection created`
+diagnostic logs). Root cause, found by wrapping the native
+`RTCPeerConnection` constructor to log what it's actually being called
+with: a version mismatch between Trystero and the WebRTC library it uses
+underneath. Trystero's own `peer.js` passes `iceServers` as a *top-level*
+option to `@thaunknown/simple-peer`, but the resolved simple-peer version
+only reads a *nested* `opts.config.iceServers` — so it silently ignored
+both Trystero's defaults and our TURN config, and every connection fell
+back to simple-peer's own hardcoded STUN-only default (Google + Twilio),
+exactly matching what the diagnostic logs showed ("1 ice server entries",
+ICE candidate errors against those two hosts specifically). Not something
+fixable from `network.js`, since that option never reaches the real
+connection either way.
+
+Worked around by patching `config.iceServers` directly inside a plain
+classic `<script>` in `index.html`, wrapping the native
+`RTCPeerConnection` constructor — the one point guaranteed to be what the
+browser actually uses, bypassing the broken Trystero→simple-peer
+plumbing entirely. It reads `window.__iceServers`, a global
+`network.js` now sets right after its TURN fetch resolves. This has to be
+a classic script (not a `<script type="module">`), and has to run before
+`main.js`'s module graph: `webrtc-polyfill` (a dependency's dependency)
+captures the native `RTCPeerConnection` into its own module-scope
+constant the moment it's evaluated, which happens before any of
+`network.js`'s own top-level code runs — wrapping the constructor from
+inside `network.js` would already be too late.
+
+## Fix: WebRTC connections still failing after signaling was fixed — add a TURN server
+Firebase signaling (previous entry) fixed the "two browsers finding each
+other" half of the problem, but a real two-player test still hit
+`Connection failed` from WebRTC itself, one step later: Trystero's
+default ICE servers are STUN-only (a handful of Google/Twilio addresses),
+and STUN alone can't get a direct connection through every real-world NAT
+type (many home/mobile networks need an actual relay). Added a free TURN
+account (metered.ca) — `src/network/network.js` now fetches short-lived
+TURN credentials once, up front, and passes them into Trystero's
+`rtcConfig`. This has to happen *before* the app's first `joinRoom` call,
+not just kicked off in the background: Trystero pre-builds a pool of
+WebRTC offers using whatever ICE servers are current at that first call
+(see `trystero/strategy.js`'s `offerPool`), so mutating the config
+afterward wouldn't reach connections already in that pool. Implemented
+with a top-level `await` in `network.js` (bounded by a 4s timeout, falling
+back to a plain STUN default on any failure so a slow/unreachable TURN
+endpoint delays the app briefly rather than ever hanging it) — this
+needed bumping Vite's build target to `es2022` (`vite.config.js`), since
+the default predates top-level await support; es2022's browser floor
+(Chrome/Edge 94+, Firefox 93+, Safari 16.4+) is already implied by this
+game's existing WebRTC/Web Audio use.
+
+## Multiplayer signaling: our own Firebase Realtime Database, not a public relay
+Two public signaling backends were tried and both failed for real players
+— pinning a Nostr relay list (one entry down), then switching to
+BitTorrent trackers (next entry down), still no connection. Both are
+infrastructure we don't own, at the mercy of operators increasingly
+locking down against exactly the traffic pattern Trystero produces
+(anonymous, ephemeral, automated).
+
+Switched `src/network/network.js` to `trystero/firebase`, pointed at a
+Firebase Realtime Database project we actually own. This project's first
+small step into having *any* backend — but scoped deliberately narrow:
+the actual match (positions, input, 20 times a second) still runs direct
+peer-to-peer over WebRTC exactly as before, this only replaces the brief
+up-front handshake where two browsers find each other. That handshake is
+a handful of tiny writes per connection, not per frame, so it stays
+comfortably inside Firebase's free tier — and its own console Data tab
+gives an actual window into what's happening if a connectivity report
+ever needs debugging again, unlike an opaque public relay's WebSocket
+errors. `joinRoom`'s shape is identical across every Trystero strategy,
+so no caller needed to change.
+
+## Multiplayer signaling: switched from Nostr relays to BitTorrent trackers
+Pinning our own Nostr relay list (previous entry) fixed one real outage,
+but a second real two-player test immediately hit a wall of *different*
+relay failures — 502/503 errors, timeouts, and, tellingly, one relay
+(`offchain.pub`) explicitly rejecting the connection as "pubkey is not in
+our web of trust." That last one is the real signal: Nostr relay operators
+are increasingly locking down against exactly the traffic pattern Trystero
+produces — anonymous, ephemeral-keypair, high-frequency messages that look
+like bot/spam traffic to anything enforcing an identity policy. A
+different hand-picked relay list was never going to fix that, just
+relocate it.
+
+Switched `src/network/network.js` from `trystero` (the Nostr strategy) to
+`trystero/torrent` — BitTorrent trackers, purpose-built for anonymously
+connecting browser peers over WebRTC with no identity/trust layer to run
+afoul of, the same signaling backbone WebTorrent and its ecosystem already
+run in production on. Using Trystero's own default tracker list rather
+than pinning a custom one, same reasoning as before: they're the ones the
+library's own maintainer curates and tests against. Nothing else in
+`network.js` (or any caller) needed to change — `joinRoom`'s shape is the
+same across every Trystero strategy.
+
+## Fix: multiplayer couldn't connect at all — pin our own Nostr relays
+The actual root cause of "both players confirm and the game doesn't
+start": Trystero's Nostr signaling strategy picks 5 relays out of its own
+~25-entry default list, but that pick is a shuffle *seeded by our app ID*,
+not random per session — so every single player of this game was always
+handed the exact same 5 relays. A real two-player session's browser
+console showed why that's fatal: one of those relays' DNS didn't resolve,
+another's TLS certificate had expired, and a third explicitly rejected the
+connection ("not on white-list"). With none of the 5 working, the WebRTC
+handshake could never complete for anyone — no app-code fix could have
+touched this, since the peers never actually connected in the first place.
+Fixed by handing Trystero our own `relayUrls` (`src/network/network.js`)
+— eight well-known, currently reliable public relays — instead of relying
+on its derived subset.
+
 ## Fix: multiplayer could still get stuck after both players confirmed
 Two more gaps in the same squad-confirm flow the earlier multiplayer fix
 touched:
